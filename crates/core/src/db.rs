@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 
+use crate::catalog::{CatalogItem, CatalogKind, FieldDef, FieldScope};
 use crate::model::{
     Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, JournalEntry, ManualTrade, Rules, TradeKey,
 };
@@ -28,6 +29,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0001_init.sql"),
     include_str!("../migrations/0002_cloud_sync.sql"),
     include_str!("../migrations/0003_deal_reason.sql"),
+    include_str!("../migrations/0004_catalogs_fields.sql"),
 ];
 
 /// What an upsert of a batch did.
@@ -92,6 +94,28 @@ impl Db {
             tx.commit()?;
             log::info!("database migrated to v{}", index + 1);
         }
+        self.seed_catalogs()?;
+        Ok(())
+    }
+
+    /// Gives each empty catalog its default options, once.
+    fn seed_catalogs(&mut self) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        for kind in CatalogKind::ALL {
+            let name = kind_name(kind)?;
+            let count: i64 =
+                tx.query_row("SELECT COUNT(*) FROM catalog_items WHERE kind = ?1", [&name], |r| r.get(0))?;
+            if count > 0 {
+                continue;
+            }
+            for (position, (key, label)) in (0_i32..).zip(kind.defaults()) {
+                tx.execute(
+                    "INSERT INTO catalog_items (kind, key, label, position) VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![name, key, label, position],
+                )?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 
@@ -223,6 +247,96 @@ impl Db {
         Err(DbError::NotImplemented("v0.1"))
     }
 
+    // --- the trader's catalogs and fields -----------------------------------
+
+    /// The options of `kind`, archived ones last, each group in the trader's order.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the query fails.
+    pub fn catalog(&self, kind: CatalogKind) -> Result<Vec<CatalogItem>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, key, label, color, position, archived FROM catalog_items
+             WHERE kind = ?1 ORDER BY archived, position, id",
+        )?;
+        let rows = stmt.query_map([kind_name(kind)?], |r| {
+            Ok(CatalogItem {
+                id: r.get(0)?,
+                kind,
+                key: r.get(1)?,
+                label: r.get(2)?,
+                color: r.get(3)?,
+                position: r.get(4)?,
+                archived: r.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Adds an option (`item.id` 0) or changes one; returns its id. Keys are unique per kind.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the key is taken or the write fails.
+    pub fn save_catalog_item(&mut self, item: &CatalogItem) -> Result<i64> {
+        let kind = kind_name(item.kind)?;
+        if item.id == 0 {
+            self.conn.execute(
+                "INSERT INTO catalog_items (kind, key, label, color, position, archived) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![kind, item.key, item.label, item.color, item.position, item.archived],
+            )?;
+            Ok(self.conn.last_insert_rowid())
+        } else {
+            self.conn.execute(
+                "UPDATE catalog_items SET label = ?2, color = ?3, position = ?4, archived = ?5 WHERE id = ?1",
+                rusqlite::params![item.id, item.label, item.color, item.position, item.archived],
+            )?;
+            Ok(item.id)
+        }
+    }
+
+    /// The fields the trader defined for `scope`, in their order.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError`] when the query fails or a stored definition does not parse.
+    pub fn field_defs(&self, scope: FieldScope) -> Result<Vec<FieldDef>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, def_json FROM field_defs WHERE scope = ?1 ORDER BY archived, position, id")?;
+        let rows = stmt.query_map([scope_name(scope)?], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        rows.map(|row| {
+            let (id, json) = row?;
+            let mut def: FieldDef = serde_json::from_str(&json)?;
+            def.id = id;
+            Ok(def)
+        })
+        .collect()
+    }
+
+    /// Adds a field (`def.id` 0) or changes one; returns its id.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the key is taken in its scope or the write fails.
+    pub fn save_field_def(&mut self, def: &FieldDef) -> Result<i64> {
+        let json = serde_json::to_string(def)?;
+        let scope = scope_name(def.scope)?;
+        if def.id == 0 {
+            self.conn.execute(
+                "INSERT INTO field_defs (scope, key, def_json, position, archived) VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![scope, def.key, json, def.position, def.archived],
+            )?;
+            Ok(self.conn.last_insert_rowid())
+        } else {
+            self.conn.execute(
+                "UPDATE field_defs SET def_json = ?2, position = ?3, archived = ?4 WHERE id = ?1",
+                rusqlite::params![def.id, json, def.position, def.archived],
+            )?;
+            Ok(def.id)
+        }
+    }
+
     // --- settings -----------------------------------------------------------------
 
     /// # Errors
@@ -246,6 +360,22 @@ impl Db {
     }
 }
 
+/// The stored name of a serde enum unit variant (`CatalogKind::ExitReason` → `exit_reason`).
+fn kind_name(kind: CatalogKind) -> Result<String> {
+    enum_name(&kind)
+}
+
+fn scope_name(scope: FieldScope) -> Result<String> {
+    enum_name(&scope)
+}
+
+fn enum_name(value: &impl serde::Serialize) -> Result<String> {
+    match serde_json::to_value(value)? {
+        serde_json::Value::String(name) => Ok(name),
+        other => Err(DbError::Invalid(format!("not a unit variant: {other}"))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,5 +392,52 @@ mod tests {
         let db = Db::open(&path).unwrap();
         assert_eq!(db.setting("bridge.port").unwrap().as_deref(), Some("7878"));
         assert_eq!(db.setting("missing").unwrap(), None);
+    }
+
+    #[test]
+    fn catalogs_start_with_defaults_and_keep_the_traders_changes() {
+        use crate::catalog::{CatalogItem, CatalogKind};
+        let mut db = Db::in_memory().unwrap();
+        let reasons = db.catalog(CatalogKind::ExitReason).unwrap();
+        assert_eq!(reasons.first().map(|r| r.key.as_str()), Some("tp"));
+
+        let mut mistake = CatalogItem {
+            id: 0,
+            kind: CatalogKind::Mistake,
+            key: "no_journal".into(),
+            label: "Không ghi lý do".into(),
+            color: Some("#f59e0b".into()),
+            position: 99,
+            archived: false,
+        };
+        mistake.id = db.save_catalog_item(&mistake).unwrap();
+        mistake.label = "Quên ghi lý do vào lệnh".into();
+        db.save_catalog_item(&mistake).unwrap();
+        let mistakes = db.catalog(CatalogKind::Mistake).unwrap();
+        assert_eq!(mistakes.last().map(|m| m.label.as_str()), Some("Quên ghi lý do vào lệnh"));
+        assert!(db.save_catalog_item(&CatalogItem { id: 0, ..mistake }).is_err(), "keys are unique per kind");
+    }
+
+    #[test]
+    fn field_definitions_round_trip() {
+        use crate::catalog::{FieldDef, FieldKind, FieldScope, Requirement};
+        let mut db = Db::in_memory().unwrap();
+        let def = FieldDef {
+            id: 0,
+            scope: FieldScope::Trade,
+            key: "focus".into(),
+            label: "Mức tập trung".into(),
+            kind: FieldKind::Scale,
+            options: Vec::new(),
+            max: Some(10),
+            required: Requirement::Expected,
+            analysed: true,
+            position: 0,
+            archived: false,
+        };
+        let id = db.save_field_def(&def).unwrap();
+        let read = db.field_defs(FieldScope::Trade).unwrap();
+        assert_eq!(read, vec![FieldDef { id, ..def }]);
+        assert!(db.field_defs(FieldScope::Day).unwrap().is_empty());
     }
 }

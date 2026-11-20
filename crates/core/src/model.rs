@@ -374,6 +374,12 @@ pub struct JournalEntry {
     /// What the trader planned when the position opened, before knowing the result.
     #[serde(default)]
     pub plan: Option<crate::journal::EntryPlan>,
+    /// The market's state, a key of the user's market-condition catalog.
+    #[serde(default)]
+    pub market: Option<String>,
+    /// Values of the trader's own fields (scope `trade`), by field key.
+    #[serde(default)]
+    pub custom: crate::catalog::CustomValues,
     #[serde(default)]
     pub followed_plan: Option<bool>,
     /// The checklist items the trader confirmed before entering.

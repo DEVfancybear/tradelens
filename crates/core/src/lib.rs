@@ -1,5 +1,6 @@
 //! TradeLens core: everything that knows nothing of the UI.
 //!
+//! - [`catalog`] the trader's own option lists and fields
 //! - [`model`]   MT5 accounts, deals, trades, journal entries, rules
 //! - [`journal`] the plan written at entry and how the trade compares with it
 //! - [`trades`]  deals → trades (by position, with partial closes and reversals)
@@ -9,6 +10,7 @@
 //! - [`db`]      SQLite storage and migrations
 //! - [`import`]  MT5 reports (HTML, XLSX), Notion exports (CSV) and JSON batches
 
+pub mod catalog;
 pub mod db;
 pub mod import;
 pub mod journal;
