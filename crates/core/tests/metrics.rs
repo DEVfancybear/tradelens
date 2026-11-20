@@ -37,6 +37,7 @@ fn deal(
         sl: 0.0,
         tp: 0.0,
         risk: None,
+        reason: None,
     }
 }
 

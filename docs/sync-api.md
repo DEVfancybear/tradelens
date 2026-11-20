@@ -26,7 +26,7 @@ Lỗi: status 4xx/5xx với `{"error":"..."}` — `401` sai token, `400` JSON sa
       "time_msc": 1763650000000, "symbol": "XAUUSD",
       "type": "buy", "entry": "in", "volume": 0.10, "price": 2650.25,
       "commission": -0.70, "swap": 0, "fee": 0, "profit": 0,
-      "magic": 0, "comment": "", "sl": 2640.00, "tp": 2670.00, "risk": 102.50
+      "magic": 0, "comment": "", "sl": 2640.00, "tp": 2670.00, "risk": 102.50, "reason": "expert"
     }
   ]
 }
@@ -37,5 +37,6 @@ Lỗi: status 4xx/5xx với `{"error":"..."}` — `401` sai token, `400` JSON sa
 - `entry`: `in` `out` `inout` `out_by`, hoặc số `ENUM_DEAL_ENTRY`.
 - `risk`: tiền rủi ro tại SL của deal vào lệnh = |giá − SL| / tick size × tick value × volume (EA tính).
 - `server_offset_min`: `(TimeTradeServer() − TimeGMT()) / 60`.
+- `reason`: `ENUM_DEAL_REASON` (`sl`, `tp`, `so`, `expert`, `client`, `mobile`, `web`), gợi ý sẵn lý do thoát lệnh.
 
 Gửi lại cùng deal nhiều lần là an toàn: khóa là `(tài khoản, ticket)`.

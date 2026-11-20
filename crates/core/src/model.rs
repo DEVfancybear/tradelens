@@ -178,6 +178,9 @@ pub struct Deal {
     /// Money at risk at the stop, computed by the EA from the symbol's tick value.
     #[serde(default)]
     pub risk: Option<f64>,
+    /// `ENUM_DEAL_REASON`, what triggered the deal (an exit's reason pre-fills the journal's).
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 fn entry_none() -> DealEntry {
@@ -357,9 +360,20 @@ pub struct JournalEntry {
     pub emotion_before: String,
     #[serde(default)]
     pub emotion_after: String,
-    /// 1 to 5 stars for the execution; 0 when not rated.
+    /// The execution grade: 1 to 5 stars; 0 when not rated.
     #[serde(default)]
     pub rating: u8,
+    /// The setup's quality, a key of the user's grade catalog (default `A+`, `A`, `B`, `C`),
+    /// graded apart from the execution: a good setup can be executed badly and the reverse.
+    #[serde(default)]
+    pub setup_grade: Option<String>,
+    /// Why the trade ended, a key of the user's exit-reason catalog (`tp`, `sl`, `manual`, …);
+    /// pre-filled from the exit deal's reason when the EA sends it.
+    #[serde(default)]
+    pub exit_reason: Option<String>,
+    /// What the trader planned when the position opened, before knowing the result.
+    #[serde(default)]
+    pub plan: Option<crate::journal::EntryPlan>,
     #[serde(default)]
     pub followed_plan: Option<bool>,
     /// The checklist items the trader confirmed before entering.
