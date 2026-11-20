@@ -23,7 +23,7 @@ docs/           kiến trúc, API bridge, sync đám mây, thiết kế UI
 
 ## Chạy thử
 
-Cần Rust ≥ 1.97. Trên Linux cần thêm GTK 4 (≥ 4.14) và GStreamer dev.
+Cần Rust 1.100 (bản stable mới nhất; `rust-toolchain.toml` tự chọn đúng bản khi chạy `rustup`). Trên Linux cần thêm GTK 4 (≥ 4.14) và GStreamer dev.
 
 ```sh
 cargo test --workspace          # domain + headless UI tests

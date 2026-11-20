@@ -13,9 +13,10 @@ jobs:
   fmt:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.100.0"
           components: rustfmt
       - run: cargo fmt --all --check
 
@@ -26,9 +27,10 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.100.0"
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: GTK 4 and GStreamer (Linux)
@@ -43,8 +45,8 @@ jobs:
   python:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14"
       - run: python -m py_compile python/tradelens_sync.py

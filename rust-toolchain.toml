@@ -1,0 +1,6 @@
+# The project builds with the latest stable Rust (1.100.0, 12 Nov 2026).
+# Bump with `rust-version` in Cargo.toml when a new stable ships.
+[toolchain]
+channel = "1.100.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

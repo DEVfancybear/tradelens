@@ -18,6 +18,9 @@ Repo đóng gói sẵn hai skill trong `.claude/skills/` (nguồn: BeautifulRust
 
 ## Quy ước dự án
 
+- Toolchain: Rust 1.100.0 (`rust-toolchain.toml`), edition 2024; dependency luôn ở bản mới nhất
+  (`cargo update`, kiểm tra bản major mới bằng `cargo search`); NSH ghim chính xác `=0.6.x`.
+
 - Nghiệp vụ nằm trong `crates/core` (thuần Rust, không UI, không mạng). UI chỉ gọi vào; luồng nền
   (bridge, cloud) không chạm signal, chúng tăng `Revision`.
 - Hàm chưa làm trả lỗi `NotImplemented("…")`, không dùng `todo!()` / `unimplemented!()`.
