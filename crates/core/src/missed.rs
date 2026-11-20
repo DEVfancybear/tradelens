@@ -35,7 +35,7 @@ pub struct MissedTrade {
     #[serde(default)]
     pub notes: String,
     #[serde(default)]
-    pub screenshots: Vec<String>,
+    pub screenshots: Vec<crate::attachments::Attachment>,
     #[serde(default)]
     pub custom: CustomValues,
 }

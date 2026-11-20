@@ -394,8 +394,9 @@ pub struct JournalEntry {
     pub checklist: Vec<i64>,
     #[serde(default)]
     pub notes: String,
+    /// Chart images, several per trade, in the trader's order.
     #[serde(default)]
-    pub screenshots: Vec<String>,
+    pub screenshots: Vec<crate::attachments::Attachment>,
     #[serde(default)]
     pub planned_risk: Option<f64>,
 }

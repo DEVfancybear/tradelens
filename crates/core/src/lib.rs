@@ -1,5 +1,6 @@
 //! TradeLens core: everything that knows nothing of the UI.
 //!
+//! - [`attachments`] chart images, many per entry
 //! - [`catalog`] the trader's own option lists and fields
 //! - [`missed`]  setups seen and not taken, and what they would have made
 //! - [`model`]   MT5 accounts, deals, trades, journal entries, rules
@@ -16,6 +17,7 @@
 //! - [`form`]    forms the trader shapes like Notion: rename, reorder, hide, add, convert, delete
 //! - [`import`]  MT5 reports (HTML, XLSX), Notion exports (CSV) and JSON batches
 
+pub mod attachments;
 pub mod catalog;
 pub mod db;
 pub mod form;

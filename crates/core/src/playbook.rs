@@ -33,9 +33,9 @@ pub struct Playbook {
     /// Usual risk, in percent of the balance.
     #[serde(default)]
     pub risk_pct: Option<f64>,
-    /// Screenshots of textbook examples (attachment paths).
+    /// Screenshots of textbook examples.
     #[serde(default)]
-    pub examples: Vec<String>,
+    pub examples: Vec<crate::attachments::Attachment>,
     /// Items to confirm before entering with this setup, on top of the account's checklist.
     #[serde(default)]
     pub checklist: Vec<String>,
