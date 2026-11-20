@@ -11,6 +11,9 @@ mod cloud;
 mod dashboard;
 mod data_sources;
 mod journal;
+mod missed;
+mod playbook;
+mod review;
 mod settings;
 mod trades;
 
@@ -21,6 +24,9 @@ pub(crate) fn page(route: Route) -> AnyElement {
         Route::Calendar => calendar::calendar().into_element(),
         Route::Analytics => analytics::analytics().into_element(),
         Route::Journal => journal::journal().into_element(),
+        Route::Review => review::review().into_element(),
+        Route::Missed => missed::missed().into_element(),
+        Route::Playbook => playbook::playbook().into_element(),
         Route::Accounts => accounts::accounts().into_element(),
         Route::DataSources => data_sources::data_sources().into_element(),
         Route::Cloud => cloud::cloud().into_element(),
