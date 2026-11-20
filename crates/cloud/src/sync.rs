@@ -29,24 +29,42 @@ pub struct SyncReport {
     pub conflicts_resolved: usize,
 }
 
-pub struct SyncEngine<'a> {
-    pub drive: &'a dyn CloudDrive,
+pub struct SyncEngine<'drive> {
+    pub drive: &'drive dyn CloudDrive,
     pub device_id: String,
+}
+
+impl std::fmt::Debug for SyncEngine<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SyncEngine").field("device_id", &self.device_id).finish_non_exhaustive()
+    }
 }
 
 impl SyncEngine<'_> {
     /// Push, then pull. Safe to run at any time; an interrupted sync resumes.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::CloudError`] when the provider, the network or the store fails.
     pub fn sync(&self, _db: &mut tradelens_core::Db) -> crate::Result<SyncReport> {
-        todo!("v0.1")
+        Err(crate::CloudError::NotImplemented("v0.1"))
     }
 
     /// Uploads a snapshot of the database.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::CloudError`] when the provider, the network or the store fails.
     pub fn snapshot(&self, _db: &tradelens_core::Db) -> crate::Result<()> {
-        todo!("v0.2")
+        Err(crate::CloudError::NotImplemented("v0.2"))
     }
 
     /// Replaces the local database with the newest snapshot plus later changes.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::CloudError`] when the provider, the network or the store fails.
     pub fn restore(&self, _db_path: &std::path::Path) -> crate::Result<SyncReport> {
-        todo!("v0.1")
+        Err(crate::CloudError::NotImplemented("v0.1"))
     }
 }

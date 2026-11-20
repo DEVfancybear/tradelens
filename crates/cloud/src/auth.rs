@@ -71,16 +71,28 @@ pub struct Tokens {
 }
 
 /// Opens the browser at the consent page, waits for the redirect, exchanges the code.
+///
+/// # Errors
+///
+/// [`crate::CloudError`] when the provider, the network or the store fails.
 pub fn sign_in(_client: &ClientConfig) -> crate::Result<(Identity, Tokens)> {
-    todo!("v0.1: PKCE verifier/challenge, loopback listener, open_url, token exchange")
+    Err(crate::CloudError::NotImplemented("v0.1: PKCE verifier/challenge, loopback listener, open_url, token exchange"))
 }
 
 /// Fresh tokens from the refresh token.
+///
+/// # Errors
+///
+/// [`crate::CloudError`] when the provider, the network or the store fails.
 pub fn refresh(_client: &ClientConfig, _tokens: &Tokens) -> crate::Result<Tokens> {
-    todo!("v0.1")
+    Err(crate::CloudError::NotImplemented("v0.1"))
 }
 
 /// Revokes the tokens with the provider and forgets them.
+///
+/// # Errors
+///
+/// [`crate::CloudError`] when the provider, the network or the store fails.
 pub fn sign_out(_client: &ClientConfig, _tokens: &Tokens) -> crate::Result<()> {
-    todo!("v0.1")
+    Err(crate::CloudError::NotImplemented("v0.1"))
 }

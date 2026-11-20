@@ -20,6 +20,8 @@ pub enum ImportError {
     NoDeals,
     #[error("{0}")]
     Invalid(String),
+    #[error("chưa làm: {0}")]
+    NotImplemented(&'static str),
 }
 
 /// The formats an import can read.
@@ -51,6 +53,10 @@ impl Format {
 }
 
 /// Reads any supported file.
+///
+/// # Errors
+///
+/// [`ImportError`] when the file cannot be read or holds no deals.
 pub fn read_file(path: &Path) -> Result<(Format, DealBatch), ImportError> {
     let format = Format::of(path).ok_or_else(|| ImportError::Unsupported(path.display().to_string()))?;
     let batch = match format {

@@ -1,4 +1,4 @@
-//! The server loop: one thread, `tiny_http`, a `Db` of its own (SQLite in WAL mode
+//! The server loop: one thread, `tiny_http`, a [`tradelens_core::Db`] of its own (SQLite in WAL mode
 //! lets it write while the UI reads).
 
 use std::{
@@ -18,5 +18,5 @@ pub(crate) fn spawn(
 ) -> Result<JoinHandle<()>, BridgeError> {
     // TODO(v0.1): bind 127.0.0.1:port, loop on recv_timeout until `stop`,
     // route PING / DEALS / ACCOUNT, check TOKEN_HEADER, upsert, bump revision.
-    todo!("v0.1")
+    Err(BridgeError::NotImplemented("bridge server"))
 }

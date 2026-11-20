@@ -45,7 +45,7 @@ impl ViolationKind {
 /// `balance_at` gives the balance before a trade, for the risk-per-trade rule.
 pub fn evaluate(
     _rules: &Rules,
-    _samples: &[Sample],
+    _samples: &[Sample<'_>],
     _balance_at: impl Fn(i64) -> f64,
     _clock: Clock,
 ) -> Vec<Violation> {

@@ -17,4 +17,7 @@ pub mod time;
 pub mod trades;
 
 pub use db::{Db, DbError};
-pub use model::*;
+pub use model::{
+    Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, DealEntry, DealKind, JournalEntry, ManualTrade,
+    PositionLevels, Rules, Side, Trade, TradeKey,
+};

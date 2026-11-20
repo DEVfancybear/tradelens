@@ -14,9 +14,23 @@ pub struct RemoteFile {
 
 pub trait CloudDrive {
     /// Files whose name starts with `prefix`.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::CloudError::Network`] or [`crate::CloudError::Service`] when the request fails.
     fn list(&self, prefix: &str) -> crate::Result<Vec<RemoteFile>>;
     /// Creates or replaces the file `name`.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::CloudError::Network`] or [`crate::CloudError::Service`] when the request fails.
     fn upload(&self, name: &str, bytes: &[u8]) -> crate::Result<RemoteFile>;
+    /// # Errors
+    ///
+    /// [`crate::CloudError::Network`] or [`crate::CloudError::Service`] when the request fails.
     fn download(&self, file: &RemoteFile) -> crate::Result<Vec<u8>>;
+    /// # Errors
+    ///
+    /// [`crate::CloudError::Network`] or [`crate::CloudError::Service`] when the request fails.
     fn delete(&self, file: &RemoteFile) -> crate::Result<()>;
 }

@@ -5,6 +5,9 @@ use crate::model::DealBatch;
 
 use super::ImportError;
 
+/// # Errors
+///
+/// [`ImportError`] when the content is not a readable report.
 pub fn parse(bytes: &[u8]) -> Result<DealBatch, ImportError> {
     serde_json::from_slice(bytes).map_err(|e| ImportError::Invalid(e.to_string()))
 }

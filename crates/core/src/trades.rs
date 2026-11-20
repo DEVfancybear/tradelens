@@ -45,18 +45,16 @@ impl Building {
             exit_value: 0.0,
             exit_volume: 0.0,
         }
-        .entered(deal, volume, true)
+        .entered(deal, volume)
     }
 
-    fn entered(mut self, deal: &Deal, volume: f64, costs: bool) -> Self {
+    fn entered(mut self, deal: &Deal, volume: f64) -> Self {
         self.open_volume += volume;
         self.entry_value += deal.price * volume;
         self.entry_volume += volume;
         self.trade.volume = self.trade.volume.max(self.open_volume);
         self.trade.open_price = self.entry_value / self.entry_volume.max(EPS);
-        if costs {
-            self.add_costs(deal);
-        }
+        self.add_costs(deal);
         if let Some(risk) = deal.risk.filter(|r| *r > 0.0) {
             self.trade.risk = Some(self.trade.risk.unwrap_or(0.0) + risk);
         }
@@ -116,20 +114,20 @@ pub fn build_trades(account_id: i64, deals: &[Deal]) -> Vec<Trade> {
             match deal.entry {
                 DealEntry::In | DealEntry::None => {
                     current = Some(match current.take() {
-                        Some(b) => b.entered(deal, deal.volume, true),
+                        Some(b) => b.entered(deal, deal.volume),
                         None => Building::start(account_id, position_id, segment, deal, deal.volume),
                     });
                 }
                 DealEntry::Out | DealEntry::OutBy => {
-                    let Some(b) = current.as_mut() else {
-                        // An exit whose entry is outside the imported range.
-                        continue;
-                    };
+                    // An exit whose entry is outside the imported range is skipped.
+                    let Some(mut b) = current.take() else { continue };
                     b.add_costs(deal);
                     b.exited(deal, deal.volume, deal.profit);
                     if b.is_flat() {
-                        trades.push(current.take().expect("present").trade);
+                        trades.push(b.trade);
                         segment += 1;
+                    } else {
+                        current = Some(b);
                     }
                 }
                 DealEntry::InOut => {

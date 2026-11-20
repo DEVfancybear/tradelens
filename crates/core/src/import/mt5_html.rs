@@ -6,9 +6,13 @@ use crate::model::DealBatch;
 use super::{ImportError, table};
 
 /// Decodes the bytes and parses the report.
+///
+/// # Errors
+///
+/// [`ImportError`] when the content is not a readable report.
 pub fn parse(bytes: &[u8]) -> Result<DealBatch, ImportError> {
     let html = decode(bytes);
-    table::batch_from_rows(&rows(&html))
+    table::batch_from_rows(&rows(&html)?)
 }
 
 /// UTF-16 LE/BE with a BOM, else UTF-8 (lossy).
@@ -29,8 +33,12 @@ pub fn decode(bytes: &[u8]) -> String {
 }
 
 /// The text of every `<td>`/`<th>` of every `<tr>`.
-fn rows(_html: &str) -> table::Rows {
-    todo!("v0.1: tokenize <tr>/<td>, strip tags, decode entities, honour colspan")
+///
+/// # Errors
+///
+/// [`ImportError`] when the content is not a readable report.
+fn rows(_html: &str) -> Result<table::Rows, ImportError> {
+    Err(ImportError::NotImplemented("v0.1: tokenize <tr>/<td>, strip tags, decode entities, honour colspan"))
 }
 
 #[cfg(test)]

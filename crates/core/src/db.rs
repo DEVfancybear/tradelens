@@ -17,6 +17,8 @@ pub enum DbError {
     Json(#[from] serde_json::Error),
     #[error("{0}")]
     Invalid(String),
+    #[error("chưa làm: {0}")]
+    NotImplemented(&'static str),
 }
 
 pub type Result<T> = std::result::Result<T, DbError>;
@@ -33,6 +35,7 @@ pub struct UpsertReport {
     pub updated: usize,
 }
 
+#[derive(Debug)]
 pub struct Db {
     conn: Connection,
     path: Option<PathBuf>,
@@ -40,6 +43,10 @@ pub struct Db {
 
 impl Db {
     /// Opens (or creates) the database at `path` and brings its schema up to date.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         if let Some(dir) = path.parent() {
@@ -53,6 +60,10 @@ impl Db {
     }
 
     /// A database in memory, for tests.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn in_memory() -> Result<Self> {
         let mut db = Self { conn: Connection::open_in_memory()?, path: None };
         db.prepare()?;
@@ -63,103 +74,165 @@ impl Db {
         self.path.as_deref()
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     fn prepare(&mut self) -> Result<()> {
         self.conn.pragma_update(None, "foreign_keys", "ON")?;
         self.conn.busy_timeout(std::time::Duration::from_secs(5))?;
-        let version: i64 = self.conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        for (index, sql) in MIGRATIONS.iter().enumerate().skip(version as usize) {
+        let version = self.schema_version()?;
+        for (index, sql) in MIGRATIONS.iter().enumerate().skip(version) {
             let tx = self.conn.transaction()?;
             tx.execute_batch(sql)?;
-            tx.pragma_update(None, "user_version", index as i64 + 1)?;
+            let next = i64::try_from(index + 1).expect("a few migrations fit in i64");
+            tx.pragma_update(None, "user_version", next)?;
             tx.commit()?;
             log::info!("database migrated to v{}", index + 1);
         }
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn schema_version(&self) -> Result<usize> {
         let version: i64 = self.conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
-        Ok(version as usize)
+        usize::try_from(version).map_err(|_| DbError::Invalid(format!("schema version {version}")))
     }
 
     // --- accounts ------------------------------------------------------------
 
     /// The account of `info` (by login and server), created when new; its balance,
     /// equity and server offset are refreshed.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn upsert_account(&mut self, _info: &AccountInfo) -> Result<i64> {
-        todo!("v0.1: INSERT .. ON CONFLICT(login, server) DO UPDATE")
+        Err(DbError::NotImplemented("v0.1: INSERT .. ON CONFLICT(login, server) DO UPDATE"))
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn accounts(&self) -> Result<Vec<Account>> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn update_account(&mut self, _account: &Account) -> Result<()> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
     // --- deals -----------------------------------------------------------------
 
     /// Writes a batch in one transaction; deals are keyed by (account, ticket).
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn upsert_batch(&mut self, _batch: &DealBatch, _source: &str) -> Result<UpsertReport> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
     /// The account's deals, or every account's when `None`.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn deals(&self, _account_id: Option<i64>) -> Result<Vec<(i64, Deal)>> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
     /// Stores a hand-entered trade as an entry and an exit deal with negative tickets.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn add_manual_trade(&mut self, _account_id: i64, _trade: &ManualTrade) -> Result<TradeKey> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
     // --- journal, rules, checklist, day notes -------------------------------
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn journal(&self, _key: &TradeKey) -> Result<Option<JournalEntry>> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn journals(&self, _account_id: Option<i64>) -> Result<Vec<(TradeKey, JournalEntry)>> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn save_journal(&mut self, _key: &TradeKey, _entry: &JournalEntry) -> Result<()> {
-        todo!("v0.1: also append to the cloud changelog")
+        Err(DbError::NotImplemented("v0.1: also append to the cloud changelog"))
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn rules(&self, _account_id: i64) -> Result<Rules> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn save_rules(&mut self, _account_id: i64, _rules: &Rules) -> Result<()> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn checklist(&self, _account_id: Option<i64>) -> Result<Vec<ChecklistItem>> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn save_checklist(&mut self, _account_id: Option<i64>, _items: &[ChecklistItem]) -> Result<()> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn day_note(&self, _account_id: i64, _day: chrono::NaiveDate) -> Result<DayNote> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn save_day_note(&mut self, _account_id: i64, _day: chrono::NaiveDate, _note: &DayNote) -> Result<()> {
-        todo!("v0.1")
+        Err(DbError::NotImplemented("v0.1"))
     }
 
     // --- settings -----------------------------------------------------------------
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn setting(&self, key: &str) -> Result<Option<String>> {
         use rusqlite::OptionalExtension;
         Ok(self.conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).optional()?)
     }
 
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<()> {
         self.conn.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)

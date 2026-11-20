@@ -7,12 +7,22 @@ use tradelens_core::{
     trades::{build_trades, cash_flows},
 };
 
-fn deal(ticket: i64, position: i64, at: &str, kind: DealKind, entry: DealEntry, volume: f64, price: f64, profit: f64) -> Deal {
+#[expect(clippy::too_many_arguments, reason = "a fixture that spells out one deal")]
+fn deal(
+    ticket: i64,
+    position: i64,
+    at: &str,
+    kind: DealKind,
+    entry: DealEntry,
+    volume: f64,
+    price: f64,
+    profit: f64,
+) -> Deal {
     Deal {
         ticket,
         order: ticket,
         position_id: position,
-        time_msc: parse_mt5_time(at).unwrap(),
+        time_msc: parse_mt5_time(at).expect("fixture times parse"),
         symbol: "EURUSD".into(),
         kind,
         entry,
@@ -39,14 +49,14 @@ fn statistics_and_drawdown() {
     // +100, -50, -30, +80 (gross); commissions are -0.35 per 0.1 lot per side.
     let results = [100.0, -50.0, -30.0, 80.0];
     for (i, p) in results.iter().enumerate() {
-        let id = i as i64 + 1;
+        let id = i64::try_from(i).expect("four trades") + 1;
         let day = format!("2026.11.{} 09:00:00", 18 + i);
         let close = format!("2026.11.{} 10:00:00", 18 + i);
         deals.push(deal(id * 10, id, &day, Buy, In, 0.1, 1.1, 0.0));
         deals.push(deal(id * 10 + 1, id, &close, Sell, Out, 0.1, 1.1, *p));
     }
     let trades = build_trades(1, &deals);
-    let samples: Vec<Sample> = trades.iter().map(|t| Sample { trade: t, r: Option::None }).collect();
+    let samples: Vec<Sample<'_>> = trades.iter().map(|t| Sample { trade: t, r: Option::None }).collect();
     let s = metrics::stats(&samples, 0.0, &cash_flows(&deals), Clock::default());
 
     assert_eq!((s.trades, s.wins, s.losses), (4, 2, 2));

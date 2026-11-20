@@ -188,11 +188,12 @@ mod kind_serde {
     use super::DealKind;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(k: &DealKind, s: S) -> Result<S::Ok, S::Error> {
+    #[expect(clippy::trivially_copy_pass_by_ref, reason = "serde's `with` passes a reference")]
+    pub(super) fn serialize<S: Serializer>(k: &DealKind, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(k.as_str())
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<DealKind, D::Error> {
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<DealKind, D::Error> {
         let v = serde_json::Value::deserialize(d)?;
         Ok(match v {
             serde_json::Value::Number(n) => DealKind::parse(&n.to_string()),
@@ -206,11 +207,12 @@ mod entry_serde {
     use super::DealEntry;
     use serde::{Deserialize, Deserializer, Serializer};
 
-    pub fn serialize<S: Serializer>(e: &DealEntry, s: S) -> Result<S::Ok, S::Error> {
+    #[expect(clippy::trivially_copy_pass_by_ref, reason = "serde's `with` passes a reference")]
+    pub(super) fn serialize<S: Serializer>(e: &DealEntry, s: S) -> Result<S::Ok, S::Error> {
         s.serialize_str(e.as_str())
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<DealEntry, D::Error> {
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<DealEntry, D::Error> {
         let v = serde_json::Value::deserialize(d)?;
         Ok(match v {
             serde_json::Value::Number(n) => DealEntry::parse(&n.to_string()),

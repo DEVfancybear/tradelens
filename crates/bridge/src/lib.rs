@@ -57,9 +57,12 @@ pub enum BridgeError {
     Bind { port: u16, message: String },
     #[error(transparent)]
     Db(#[from] tradelens_core::DbError),
+    #[error("chưa làm: {0}")]
+    NotImplemented(&'static str),
 }
 
 /// A running bridge; dropping it stops the server.
+#[derive(Debug)]
 pub struct Bridge {
     pub revision: Revision,
     stop: Arc<std::sync::atomic::AtomicBool>,
@@ -68,13 +71,17 @@ pub struct Bridge {
 
 impl Bridge {
     /// Starts the server on its own thread. `on_event` is called from that thread.
+    ///
+    /// # Errors
+    ///
+    /// [`BridgeError::Bind`] when the port is taken; [`BridgeError::NotImplemented`] until v0.1.
     pub fn start(
         config: BridgeConfig,
         revision: Revision,
         on_event: impl Fn(BridgeEvent) + Send + 'static,
     ) -> Result<Self, BridgeError> {
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let thread = server::spawn(config, revision.clone(), stop.clone(), Box::new(on_event))?;
+        let thread = server::spawn(config, revision.clone(), Arc::clone(&stop), Box::new(on_event))?;
         Ok(Self { revision, stop, thread: Some(thread) })
     }
 }
@@ -89,10 +96,18 @@ impl Drop for Bridge {
 }
 
 /// A new random token: 32 hex characters.
+///
+/// # Panics
+///
+/// When the operating system has no random source, which no supported platform lacks.
 pub fn new_token() -> String {
+    use std::fmt::Write;
     let mut bytes = [0_u8; 16];
     getrandom::fill(&mut bytes).expect("the OS has a random source");
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    bytes.iter().fold(String::with_capacity(32), |mut hex, b| {
+        write!(hex, "{b:02x}").expect("writing to a String cannot fail");
+        hex
+    })
 }
 
 #[cfg(test)]

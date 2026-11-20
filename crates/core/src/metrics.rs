@@ -67,10 +67,15 @@ pub struct Stats {
 
 const FLAT: f64 = 1e-6;
 
+/// A count as a float; counts of trades stay far below `u32::MAX`.
+fn real(n: usize) -> f64 {
+    u32::try_from(n).map_or(f64::from(u32::MAX), f64::from)
+}
+
 /// The statistics of `samples` (closed trades, any order).
-pub fn stats(samples: &[Sample], start_balance: f64, cash: &[(i64, f64)], clock: Clock) -> Stats {
+pub fn stats(samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)], clock: Clock) -> Stats {
     let mut s = Stats { trades: samples.len(), start_balance, ..Stats::default() };
-    let mut ordered: Vec<&Sample> = samples.iter().collect();
+    let mut ordered: Vec<&Sample<'_>> = samples.iter().collect();
     ordered.sort_by_key(|x| x.trade.close_time.unwrap_or(x.trade.open_time));
 
     let (mut win_streak, mut loss_streak) = (0, 0);
@@ -118,15 +123,15 @@ pub fn stats(samples: &[Sample], start_balance: f64, cash: &[(i64, f64)], clock:
         }
     }
     if s.trades > 0 {
-        s.win_rate = s.wins as f64 / s.trades as f64;
-        s.expectancy = s.net / s.trades as f64;
-        s.avg_hold_secs = hold_total / s.trades as i64;
+        s.win_rate = real(s.wins) / real(s.trades);
+        s.expectancy = s.net / real(s.trades);
+        s.avg_hold_secs = hold_total / i64::try_from(s.trades).unwrap_or(i64::MAX);
     }
     if s.wins > 0 {
-        s.avg_win = s.gross_profit / s.wins as f64;
+        s.avg_win = s.gross_profit / real(s.wins);
     }
     if s.losses > 0 {
-        s.avg_loss = s.gross_loss / s.losses as f64;
+        s.avg_loss = s.gross_loss / real(s.losses);
     }
     if s.gross_loss < -FLAT {
         s.profit_factor = Some(s.gross_profit / -s.gross_loss);
@@ -135,7 +140,7 @@ pub fn stats(samples: &[Sample], start_balance: f64, cash: &[(i64, f64)], clock:
         s.payoff = Some(s.avg_win / -s.avg_loss);
     }
     if s.r_trades > 0 {
-        s.avg_r = Some(s.total_r / s.r_trades as f64);
+        s.avg_r = Some(s.total_r / real(s.r_trades));
     }
 
     let curve = equity_curve(samples, start_balance, cash);
@@ -160,7 +165,8 @@ pub fn stats(samples: &[Sample], start_balance: f64, cash: &[(i64, f64)], clock:
     let days = daily(samples, clock);
     s.trading_days = days.len();
     s.green_days = days.values().filter(|d| d.net > FLAT).count();
-    s.best_day = days.iter().filter(|(_, d)| d.net > FLAT).max_by(|a, b| a.1.net.total_cmp(&b.1.net)).map(|(k, d)| (*k, d.net));
+    s.best_day =
+        days.iter().filter(|(_, d)| d.net > FLAT).max_by(|a, b| a.1.net.total_cmp(&b.1.net)).map(|(k, d)| (*k, d.net));
     s.worst_day =
         days.iter().filter(|(_, d)| d.net < -FLAT).min_by(|a, b| a.1.net.total_cmp(&b.1.net)).map(|(k, d)| (*k, d.net));
     s
@@ -176,7 +182,7 @@ pub struct EquityPoint {
 
 /// The balance after each closed trade and cash movement, with its drawdown from the
 /// running peak. Deposits raise the peak with the balance, so they are not gains.
-pub fn equity_curve(samples: &[Sample], start_balance: f64, cash: &[(i64, f64)]) -> Vec<EquityPoint> {
+pub fn equity_curve(samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)]) -> Vec<EquityPoint> {
     enum Event {
         Cash(f64),
         Trade(f64),
@@ -213,7 +219,7 @@ pub struct DayStat {
 }
 
 /// Net results by the local day the trades closed.
-pub fn daily(samples: &[Sample], clock: Clock) -> BTreeMap<NaiveDate, DayStat> {
+pub fn daily(samples: &[Sample<'_>], clock: Clock) -> BTreeMap<NaiveDate, DayStat> {
     let mut days: BTreeMap<NaiveDate, DayStat> = BTreeMap::new();
     for x in samples {
         let day = clock.day(x.trade.close_time.unwrap_or(x.trade.open_time));
@@ -244,7 +250,7 @@ impl Group {
     }
 
     pub fn win_rate(&self) -> f64 {
-        if self.trades == 0 { 0.0 } else { self.wins as f64 / self.trades as f64 }
+        if self.trades == 0 { 0.0 } else { real(self.wins) / real(self.trades) }
     }
 
     pub fn profit_factor(&self) -> Option<f64> {
@@ -252,19 +258,19 @@ impl Group {
     }
 
     pub fn avg_r(&self) -> Option<f64> {
-        (self.r_trades > 0).then(|| self.total_r / self.r_trades as f64)
+        (self.r_trades > 0).then(|| self.total_r / real(self.r_trades))
     }
 
     pub fn expectancy(&self) -> f64 {
-        if self.trades == 0 { 0.0 } else { self.net / self.trades as f64 }
+        if self.trades == 0 { 0.0 } else { self.net / real(self.trades) }
     }
 }
 
 /// Groups samples by keys: a sample may fall in several groups (its tags) or none.
 /// Groups come back in the keys' order.
 pub fn breakdown<K: Ord + Clone>(
-    samples: &[Sample],
-    keys: impl Fn(&Sample) -> Vec<K>,
+    samples: &[Sample<'_>],
+    keys: impl Fn(&Sample<'_>) -> Vec<K>,
     label: impl Fn(&K) -> String,
 ) -> Vec<Group> {
     let mut groups: BTreeMap<K, Group> = BTreeMap::new();
@@ -290,7 +296,7 @@ pub fn breakdown<K: Ord + Clone>(
 }
 
 /// The R results in buckets: `(label, count)`.
-pub fn r_distribution(samples: &[Sample]) -> Vec<(&'static str, usize)> {
+pub fn r_distribution(samples: &[Sample<'_>]) -> Vec<(&'static str, usize)> {
     const BUCKETS: [(&str, f64, f64); 7] = [
         ("< -2R", f64::NEG_INFINITY, -2.0),
         ("-2…-1R", -2.0, -1.0),

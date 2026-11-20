@@ -6,12 +6,22 @@ use tradelens_core::{
     trades::build_trades,
 };
 
-fn deal(ticket: i64, position: i64, at: &str, kind: DealKind, entry: DealEntry, volume: f64, price: f64, profit: f64) -> Deal {
+#[expect(clippy::too_many_arguments, reason = "a fixture that spells out one deal")]
+fn deal(
+    ticket: i64,
+    position: i64,
+    at: &str,
+    kind: DealKind,
+    entry: DealEntry,
+    volume: f64,
+    price: f64,
+    profit: f64,
+) -> Deal {
     Deal {
         ticket,
         order: ticket,
         position_id: position,
-        time_msc: parse_mt5_time(at).unwrap(),
+        time_msc: parse_mt5_time(at).expect("fixture times parse"),
         symbol: "EURUSD".into(),
         kind,
         entry,

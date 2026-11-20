@@ -31,6 +31,8 @@ pub enum CloudError {
     Service { status: u16, message: String },
     #[error(transparent)]
     Db(#[from] tradelens_core::DbError),
+    #[error("chưa làm: {0}")]
+    NotImplemented(&'static str),
 }
 
 pub type Result<T> = std::result::Result<T, CloudError>;

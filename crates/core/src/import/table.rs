@@ -13,11 +13,11 @@ pub(crate) type Rows = Vec<Vec<String>>;
 /// Columns are found by their content (a date-time, a ticket, `in`/`out`), not only by
 /// their titles, because the terminal writes the titles in its own language.
 pub(crate) fn batch_from_rows(_rows: &Rows) -> Result<DealBatch, ImportError> {
-    todo!("v0.1: account header, Deals section, Positions section (SL/TP)")
+    Err(ImportError::NotImplemented("v0.1: account header, Deals section, Positions section (SL/TP)"))
 }
 
 /// `1 234.56`, `-12.50`, `0.10 / 0.10` → a number (the first one).
-#[allow(dead_code, reason = "read by batch_from_rows in v0.1")]
+#[cfg_attr(not(test), expect(dead_code, reason = "read by batch_from_rows in v0.1"))]
 pub(crate) fn number(cell: &str) -> Option<f64> {
     let first = cell.split('/').next()?.trim();
     let cleaned: String = first.chars().filter(|c| !c.is_whitespace() && *c != '\u{a0}').collect();
