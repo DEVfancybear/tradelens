@@ -36,8 +36,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - name: Quality gate (BeautifulRust)
+        shell: bash
+        run: scripts/quality.sh
 
   python:
     runs-on: ubuntu-latest
