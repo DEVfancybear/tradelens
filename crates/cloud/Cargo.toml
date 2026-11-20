@@ -1,0 +1,15 @@
+[package]
+name = "tradelens-cloud"
+description = "TradeLens sign-in (Google, Microsoft) and sync to Google Drive / OneDrive app folders."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+tradelens-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+thiserror.workspace = true
+# v0.1: ureq (HTTPS), keyring (OS credential store), sha2 + base64 (PKCE).

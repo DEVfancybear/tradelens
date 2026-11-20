@@ -686,6 +686,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "tradelens-cloud"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tradelens-core",
+]
+
+[[package]]
 name = "tradelens-core"
 version = "0.1.0"
 dependencies = [

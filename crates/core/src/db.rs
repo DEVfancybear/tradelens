@@ -22,7 +22,8 @@ pub enum DbError {
 pub type Result<T> = std::result::Result<T, DbError>;
 
 /// The schema, in order. A migration is never edited once released.
-const MIGRATIONS: &[&str] = &[include_str!("../migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] =
+    &[include_str!("../migrations/0001_init.sql"), include_str!("../migrations/0002_cloud_sync.sql")];
 
 /// What an upsert of a batch did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
