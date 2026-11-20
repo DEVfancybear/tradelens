@@ -70,3 +70,35 @@ fn statistics_and_drawdown() {
     assert_eq!(s.trading_days, 4);
     assert!((s.deposits - 1000.0).abs() < 1e-9);
 }
+
+#[test]
+fn mistakes_are_priced_against_clean_trades() {
+    use DealEntry::*;
+    use DealKind::*;
+    // Trades 1 and 2 carry "moved_sl", 3 is clean, 4 carries "early_exit".
+    let results = [-120.0, -80.0, 150.0, 40.0];
+    let mut deals = Vec::new();
+    for (i, p) in results.iter().enumerate() {
+        let id = i64::try_from(i).expect("four trades") + 1;
+        let day = format!("2026.11.{} 09:00:00", 16 + i);
+        let close = format!("2026.11.{} 10:00:00", 16 + i);
+        deals.push(deal(id * 10, id, &day, Buy, In, 0.1, 1.1, 0.0));
+        deals.push(deal(id * 10 + 1, id, &close, Sell, Out, 0.1, 1.1, *p));
+    }
+    let trades = build_trades(1, &deals);
+    let samples: Vec<Sample<'_>> = trades.iter().map(|t| Sample { trade: t, r: Option::None }).collect();
+    let mistakes_of = |x: &Sample<'_>| match x.trade.key.position_id {
+        1 | 2 => vec!["moved_sl".to_owned()],
+        4 => vec!["early_exit".to_owned()],
+        _ => Vec::new(),
+    };
+    let costs =
+        metrics::mistake_cost(&samples, mistakes_of, |k| if k == "moved_sl" { "Dời SL".into() } else { k.into() });
+    assert_eq!(costs[0].label, "Dời SL");
+    assert_eq!(costs[0].trades, 2);
+    assert!((costs[0].net - (-200.0 - 1.4)).abs() < 1e-6, "{}", costs[0].net);
+    assert!((costs[0].share_of_losses - 1.0).abs() < 1e-9, "only moved_sl trades lost");
+    // Clean expectancy 149.3; moved_sl expectancy −100.7.
+    assert!((costs[0].expectancy_gap + 250.0).abs() < 1e-6, "{}", costs[0].expectancy_gap);
+    assert_eq!(costs[1].key, "early_exit");
+}

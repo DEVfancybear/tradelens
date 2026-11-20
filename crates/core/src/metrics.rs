@@ -311,3 +311,46 @@ pub fn r_distribution(samples: &[Sample<'_>]) -> Vec<(&'static str, usize)> {
         .map(|&(label, lo, hi)| (label, samples.iter().filter_map(|x| x.r).filter(|r| *r >= lo && *r < hi).count()))
         .collect()
 }
+
+/// What one mistake cost over a period.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MistakeCost {
+    pub key: String,
+    pub label: String,
+    pub trades: usize,
+    /// Net of the trades with the mistake (usually negative).
+    pub net: f64,
+    pub total_r: f64,
+    /// The mistake's share of all money lost, 0 to 1.
+    pub share_of_losses: f64,
+    /// Expectancy of the trades with the mistake minus that of trades with no mistake:
+    /// what each occurrence costs against trading clean.
+    pub expectancy_gap: f64,
+}
+
+/// The cost of each mistake, the most costly first. `mistakes_of` gives a trade's mistake
+/// keys (from its journal), `label` a key's name in the trader's catalog.
+pub fn mistake_cost(
+    samples: &[Sample<'_>],
+    mistakes_of: impl Fn(&Sample<'_>) -> Vec<String>,
+    label: impl Fn(&str) -> String,
+) -> Vec<MistakeCost> {
+    let total_loss: f64 = samples.iter().map(Sample::net).filter(|n| *n < -FLAT).sum::<f64>().abs();
+    let clean: Vec<f64> = samples.iter().filter(|x| mistakes_of(x).is_empty()).map(Sample::net).collect();
+    let clean_expectancy = if clean.is_empty() { 0.0 } else { clean.iter().sum::<f64>() / real(clean.len()) };
+    let groups = breakdown(samples, &mistakes_of, |key: &String| key.clone());
+    let mut costs: Vec<MistakeCost> = groups
+        .into_iter()
+        .map(|g| MistakeCost {
+            label: label(&g.label),
+            share_of_losses: if total_loss > FLAT { (-g.net).max(0.0) / total_loss } else { 0.0 },
+            expectancy_gap: g.expectancy() - clean_expectancy,
+            trades: g.trades,
+            net: g.net,
+            total_r: g.total_r,
+            key: g.label,
+        })
+        .collect();
+    costs.sort_by(|a, b| a.net.total_cmp(&b.net));
+    costs
+}
