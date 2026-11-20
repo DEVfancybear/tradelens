@@ -2,8 +2,10 @@
 //!
 //! - [`model`]   MT5 accounts, deals, trades, journal entries, rules
 //! - [`trades`]  deals → trades (by position, with partial closes and reversals)
+//! - [`metrics`] statistics, balance curve, drawdown, breakdowns
 //! - [`time`]    server time → local time, sessions
 
+pub mod metrics;
 pub mod model;
 pub mod time;
 pub mod trades;
