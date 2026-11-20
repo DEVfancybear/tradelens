@@ -1,0 +1,77 @@
+//! The window: the sidebar of routes, and the current route's page beside it.
+
+use nsh_base::theme;
+use nsh_core::prelude::*;
+
+use crate::{
+    nav::{self, Route, SECTIONS},
+    pages,
+    ui::controls::sidebar_row,
+};
+
+const SIDEBAR_WIDTH: f32 = 236.0;
+
+pub(crate) fn shell() -> impl IntoElement {
+    view().flex_1().flex_row().child(sidebar()).child(view().flex_1().min_w(px(0.0)).child(dynamic(move || {
+        let route = nav::current();
+        untracked(|| pages::page(route))
+    })))
+}
+
+fn sidebar() -> impl IntoElement {
+    view()
+        .w(px(SIDEBAR_WIDTH))
+        .px_3()
+        .py_4()
+        .gap_5()
+        .bg(move || theme().sidebar)
+        .border_r_1()
+        .border_color(move || theme().sidebar_border)
+        .child(brand())
+        .children(SECTIONS.iter().map(|section| {
+            view()
+                .gap_1()
+                .child(
+                    text(section.title)
+                        .px_3()
+                        .pb_1()
+                        .text_xs()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(move || theme().muted_foreground),
+                )
+                .children(section.routes.iter().map(|&route| route_row(route)))
+        }))
+        .child(view().flex_1())
+        .child(status())
+}
+
+fn brand() -> impl IntoElement {
+    view()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .px_3()
+        .child(
+            view()
+                .size(px(26.0))
+                .rounded(px(7.0))
+                .items_center()
+                .justify_center()
+                .bg(move || theme().primary)
+                .child(text("◉").text_sm().text_color(move || theme().primary_foreground)),
+        )
+        .child(text("TradeLens").text_base().font_weight(FontWeight::SEMIBOLD))
+}
+
+fn route_row(route: Route) -> impl IntoElement {
+    sidebar_row(route.glyph(), route.label(), move || nav::current() == route, move || nav::go(route))
+}
+
+/// The data sources' state, at the sidebar's foot (wired to the bridge in v0.1).
+fn status() -> impl IntoElement {
+    view()
+        .px_3()
+        .gap_1()
+        .child(text("Bridge MT5: chưa chạy").text_xs().text_color(move || theme().muted_foreground))
+        .child(text("Cloud: chưa đăng nhập").text_xs().text_color(move || theme().muted_foreground))
+}

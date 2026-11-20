@@ -1,0 +1,10 @@
+{
+  "name": "TradeLens",
+  "id": "vn.dat.tradelens",
+  "version": "0.1.0",
+  "build": 1,
+  "appearance": "system",
+  "theme": "theme.json",
+  "rust": ".",
+  "root": "App"
+}
