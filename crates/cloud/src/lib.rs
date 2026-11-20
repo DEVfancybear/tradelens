@@ -2,6 +2,7 @@
 //! Google or Microsoft (OAuth 2.0, PKCE, loopback redirect), and the app keeps its
 //! files in the provider's app-only folder.
 //!
+//! - [`ai`]          the opt-in AI review of a week, with the trader's own key
 //! - [`auth`]        the OAuth flow and the providers' endpoints and scopes
 //! - [`token_store`] tokens in the OS credential store, never in the database
 //! - [`drive`]       the [`drive::CloudDrive`] trait: list, upload, download, delete
@@ -11,6 +12,7 @@
 //!
 //! Design: `docs/cloud-sync.md`.
 
+pub mod ai;
 pub mod auth;
 pub mod drive;
 pub mod google;
