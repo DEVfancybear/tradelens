@@ -350,6 +350,10 @@ impl Trade {
 /// What the trader writes about one trade.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct JournalEntry {
+    /// The setup from the playbook ([`crate::playbook::Playbook`]).
+    #[serde(default)]
+    pub playbook_id: Option<i64>,
+    /// A free-text setup, for trades journalled before the playbook (or imported).
     #[serde(default)]
     pub setup: String,
     #[serde(default)]

@@ -9,6 +9,7 @@ use crate::catalog::{CatalogItem, CatalogKind, FieldDef, FieldScope};
 use crate::model::{
     Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, JournalEntry, ManualTrade, Rules, TradeKey,
 };
+use crate::playbook::Playbook;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -30,6 +31,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0002_cloud_sync.sql"),
     include_str!("../migrations/0003_deal_reason.sql"),
     include_str!("../migrations/0004_catalogs_fields.sql"),
+    include_str!("../migrations/0005_playbooks.sql"),
 ];
 
 /// What an upsert of a batch did.
@@ -337,6 +339,47 @@ impl Db {
         }
     }
 
+    // --- playbook -------------------------------------------------------------
+
+    /// The setups, archived ones last.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError`] when the query fails or a stored setup does not parse.
+    pub fn playbooks(&self) -> Result<Vec<Playbook>> {
+        let mut stmt = self.conn.prepare("SELECT id, json FROM playbooks ORDER BY archived, position, id")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        rows.map(|row| {
+            let (id, json) = row?;
+            let mut playbook: Playbook = serde_json::from_str(&json)?;
+            playbook.id = id;
+            Ok(playbook)
+        })
+        .collect()
+    }
+
+    /// Adds a setup (`id` 0) or changes one; returns its id. Names are unique.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the name is taken or the write fails.
+    pub fn save_playbook(&mut self, playbook: &Playbook, position: i32) -> Result<i64> {
+        let json = serde_json::to_string(playbook)?;
+        if playbook.id == 0 {
+            self.conn.execute(
+                "INSERT INTO playbooks (name, json, position, archived) VALUES (?1, ?2, ?3, ?4)",
+                rusqlite::params![playbook.name, json, position, playbook.archived],
+            )?;
+            Ok(self.conn.last_insert_rowid())
+        } else {
+            self.conn.execute(
+                "UPDATE playbooks SET name = ?2, json = ?3, position = ?4, archived = ?5 WHERE id = ?1",
+                rusqlite::params![playbook.id, playbook.name, json, position, playbook.archived],
+            )?;
+            Ok(playbook.id)
+        }
+    }
+
     // --- settings -----------------------------------------------------------------
 
     /// # Errors
@@ -416,6 +459,20 @@ mod tests {
         let mistakes = db.catalog(CatalogKind::Mistake).unwrap();
         assert_eq!(mistakes.last().map(|m| m.label.as_str()), Some("Quên ghi lý do vào lệnh"));
         assert!(db.save_catalog_item(&CatalogItem { id: 0, ..mistake }).is_err(), "keys are unique per kind");
+    }
+
+    #[test]
+    fn playbooks_round_trip() {
+        use crate::playbook::Playbook;
+        let mut db = Db::in_memory().unwrap();
+        let setup = Playbook {
+            name: "Breakout phiên Á".into(),
+            entry_rules: vec!["Phá đỉnh phiên Á".into(), "Retest giữ được".into()],
+            risk_pct: Some(1.0),
+            ..Playbook::default()
+        };
+        let id = db.save_playbook(&setup, 0).unwrap();
+        assert_eq!(db.playbooks().unwrap(), vec![Playbook { id, ..setup }]);
     }
 
     #[test]

@@ -5,6 +5,7 @@
 //! - [`journal`] the plan written at entry and how the trade compares with it
 //! - [`trades`]  deals → trades (by position, with partial closes and reversals)
 //! - [`metrics`] statistics, balance curve, drawdown, breakdowns
+//! - [`playbook`] the trader's setups, with rules, examples and statistics
 //! - [`rules`]   discipline rules → violations
 //! - [`time`]    server time → local time, sessions
 //! - [`db`]      SQLite storage and migrations
@@ -16,6 +17,7 @@ pub mod import;
 pub mod journal;
 pub mod metrics;
 pub mod model;
+pub mod playbook;
 pub mod rules;
 pub mod time;
 pub mod trades;
