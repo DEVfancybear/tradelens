@@ -18,7 +18,8 @@ crates/cloud    tradelens-cloud  đăng nhập Google/Microsoft, sync Google Dri
 app/            nsh-app-tradelens  giao diện NSH
 mt5/            EA TradeLensSync.mq5
 python/         tradelens_sync.py (gói MetaTrader5)
-docs/           kiến trúc, API bridge, sync đám mây, thiết kế UI
+docs/           kiến trúc, API bridge, sync đám mây, lộ trình
+docs/design/    thiết kế UI: 12 màn (HTML tham chiếu + ảnh) và chuẩn để code
 ```
 
 ## Chạy thử

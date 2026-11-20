@@ -25,6 +25,9 @@ Repo đóng gói sẵn hai skill trong `.claude/skills/` (nguồn: BeautifulRust
   (bridge, cloud) không chạm signal, chúng tăng `Revision`.
 - Hàm chưa làm trả lỗi `NotImplemented("…")`, không dùng `todo!()` / `unimplemented!()`.
 - Không `unwrap()` ngoài test; `expect("lý do")` chỉ cho bất biến thật.
+- **UI theo thiết kế:** trước khi dựng hoặc sửa một màn, đọc `docs/design/README.md` (màn → route →
+  file trang, component cần có) và mở `docs/design/screens/<màn>.html` + `screenshots/<màn>.png`.
+  Không tự chế bố cục khác; lệch thì ghi vào bảng cuối README thiết kế.
 - UI NSH: theo skill `nsh` của repo NSH (https://github.com/longbridge/nsh, `skills/nsh`). Màu chỉ lấy từ
   token `theme()` / `ui::theme`, component chỉ lấy từ `app/src/ui/`, không style lại control ở trang.
 - Thông điệp lỗi và chữ hiển thị bằng tiếng Việt; comment và doc trong code bằng tiếng Anh.
