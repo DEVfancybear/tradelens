@@ -20,6 +20,13 @@ bằng NSH theo `app/DESIGN.md` và component trong `app/src/ui/`.
 | Lịch P/L | `calendar` | `Route::Calendar` | `calendar.rs` | v0.2 |
 | Phân tích | `analytics` | `Route::Analytics` | `analytics.rs` | v0.2 |
 | Nhật ký ngày | `daily-journal` | `Route::Journal` | `journal.rs` | v0.2 |
+| Tổng kết & xem lại (tuần/tháng, hàng chờ, tóm tắt AI, mẫu ghi chú) | `review` | `Route::Review` | `review.rs` | v0.2 |
+| Lệnh bỏ lỡ | `missed-trades` | `Route::Missed` | `missed.rs` | v0.2 |
+| Playbook | `playbook` | `Route::Playbook` | `playbook.rs` | v0.2 |
+| Tuỳ biến form (kiểu Notion) | `form-editor` | đẩy từ Cài đặt / "Tuỳ biến form" ở chi tiết lệnh | `form_editor.rs` (mới) | v0.2 |
+| Popup ghi kế hoạch khi EA báo lệnh mới | `entry-plan-prompt` | cửa sổ phụ / `dialog` trên mọi màn | `entry_plan.rs` (mới) | v0.2 |
+| Chia sẻ kết quả (thẻ ảnh, PDF tháng) | `share-card` | `dialog` từ chi tiết lệnh / Tổng kết | `share.rs` (mới) | v0.3 |
+| Tìm kiếm toàn văn | `search` | `command_palette`, phím Ctrl+K | `search.rs` (mới) | v0.2 |
 | Tài khoản & kỷ luật | `accounts-discipline` | `Route::Accounts` | `accounts.rs` | v0.2 |
 | Nguồn dữ liệu (MT5, Notion) | `data-sources` | `Route::DataSources` | `data_sources.rs` | v0.1 (Notion v0.2) |
 | Đăng nhập & sync | `cloud-sync` | `Route::Cloud` | `cloud.rs` | v0.3 |
@@ -27,8 +34,8 @@ bằng NSH theo `app/DESIGN.md` và component trong `app/src/ui/`.
 
 ## Khung chung (mọi màn)
 
-- **Sidebar 236 pt**: logo; nhóm *Giao dịch* (Tổng quan, Lệnh, Lịch P/L, Phân tích, Nhật ký ngày),
-  *Quản lý* (Tài khoản & kỷ luật, Nguồn dữ liệu, Đăng nhập & sync), *Hệ thống* (Cài đặt); mục đang chọn
+- **Sidebar 236 pt**: logo; ô tìm kiếm (Ctrl K); nhóm *Giao dịch* (Tổng quan, Lệnh, Lịch P/L, Phân tích,
+  Nhật ký ngày, Tổng kết & xem lại, Lệnh bỏ lỡ), *Chiến lược* (Playbook), *Quản lý* (Tài khoản & kỷ luật, Nguồn dữ liệu, Đăng nhập & sync), *Hệ thống* (Cài đặt); mục đang chọn
   có nền `sidebar-accent` + thanh nhấn 3 pt bên trái; chân sidebar là thẻ trạng thái EA và sync.
 - **Header trang**: tiêu đề 24/600, một dòng mô tả `muted-foreground`, hành động bên phải
   (tối đa một nút `Primary`).
@@ -56,6 +63,14 @@ bằng NSH theo `app/DESIGN.md` và component trong `app/src/ui/`.
 | `month_grid` | Lịch P/L, Tổng quan | `view` grid | v0.2 |
 | `dropzone`, `image_slot` | Nguồn dữ liệu, chi tiết lệnh | `view` + `pick_paths`, kéo thả file | v0.1 |
 | `progress_rule` (thanh ngưỡng quy tắc) | Tổng quan, Tài khoản | `progress` | v0.1 |
+| `property_list` + `property_row` (kéo ⋮⋮ đổi thứ tự, glyph kiểu, tên bấm để sửa, giá trị theo `FieldKind`, nhãn "riêng" cho thuộc tính tự thêm, dòng thuộc tính ẩn, "+ Thêm thuộc tính") | chi tiết lệnh, nhập tay, nhật ký ngày, lệnh bỏ lỡ | `view` + `drag` + `input` | v0.2 |
+| `property_popover` (đổi tên, kiểu, lựa chọn; Nên điền / Đưa vào Phân tích / Nhân bản / Ẩn / Xoá) | chi tiết lệnh | `popover` | v0.2 |
+| `form_editor` (tab theo `FieldScope`, bảng thuộc tính, panel sửa, chọn kiểu, khôi phục đã xoá) | Tuỳ biến form | `tabs`, `data_table`, `alert_dialog` khi đổi kiểu mất dữ liệu | v0.2 |
+| `gallery` (nhiều ảnh, badge EA vào/ra, kéo đổi thứ tự, ô "Thêm ảnh" nhận chọn nhiều / kéo thả / Ctrl+V) | chi tiết lệnh, playbook, lệnh bỏ lỡ | `view` grid + `pick_paths(multiple)` + clipboard | v0.2 |
+| `plan_vs_actual` (bảng kế hoạch / thực tế / chênh) | chi tiết lệnh | `view` grid | v0.2 |
+| `queue_row`, `mistake_cost_bar` | Tổng kết, Phân tích | `view` + `progress` | v0.2 |
+| `share_card` (render thành PNG theo `report::Privacy`) | Chia sẻ | `canvas` → ảnh | v0.3 |
+| `command_palette` (nhóm kết quả, tô sáng từ khoá, bỏ dấu) | Tìm kiếm | `command` | v0.2 |
 
 ## Token (khớp `app/theme.json`)
 
@@ -73,13 +88,16 @@ qua `registry.assets(..)` vì desktop không tải Google Fonts.
 
 ## Quy tắc khi code theo thiết kế
 
-1. Lãi/lỗ luôn có **cả** màu và dấu (+/−); số dùng mono, căn phải trong bảng.
-2. Mỗi màn đúng một nút Primary; hành động phá huỷ dùng `alert_dialog` xác nhận.
-3. Trạng thái rỗng / đang tải / lỗi cho mọi danh sách và biểu đồ (thiết kế chưa vẽ: dùng `empty_state`
+1. Thuộc tính trong form không cố định: đọc `FormLayout` + `FieldDef` từ DB rồi vẽ; thiết kế chỉ là
+   một cấu hình mẫu. Thuộc tính có sẵn không xoá được (chỉ ẩn/đổi tên); xoá thuộc tính riêng hay lựa chọn
+   chỉ lưu trữ, dữ liệu cũ giữ nguyên.
+2. Lãi/lỗ luôn có **cả** màu và dấu (+/−); số dùng mono, căn phải trong bảng.
+3. Mỗi màn đúng một nút Primary; hành động phá huỷ dùng `alert_dialog` xác nhận.
+4. Trạng thái rỗng / đang tải / lỗi cho mọi danh sách và biểu đồ (thiết kế chưa vẽ: dùng `empty_state`
    một dòng + một hành động).
-4. Bàn phím: mọi thao tác dùng được bằng phím; phím tắt ở màn Cài đặt.
-5. Tôn trọng *reduce motion*; thời gian chuyển động lấy từ `ui::motion`.
-6. Lệch thiết kế vì giới hạn của NSH: ghi lý do trong commit và thêm dòng vào bảng dưới.
+5. Bàn phím: mọi thao tác dùng được bằng phím; phím tắt ở màn Cài đặt.
+6. Tôn trọng *reduce motion*; thời gian chuyển động lấy từ `ui::motion`.
+7. Lệch thiết kế vì giới hạn của NSH: ghi lý do trong commit và thêm dòng vào bảng dưới.
 
 | Màn | Lệch so với thiết kế | Lý do |
 |---|---|---|
