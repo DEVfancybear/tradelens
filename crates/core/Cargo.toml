@@ -1,0 +1,19 @@
+[package]
+name = "tradelens-core"
+description = "TradeLens domain: MT5 deals, trades, statistics, rules, storage and report importers."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+log.workspace = true
+thiserror.workspace = true
+rusqlite = { version = "0.43", features = ["bundled"] }
+calamine = { version = "0.38", features = ["dates"] }
+
+[dev-dependencies]
+tempfile = "3"
