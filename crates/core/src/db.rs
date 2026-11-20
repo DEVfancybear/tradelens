@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 
 use crate::catalog::{CatalogItem, CatalogKind, FieldDef, FieldScope};
+use crate::form::FormLayout;
 use crate::missed::MissedTrade;
 use crate::model::{
     Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, JournalEntry, ManualTrade, Rules, TradeKey,
@@ -345,6 +346,28 @@ impl Db {
         }
     }
 
+    /// The trader's arrangement of a form, or the default one.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError`] when the setting cannot be read or does not parse.
+    pub fn form_layout(&self, scope: FieldScope) -> Result<FormLayout> {
+        match self.setting(&format!("form.layout.{}", scope_name(scope)?))? {
+            Some(json) => Ok(serde_json::from_str(&json)?),
+            None => Ok(FormLayout::default_for(scope)),
+        }
+    }
+
+    /// Saves the arrangement of a form.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn save_form_layout(&mut self, layout: &FormLayout) -> Result<()> {
+        let key = format!("form.layout.{}", scope_name(layout.scope)?);
+        self.set_setting(&key, &serde_json::to_string(layout)?)
+    }
+
     // --- playbook -------------------------------------------------------------
 
     /// The setups, archived ones last.
@@ -679,6 +702,19 @@ mod tests {
         db.index_document(&doc("Đúng kế hoạch")).unwrap();
         assert!(db.search("doi", 10).unwrap().is_empty(), "the old text is gone");
         assert_eq!(db.search("ke hoach", 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn form_layouts_default_and_persist() {
+        use crate::catalog::FieldScope;
+        use crate::form::{BuiltinField, FieldRef, FormLayout};
+        let mut db = Db::in_memory().unwrap();
+        let mut form = db.form_layout(FieldScope::Trade).unwrap();
+        assert_eq!(form, FormLayout::default_for(FieldScope::Trade));
+        form.rename_builtin(BuiltinField::Mistakes, "Lỗi kỷ luật").unwrap();
+        form.hide(&FieldRef::Builtin(BuiltinField::Market)).unwrap();
+        db.save_form_layout(&form).unwrap();
+        assert_eq!(db.form_layout(FieldScope::Trade).unwrap(), form);
     }
 
     #[test]

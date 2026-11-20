@@ -13,10 +13,12 @@
 //! - [`search`]  full-text search over notes, plans, reviews and the playbook
 //! - [`time`]    server time → local time, sessions
 //! - [`db`]      SQLite storage and migrations
+//! - [`form`]    forms the trader shapes like Notion: rename, reorder, hide, add, convert, delete
 //! - [`import`]  MT5 reports (HTML, XLSX), Notion exports (CSV) and JSON batches
 
 pub mod catalog;
 pub mod db;
+pub mod form;
 pub mod import;
 pub mod journal;
 pub mod metrics;
