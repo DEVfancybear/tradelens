@@ -7,12 +7,14 @@
 //! - [`drive`]       the [`drive::CloudDrive`] trait: list, upload, download, delete
 //! - [`google`], [`onedrive`] its two implementations
 //! - [`sync`]        push / pull of the change log, snapshots, merging
+//! - [`notion`]      the Notion API, to import a trading journal database
 //!
 //! Design: `docs/cloud-sync.md`.
 
 pub mod auth;
 pub mod drive;
 pub mod google;
+pub mod notion;
 pub mod onedrive;
 pub mod sync;
 pub mod token_store;

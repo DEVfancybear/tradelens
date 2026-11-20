@@ -6,7 +6,7 @@
 //! - [`rules`]   discipline rules → violations
 //! - [`time`]    server time → local time, sessions
 //! - [`db`]      SQLite storage and migrations
-//! - [`import`]  MT5 reports (HTML, XLSX) and JSON batches
+//! - [`import`]  MT5 reports (HTML, XLSX), Notion exports (CSV) and JSON batches
 
 pub mod db;
 pub mod import;
