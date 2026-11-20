@@ -11,6 +11,7 @@ use crate::model::{
     Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, JournalEntry, ManualTrade, Rules, TradeKey,
 };
 use crate::playbook::Playbook;
+use crate::review::{Period, PeriodReview, ReviewTemplate};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -34,6 +35,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0004_catalogs_fields.sql"),
     include_str!("../migrations/0005_playbooks.sql"),
     include_str!("../migrations/0006_missed_trades.sql"),
+    include_str!("../migrations/0007_reviews.sql"),
 ];
 
 /// What an upsert of a batch did.
@@ -425,6 +427,81 @@ impl Db {
         }
     }
 
+    // --- reviews ------------------------------------------------------------------
+
+    /// The review of the period starting `start`, if written.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError`] when the query fails or the stored review does not parse.
+    pub fn review(
+        &self,
+        account_id: Option<i64>,
+        period: Period,
+        start: chrono::NaiveDate,
+    ) -> Result<Option<PeriodReview>> {
+        use rusqlite::OptionalExtension;
+        let row = self
+            .conn
+            .query_row(
+                "SELECT id, json FROM reviews WHERE account_id = ?1 AND period = ?2 AND start = ?3",
+                rusqlite::params![account_id.unwrap_or(0), enum_name(&period)?, start.to_string()],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        row.map(|(id, json)| {
+            let mut review: PeriodReview = serde_json::from_str(&json)?;
+            review.id = id;
+            Ok(review)
+        })
+        .transpose()
+    }
+
+    /// Writes a review, replacing the one of the same account and period.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn save_review(&mut self, review: &PeriodReview) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO reviews (account_id, period, start, json) VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(account_id, period, start) DO UPDATE SET json = excluded.json",
+            rusqlite::params![
+                review.account_id.unwrap_or(0),
+                enum_name(&review.period)?,
+                review.start.to_string(),
+                serde_json::to_string(review)?
+            ],
+        )?;
+        Ok(self.conn.query_row(
+            "SELECT id FROM reviews WHERE account_id = ?1 AND period = ?2 AND start = ?3",
+            rusqlite::params![review.account_id.unwrap_or(0), enum_name(&review.period)?, review.start.to_string()],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// The trader's template for `period`, or the default.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError`] when the setting cannot be read or does not parse.
+    pub fn review_template(&self, period: Period) -> Result<ReviewTemplate> {
+        match self.setting(&format!("review.template.{}", enum_name(&period)?))? {
+            Some(json) => Ok(serde_json::from_str(&json)?),
+            None => Ok(ReviewTemplate::default_for(period)),
+        }
+    }
+
+    /// Saves the trader's template.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn save_review_template(&mut self, template: &ReviewTemplate) -> Result<()> {
+        let key = format!("review.template.{}", enum_name(&template.period)?);
+        self.set_setting(&key, &serde_json::to_string(template)?)
+    }
+
     // --- settings -----------------------------------------------------------------
 
     /// # Errors
@@ -518,6 +595,23 @@ mod tests {
         };
         let id = db.save_playbook(&setup, 0).unwrap();
         assert_eq!(db.playbooks().unwrap(), vec![Playbook { id, ..setup }]);
+    }
+
+    #[test]
+    fn reviews_replace_their_period_and_templates_default() {
+        use crate::review::{Period, PeriodReview, ReviewTemplate};
+        let mut db = Db::in_memory().unwrap();
+        let template = db.review_template(Period::Week).unwrap();
+        assert_eq!(template, ReviewTemplate::default_for(Period::Week));
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 11, 20).unwrap();
+        let mut review = PeriodReview::blank(&template, day, None);
+        review.answers[0].1 = "Giữ đúng 3 lệnh/ngày".into();
+        let id = db.save_review(&review).unwrap();
+        review.rating = 4;
+        assert_eq!(db.save_review(&review).unwrap(), id, "same period, same review");
+        let read = db.review(None, Period::Week, review.start).unwrap().unwrap();
+        assert_eq!(read.rating, 4);
+        assert_eq!(read.answers[0].1, "Giữ đúng 3 lệnh/ngày");
     }
 
     #[test]

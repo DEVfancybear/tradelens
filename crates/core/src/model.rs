@@ -381,6 +381,9 @@ pub struct JournalEntry {
     /// The market's state, a key of the user's market-condition catalog.
     #[serde(default)]
     pub market: Option<String>,
+    /// The trader wants to look at this trade again (the review queue).
+    #[serde(default)]
+    pub review_later: bool,
     /// Values of the trader's own fields (scope `trade`), by field key.
     #[serde(default)]
     pub custom: crate::catalog::CustomValues,
