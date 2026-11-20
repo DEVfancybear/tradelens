@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 use rusqlite::Connection;
 
 use crate::catalog::{CatalogItem, CatalogKind, FieldDef, FieldScope};
+use crate::missed::MissedTrade;
 use crate::model::{
     Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, JournalEntry, ManualTrade, Rules, TradeKey,
 };
@@ -32,6 +33,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0003_deal_reason.sql"),
     include_str!("../migrations/0004_catalogs_fields.sql"),
     include_str!("../migrations/0005_playbooks.sql"),
+    include_str!("../migrations/0006_missed_trades.sql"),
 ];
 
 /// What an upsert of a batch did.
@@ -377,6 +379,49 @@ impl Db {
                 rusqlite::params![playbook.id, playbook.name, json, position, playbook.archived],
             )?;
             Ok(playbook.id)
+        }
+    }
+
+    // --- missed trades --------------------------------------------------------
+
+    /// Missed trades seen between `from` and `to` (Unix milliseconds), newest first.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError`] when the query fails or a stored entry does not parse.
+    pub fn missed_trades(&self, from: i64, to: i64) -> Result<Vec<MissedTrade>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, json FROM missed_trades WHERE seen_at BETWEEN ?1 AND ?2 ORDER BY seen_at DESC")?;
+        let rows = stmt.query_map([from, to], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        rows.map(|row| {
+            let (id, json) = row?;
+            let mut missed: MissedTrade = serde_json::from_str(&json)?;
+            missed.id = id;
+            Ok(missed)
+        })
+        .collect()
+    }
+
+    /// Adds a missed trade (`id` 0) or changes one; returns its id.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn save_missed_trade(&mut self, missed: &MissedTrade) -> Result<i64> {
+        let json = serde_json::to_string(missed)?;
+        if missed.id == 0 {
+            self.conn.execute(
+                "INSERT INTO missed_trades (account_id, seen_at, json) VALUES (?1, ?2, ?3)",
+                rusqlite::params![missed.account_id, missed.seen_at, json],
+            )?;
+            Ok(self.conn.last_insert_rowid())
+        } else {
+            self.conn.execute(
+                "UPDATE missed_trades SET account_id = ?2, seen_at = ?3, json = ?4 WHERE id = ?1",
+                rusqlite::params![missed.id, missed.account_id, missed.seen_at, json],
+            )?;
+            Ok(missed.id)
         }
     }
 

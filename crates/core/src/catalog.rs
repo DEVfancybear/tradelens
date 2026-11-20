@@ -17,10 +17,12 @@ pub enum CatalogKind {
     SetupGrade,
     MarketCondition,
     Timeframe,
+    /// Why a setup that was seen was not traded.
+    MissedReason,
 }
 
 impl CatalogKind {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Tag,
         Self::Mistake,
         Self::Emotion,
@@ -28,6 +30,7 @@ impl CatalogKind {
         Self::SetupGrade,
         Self::MarketCondition,
         Self::Timeframe,
+        Self::MissedReason,
     ];
 
     pub fn label(self) -> &'static str {
@@ -39,6 +42,7 @@ impl CatalogKind {
             Self::SetupGrade => "Hạng setup",
             Self::MarketCondition => "Trạng thái thị trường",
             Self::Timeframe => "Khung thời gian",
+            Self::MissedReason => "Lý do không vào lệnh",
         }
     }
 
@@ -82,6 +86,13 @@ impl CatalogKind {
                 &[("trend", "Có xu hướng"), ("range", "Đi ngang"), ("volatile", "Biến động mạnh"), ("quiet", "Yên ắng")]
             }
             Self::Timeframe => &[("m5", "M5"), ("m15", "M15"), ("h1", "H1"), ("h4", "H4"), ("d1", "D1")],
+            Self::MissedReason => &[
+                ("fear", "Sợ sau lệnh thua"),
+                ("hesitated", "Chần chừ, chờ xác nhận quá lâu"),
+                ("away", "Không ở máy"),
+                ("limit_reached", "Đã chạm giới hạn lệnh/ngày"),
+                ("unsure", "Không chắc là đúng setup"),
+            ],
         }
     }
 }

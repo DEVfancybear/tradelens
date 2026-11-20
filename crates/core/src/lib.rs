@@ -1,6 +1,7 @@
 //! TradeLens core: everything that knows nothing of the UI.
 //!
 //! - [`catalog`] the trader's own option lists and fields
+//! - [`missed`]  setups seen and not taken, and what they would have made
 //! - [`model`]   MT5 accounts, deals, trades, journal entries, rules
 //! - [`journal`] the plan written at entry and how the trade compares with it
 //! - [`trades`]  deals → trades (by position, with partial closes and reversals)
@@ -16,6 +17,7 @@ pub mod db;
 pub mod import;
 pub mod journal;
 pub mod metrics;
+pub mod missed;
 pub mod model;
 pub mod playbook;
 pub mod rules;
