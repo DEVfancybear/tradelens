@@ -1,0 +1,10 @@
+/target
+**/.nsh/
+*.db
+*.db-wal
+*.db-shm
+.env
+.DS_Store
+Thumbs.db
+__pycache__/
+*.ex5
