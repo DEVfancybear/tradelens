@@ -16,6 +16,10 @@ input string InpToken        = "";    // Token (copy từ app: Nguồn dữ li�
 input int    InpPort         = 7878;  // Cổng bridge
 input int    InpBackfillDays = 90;    // Số ngày lịch sử gửi lần đầu
 input int    InpTimerSeconds = 60;    // Chu kỳ gửi bù (giây)
+input bool   InpScreenshots  = true;  // Tự chụp chart lúc vào và ra lệnh
+input ENUM_TIMEFRAMES InpScreenshotTf = PERIOD_M15; // Khung giờ ưu tiên khi chụp
+input int    InpScreenshotW  = 1600;  // Rộng ảnh (px)
+input int    InpScreenshotH  = 900;   // Cao ảnh (px)
 
 //--- Deal mới chờ gửi (ticket), gom từ OnTradeTransaction
 ulong g_pending[];
@@ -52,6 +56,58 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
    int n = ArraySize(g_pending);
    ArrayResize(g_pending, n + 1);
    g_pending[n] = trans.deal;
+   if(InpScreenshots && HistoryDealSelect(trans.deal))
+     {
+      ENUM_DEAL_ENTRY entry = (ENUM_DEAL_ENTRY)HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
+      long position = HistoryDealGetInteger(trans.deal, DEAL_POSITION_ID);
+      string symbol = HistoryDealGetString(trans.deal, DEAL_SYMBOL);
+      if(entry == DEAL_ENTRY_IN)
+         SendScreenshot(symbol, position, "entry");
+      else if(!PositionSelectByTicket(position))
+         SendScreenshot(symbol, position, "exit");   // đóng hẳn, không phải chốt một phần
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Chụp chart của symbol và gửi sang app.                           |
+//+------------------------------------------------------------------+
+void SendScreenshot(const string symbol, const long position, const string moment)
+  {
+   long chart = FindChart(symbol);
+   bool temporary = (chart == 0);
+   if(temporary)
+      chart = ChartOpen(symbol, InpScreenshotTf);
+   if(chart == 0)
+      return;
+   ChartRedraw(chart);
+   string file = StringFormat("TradeLens\\%I64d-%s.png", position, moment);
+   if(ChartScreenShot(chart, file, InpScreenshotW, InpScreenshotH, ALIGN_RIGHT))
+     {
+      string headers = StringFormat("X-TradeLens-Login: %I64d\r\nX-TradeLens-Server: %s\r\nX-TradeLens-Position: %I64d\r\nX-TradeLens-Moment: %s\r\n",
+                                    AccountInfoInteger(ACCOUNT_LOGIN), AccountInfoString(ACCOUNT_SERVER), position, moment);
+      TradeLensPostFile(InpPort, InpToken, "/api/v1/screenshot", headers, file);
+      FileDelete(file);
+     }
+   if(temporary)
+      ChartClose(chart);
+  }
+
+//+------------------------------------------------------------------+
+//| Chart đang mở symbol, ưu tiên khung giờ InpScreenshotTf; 0 nếu không có. |
+//+------------------------------------------------------------------+
+long FindChart(const string symbol)
+  {
+   long found = 0;
+   for(long chart = ChartFirst(); chart >= 0; chart = ChartNext(chart))
+     {
+      if(ChartSymbol(chart) != symbol)
+         continue;
+      if(ChartPeriod(chart) == InpScreenshotTf)
+         return(chart);
+      if(found == 0)
+         found = chart;
+     }
+   return(found);
   }
 
 //+------------------------------------------------------------------+

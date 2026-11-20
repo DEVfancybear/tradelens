@@ -17,6 +17,7 @@ pub(crate) fn spawn(
     _on_event: OnEvent,
 ) -> Result<JoinHandle<()>, BridgeError> {
     // TODO(v0.1): bind 127.0.0.1:port, loop on recv_timeout until `stop`,
-    // route PING / DEALS / ACCOUNT, check TOKEN_HEADER, upsert, bump revision.
+    // route PING / DEALS / ACCOUNT / SCREENSHOT (PNG body ≤ MAX_SCREENSHOT_BYTES,
+    // saved under attachments/ by api::screenshot_path, linked to the trade's journal), check TOKEN_HEADER, upsert, bump revision.
     Err(BridgeError::NotImplemented("bridge server"))
 }

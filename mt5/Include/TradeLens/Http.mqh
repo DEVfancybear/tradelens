@@ -18,3 +18,20 @@ int TradeLensPost(const int port, const string token, const string path, const s
    return(status);
   }
 //+------------------------------------------------------------------+
+
+//--- POST một file nhị phân (ảnh PNG) kèm các header phụ; trả mã HTTP.
+int TradeLensPostFile(const int port, const string token, const string path, const string extra_headers, const string file_name)
+  {
+   int handle = FileOpen(file_name, FILE_READ | FILE_BIN);
+   if(handle == INVALID_HANDLE)
+      return(-1);
+   char data[];
+   FileReadArray(handle, data);
+   FileClose(handle);
+   string url = StringFormat("http://127.0.0.1:%d%s", port, path);
+   string headers = "Content-Type: image/png\r\nX-TradeLens-Token: " + token + "\r\n" + extra_headers;
+   char result[];
+   string result_headers;
+   return(WebRequest("POST", url, headers, 10000, data, result, result_headers));
+  }
+//+------------------------------------------------------------------+

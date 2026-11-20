@@ -8,6 +8,7 @@ Mọi request mang header `X-TradeLens-Token: <token>`; token sinh ngẫu nhiên
 | GET  | `/api/v1/ping`    | — | `{"app":"TradeLens","version":"0.1.0"}` |
 | POST | `/api/v1/deals`   | `DealBatch` | `{"account_id":1,"inserted":12,"updated":0}` |
 | POST | `/api/v1/account` | `{"account": AccountInfo}` | `{"account_id":1}` |
+| POST | `/api/v1/screenshot` | ảnh PNG (≤ 8 MB) + header `X-TradeLens-Login`, `X-TradeLens-Server`, `X-TradeLens-Position`, `X-TradeLens-Moment: entry\|exit` | `{"path":"52012345/61234567-entry.png"}` |
 
 Lỗi: status 4xx/5xx với `{"error":"..."}` — `401` sai token, `400` JSON sai, `500` lỗi DB.
 
@@ -40,3 +41,11 @@ Lỗi: status 4xx/5xx với `{"error":"..."}` — `401` sai token, `400` JSON sa
 - `reason`: `ENUM_DEAL_REASON` (`sl`, `tp`, `so`, `expert`, `client`, `mobile`, `web`), gợi ý sẵn lý do thoát lệnh.
 
 Gửi lại cùng deal nhiều lần là an toàn: khóa là `(tài khoản, ticket)`.
+
+## Ảnh chart tự động
+
+Khi bật `InpScreenshots`, EA chụp chart của symbol bằng `ChartScreenShot` ngay sau khi position mở
+(`entry`) và sau khi đóng hẳn (`exit`), rồi POST ảnh lên `/api/v1/screenshot`. App lưu ảnh vào
+`attachments/<login>/<position>-<entry|exit>.png` và gắn vào nhật ký lệnh; gửi lại thì thay ảnh cũ.
+Chart được chụp là chart đang mở symbol đó (ưu tiên chart có khung giờ trong `InpScreenshotTf`),
+không có thì EA mở tạm một chart rồi đóng lại.
