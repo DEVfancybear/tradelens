@@ -45,10 +45,59 @@ impl Revision {
 /// What the bridge reports to the data sources screen.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BridgeEvent {
-    Listening { port: u16 },
-    Received { source: String, account: String, inserted: usize, updated: usize },
-    Rejected { reason: String },
-    Stopped { error: Option<String> },
+    Listening {
+        port: u16,
+    },
+    Received {
+        source: String,
+        account: String,
+        inserted: usize,
+        updated: usize,
+    },
+    /// A new position opened (an `in` deal arrived): the app offers to write its plan
+    /// while the trade is still open.
+    PositionOpened(OpenedPosition),
+    Rejected {
+        reason: String,
+    },
+    Stopped {
+        error: Option<String>,
+    },
+}
+
+/// A position that just opened, as the plan prompt shows it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OpenedPosition {
+    pub account: String,
+    pub position_id: i64,
+    pub symbol: String,
+    pub side: tradelens_core::Side,
+    pub volume: f64,
+    pub price: f64,
+    pub sl: f64,
+    pub tp: f64,
+}
+
+impl OpenedPosition {
+    /// The opened positions of a batch: one per `in` deal of a buy or sell.
+    pub fn of_batch(batch: &DealBatch) -> Vec<Self> {
+        use tradelens_core::{DealEntry, DealKind, Side};
+        batch
+            .deals
+            .iter()
+            .filter(|d| d.entry == DealEntry::In && d.kind.is_trade())
+            .map(|d| Self {
+                account: batch.account.login.clone(),
+                position_id: d.position_id,
+                symbol: d.symbol.clone(),
+                side: if d.kind == DealKind::Buy { Side::Long } else { Side::Short },
+                volume: d.volume,
+                price: d.price,
+                sl: d.sl,
+                tp: d.tp,
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -112,6 +161,21 @@ pub fn new_token() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn opened_positions_come_from_entry_deals() {
+        let batch: super::DealBatch = serde_json::from_str(
+            r#"{"account":{"login":"52012345"},"deals":[
+                {"ticket":1,"position_id":9,"time_msc":0,"symbol":"XAUUSD","type":"sell","entry":"in","volume":0.5,"price":2650.0,"sl":2655.0},
+                {"ticket":2,"position_id":8,"time_msc":0,"symbol":"XAUUSD","type":"buy","entry":"out","volume":0.5,"price":2650.0},
+                {"ticket":3,"time_msc":0,"type":"balance","profit":1000}]}"#,
+        )
+        .expect("a valid batch");
+        let opened = super::OpenedPosition::of_batch(&batch);
+        assert_eq!(opened.len(), 1);
+        assert_eq!(opened[0].position_id, 9);
+        assert_eq!(opened[0].side, tradelens_core::Side::Short);
+    }
+
     #[test]
     fn tokens_are_random_hex() {
         let (a, b) = (super::new_token(), super::new_token());
