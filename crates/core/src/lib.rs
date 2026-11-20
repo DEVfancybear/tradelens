@@ -9,6 +9,7 @@
 //! - [`playbook`] the trader's setups, with rules, examples and statistics
 //! - [`review`]  weekly / monthly reviews and the queue of trades to look at again
 //! - [`rules`]   discipline rules → violations
+//! - [`search`]  full-text search over notes, plans, reviews and the playbook
 //! - [`time`]    server time → local time, sessions
 //! - [`db`]      SQLite storage and migrations
 //! - [`import`]  MT5 reports (HTML, XLSX), Notion exports (CSV) and JSON batches
@@ -23,6 +24,7 @@ pub mod model;
 pub mod playbook;
 pub mod review;
 pub mod rules;
+pub mod search;
 pub mod time;
 pub mod trades;
 

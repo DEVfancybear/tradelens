@@ -12,6 +12,7 @@ use crate::model::{
 };
 use crate::playbook::Playbook;
 use crate::review::{Period, PeriodReview, ReviewTemplate};
+use crate::search::{self, DocKind, Document, Hit};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -36,6 +37,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0005_playbooks.sql"),
     include_str!("../migrations/0006_missed_trades.sql"),
     include_str!("../migrations/0007_reviews.sql"),
+    include_str!("../migrations/0008_search.sql"),
 ];
 
 /// What an upsert of a batch did.
@@ -502,6 +504,52 @@ impl Db {
         self.set_setting(&key, &serde_json::to_string(template)?)
     }
 
+    // --- search ---------------------------------------------------------------------
+
+    /// Indexes `doc`, replacing what was indexed for the same thing. Called by every
+    /// write of a journal, day note, review, missed trade or setup.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn index_document(&mut self, doc: &Document) -> Result<()> {
+        let kind = enum_name(&doc.kind)?;
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM search_index WHERE kind = ?1 AND reference = ?2", [&kind, &doc.reference])?;
+        if !doc.body.trim().is_empty() || !doc.title.trim().is_empty() {
+            tx.execute(
+                "INSERT INTO search_index (kind, reference, title, body) VALUES (?1, ?2, ?3, ?4)",
+                [&kind, &doc.reference, &doc.title, &doc.body],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The best matches of what the trader typed, at most `limit`.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the query fails.
+    pub fn search(&self, input: &str, limit: u32) -> Result<Vec<Hit>> {
+        let Some(query) = search::fts_query(input) else {
+            return Ok(Vec::new());
+        };
+        let mut stmt = self.conn.prepare(
+            "SELECT kind, reference, title, snippet(search_index, 3, '[', ']', '…', 12)
+             FROM search_index WHERE search_index MATCH ?1 ORDER BY bm25(search_index, 0, 0, 4.0, 1.0) LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![query, limit], |r| {
+            Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })?;
+        rows.map(|row| {
+            let (kind, reference, title, snippet) = row?;
+            let kind: DocKind = serde_json::from_value(serde_json::Value::String(kind))?;
+            Ok(Hit { kind, reference, title, snippet })
+        })
+        .collect()
+    }
+
     // --- settings -----------------------------------------------------------------
 
     /// # Errors
@@ -612,6 +660,25 @@ mod tests {
         let read = db.review(None, Period::Week, review.start).unwrap().unwrap();
         assert_eq!(read.rating, 4);
         assert_eq!(read.answers[0].1, "Giữ đúng 3 lệnh/ngày");
+    }
+
+    #[test]
+    fn search_folds_accents_and_replaces_documents() {
+        use crate::search::{DocKind, Document};
+        let mut db = Db::in_memory().unwrap();
+        let doc = |body: &str| Document {
+            kind: DocKind::Trade,
+            reference: "1:61234567:0".into(),
+            title: "XAUUSD Buy 20/11".into(),
+            body: body.into(),
+        };
+        db.index_document(&doc("Dời SL lần nữa, vào lệnh sớm trước tin")).unwrap();
+        let hits = db.search("doi sl", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].snippet.contains("[Dời]"), "{}", hits[0].snippet);
+        db.index_document(&doc("Đúng kế hoạch")).unwrap();
+        assert!(db.search("doi", 10).unwrap().is_empty(), "the old text is gone");
+        assert_eq!(db.search("ke hoach", 10).unwrap().len(), 1);
     }
 
     #[test]
