@@ -1,7 +1,5 @@
 //! The theme (`theme.json`, shadcn `cssVars`) and the app's own tokens.
 
-#![expect(dead_code, reason = "the skeleton's pages read these from v0.1")]
-
 use nsh_base::{theme, tokens_of};
 use nsh_core::{element::set_tokens, prelude::*};
 
@@ -40,6 +38,12 @@ pub(crate) fn loss_soft() -> AdaptiveColor {
 }
 
 /// A rule close to its limit.
+#[expect(dead_code, reason = "the discipline rules of v0.2 show this colour")]
 pub(crate) fn warning() -> AdaptiveColor {
     token("warning")
+}
+
+/// The monospaced family numbers are drawn in (`font-mono` of `theme.json`).
+pub(crate) fn mono() -> SharedString {
+    theme().font_mono.clone().unwrap_or_else(|| SharedString::from("monospace"))
 }

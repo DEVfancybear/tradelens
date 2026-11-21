@@ -1,6 +1,7 @@
 //! The routes: one page shows at a time, chosen in the sidebar.
 
 use nsh_core::prelude::*;
+use tradelens_core::TradeKey;
 
 /// A screen of the app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -89,6 +90,32 @@ pub(crate) fn current() -> Route {
     global::<Current>().get().0
 }
 
+/// Shows a route; a trade's page open over the trades list closes.
 pub(crate) fn go(route: Route) {
-    global::<Current>().set(Current(route));
+    batch(|| {
+        global::<OpenTrade>().set(OpenTrade(None));
+        global::<Current>().set(Current(route));
+    });
+}
+
+/// The trade whose page is open over the trades list.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct OpenTrade(Option<TradeKey>);
+
+/// The trade whose page is open (tracked where it is read).
+pub(crate) fn open_trade() -> Option<TradeKey> {
+    global::<OpenTrade>().get().0
+}
+
+/// Opens a trade's page over the trades list, from any route.
+pub(crate) fn show_trade(key: TradeKey) {
+    batch(|| {
+        global::<Current>().set(Current(Route::Trades));
+        global::<OpenTrade>().set(OpenTrade(Some(key)));
+    });
+}
+
+/// Closes the trade's page: back to the trades list.
+pub(crate) fn close_trade() {
+    global::<OpenTrade>().set(OpenTrade(None));
 }

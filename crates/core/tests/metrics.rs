@@ -102,3 +102,30 @@ fn mistakes_are_priced_against_clean_trades() {
     assert!((costs[0].expectancy_gap + 250.0).abs() < 1e-6, "{}", costs[0].expectancy_gap);
     assert_eq!(costs[1].key, "early_exit");
 }
+
+#[test]
+fn start_balance_follows_the_trader_then_the_terminal() {
+    use DealEntry::*;
+    use DealKind::*;
+    let deals = vec![
+        deal(1, 7, "2026.11.18 09:00:00", Buy, In, 0.1, 1.1, 0.0),
+        deal(2, 7, "2026.11.18 10:00:00", Sell, Out, 0.1, 1.1, 100.0),
+    ];
+    let trades = build_trades(1, &deals);
+    let samples: Vec<Sample<'_>> = trades.iter().map(|t| Sample { trade: t, r: Option::None }).collect();
+    let net = samples[0].net();
+    let cash = [(0, 500.0)];
+
+    let mut account = tradelens_core::Account::default();
+    assert_eq!(metrics::start_balance(&account, &samples, &cash), 0.0, "nothing known");
+
+    account.last_balance = Some(1000.0);
+    let derived = metrics::start_balance(&account, &samples, &cash);
+    let curve = metrics::equity_curve(&samples, derived, &cash);
+    let ended = curve.last().expect("a curve has a point").balance;
+    assert!((ended - 1000.0).abs() < 1e-9, "the curve ends at the reported balance, not {ended}");
+    assert!((derived - (1000.0 - net - 500.0)).abs() < 1e-9);
+
+    account.initial_balance = Some(250.0);
+    assert_eq!(metrics::start_balance(&account, &samples, &cash), 250.0, "the trader's figure wins");
+}

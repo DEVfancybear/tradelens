@@ -4,6 +4,7 @@ use nsh_core::prelude::*;
 
 use crate::nav::Route;
 
+mod account_picker;
 mod accounts;
 mod analytics;
 mod calendar;
@@ -15,6 +16,7 @@ mod missed;
 mod playbook;
 mod review;
 mod settings;
+mod trade_detail;
 mod trades;
 
 pub(crate) fn page(route: Route) -> AnyElement {

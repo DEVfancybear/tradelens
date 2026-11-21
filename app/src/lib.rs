@@ -1,19 +1,29 @@
 //! TradeLens's UI, in NSH's Rust mode: `nsh.json` `"root"` names [`App`].
 //!
-//! - `shell`  the window: sidebar and the page of the current route
-//! - `nav`    the routes
-//! - `store`  the app's state over `tradelens-core`
-//! - `ui`     the app's styled components and tokens; pages use only these
-//! - `pages`  one module per screen
+//! - `shell`      the window: sidebar and the page of the current route
+//! - `nav`        the routes, and the trade whose page is open
+//! - `store`      the app's state over `tradelens-core`; reads the database on blocking threads
+//! - `snapshot`   what the pages show, read in one go (pure over a `Db`)
+//! - `trade_list` the trades page's filters and sort order
+//! - `journal_draft` the journal fields the trade page edits
+//! - `format`     numbers and times as text
+//! - `ui`         the app's styled components and tokens; pages use only these
+//! - `pages`      one module per screen
 
+mod format;
+mod journal_draft;
 mod nav;
 mod pages;
 mod shell;
+mod snapshot;
 mod store;
+mod trade_list;
 mod ui;
 
 use nsh_base::theme;
 use nsh_core::{element::desktop::window as app_window, prelude::*};
+
+pub use store::data_changed;
 
 /// The app's UI set (`nsh.json` `"rust"`).
 #[native_module("tradelens/native")]

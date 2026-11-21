@@ -5,7 +5,10 @@ use std::collections::BTreeMap;
 
 use chrono::NaiveDate;
 
-use crate::{model::Trade, time::Clock};
+use crate::{
+    model::{Account, Trade},
+    time::Clock,
+};
 
 /// A closed trade with what the statistics need from its journal.
 #[derive(Debug, Clone, Copy)]
@@ -353,4 +356,18 @@ pub fn mistake_cost(
         .collect();
     costs.sort_by(|a, b| a.net.total_cmp(&b.net));
     costs
+}
+
+/// The balance an account had before the first closed trade and cash movement of its
+/// curve: the starting balance the trader set, else what makes the curve end at the last
+/// balance the terminal reported (`last_balance` − results − cash), else zero.
+pub fn start_balance(account: &Account, samples: &[Sample<'_>], cash: &[(i64, f64)]) -> f64 {
+    if let Some(initial) = account.initial_balance {
+        return initial;
+    }
+    account.last_balance.map_or(0.0, |last| {
+        let results: f64 = samples.iter().map(Sample::net).sum();
+        let moved: f64 = cash.iter().map(|&(_, amount)| amount).sum();
+        last - results - moved
+    })
 }

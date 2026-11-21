@@ -6,6 +6,7 @@ use nsh_core::prelude::*;
 use crate::{
     nav::{self, Route, SECTIONS},
     pages,
+    store::store,
     ui::controls::sidebar_row,
 };
 
@@ -67,11 +68,12 @@ fn route_row(route: Route) -> impl IntoElement {
     sidebar_row(route.glyph(), route.label(), move || nav::current() == route, move || nav::go(route))
 }
 
-/// The data sources' state, at the sidebar's foot (wired to the bridge in v0.1).
+/// The data sources' state, at the sidebar's foot.
 fn status() -> impl IntoElement {
+    let store = store();
     view()
         .px_3()
         .gap_1()
-        .child(text("Bridge MT5: chưa chạy").text_xs().text_color(move || theme().muted_foreground))
+        .child(text(move || store.bridge().status_line()).text_xs().text_color(move || theme().muted_foreground))
         .child(text("Cloud: chưa đăng nhập").text_xs().text_color(move || theme().muted_foreground))
 }

@@ -36,10 +36,13 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 
 | Component | File | Trạng thái |
 |---|---|---|
-| `page`, `card`, `stat_tile`, `planned` | `parts.rs` | có |
-| `action` (Primary / Secondary / Ghost) | `controls.rs` | có |
-| `sidebar_row` | `controls.rs` | có |
-| `pnl_text`, `chip`, `segmented`, `field`, `select`, `table`, `empty_state`, `toast` | — | v0.1 |
+| `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `property_row`, `empty_state`, `planned` | `parts.rs` | có |
+| `action` / `action_when` (Primary / Secondary / Ghost) | `controls.rs` | có |
+| `sidebar_row`, `segmented`, `select_field`, `text_field`, `textarea`, `tag_picker`, `rating` | `controls.rs` | có |
+| `chip`, `pnl_text`, `figure_text` | `chips.rs` | có |
+| `trades_table`, `recent_trades` | `table.rs` | có |
+| `equity_chart` | `chart.rs` | có |
+| `toast` | — | v0.1 |
 
 ## Motion (`src/ui/motion.rs`)
 

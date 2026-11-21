@@ -101,4 +101,11 @@ qua `registry.assets(..)` vì desktop không tải Google Fonts.
 
 | Màn | Lệch so với thiết kế | Lý do |
 |---|---|---|
-| — | — | — |
+| Lệnh | Chưa có cột chọn nhiều lệnh (checkbox), "Gắn tag", "Xuất CSV", nút Import / Thêm lệnh và chip "Đang lọc"; chưa có bộ lọc ngày (chỉ symbol, setup, thắng/thua, Buy/Sell, tìm chữ và sắp xếp theo cột) | Chọn nhiều và xuất CSV cần màn nhập tay (`manual-entry`) và hộp thoại lưu file, làm sau trong v0.1; "Xoá lọc" thay chip "Đang lọc" |
+| Lệnh | Bấm một dòng hoặc nút ở cột Symbol mở chi tiết lệnh; Enter trên dòng đang chọn không mở | `data_table` của NSH 0.6.1 không có sự kiện Enter, nên đường dùng phím là nút Symbol (nhận Tab và Enter) |
+| Chi tiết lệnh | Không có biểu đồ giá của lệnh, nút Chia sẻ / Mở trên MT5, ảnh thu nhỏ (chỉ danh sách tên ảnh + nguồn), lưu tự động (thay bằng nút Lưu, tự lưu khi chuyển sang lệnh khác), Kế hoạch vs thực tế và thuộc tính kiểu Notion (khối "Sẽ có ở bản tới") | Biểu đồ giá cần nguồn nến (chưa có); chia sẻ là v0.3; thư viện ảnh, kế hoạch và form tuỳ biến là v0.2 |
+| Chi tiết lệnh | Mở bằng trạng thái `nav::open_trade` đè lên route Lệnh, không dùng `nav_stack` native | Chỉ cần một tầng; nút "‹ Lệnh" quay lại danh sách và giữ nguyên bộ lọc |
+| Tổng quan | Chỉ có hàng chỉ số, đường balance + drawdown và 5 lệnh gần đây; chưa có tab Balance/Equity/R, Kỷ luật hôm nay, lịch tháng và "Theo symbol" (khối "Sẽ có ở bản tới") | Equity cần lãi/lỗ đang mở; quy tắc và lịch là v0.2 |
+| Tổng quan | Tiền hiện kèm ký hiệu đô la khi tiền tệ là USD (hoặc tài khoản chưa báo), còn lại dạng `123.45 EUR` | Chưa có cài đặt tiền tệ; thiết kế chỉ vẽ USD |
+| Nguồn dữ liệu | Mới có thẻ Bridge (trạng thái, cổng, token + sao chép, nhật ký); hướng dẫn cài EA và import vẫn là khối "Sẽ có ở bản tới" | Phần còn lại của v0.1 làm ở các mục 2 và 4 của lộ trình |
+| Mọi màn | Số dùng font mono của `theme.json` (`font-mono`), chưa đóng gói JetBrains Mono; chưa có bộ icon (`ui::icons`), sidebar và nút dùng ký tự | Cần thêm font vào `app/assets/fonts/` và bộ SVG, làm cùng mục hoàn thiện giao diện của v0.1 |
