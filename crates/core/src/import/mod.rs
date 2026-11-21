@@ -7,6 +7,7 @@ use std::path::Path;
 use crate::model::DealBatch;
 
 pub mod json;
+mod link;
 pub mod mt5_html;
 pub mod mt5_xlsx;
 pub mod notion;
