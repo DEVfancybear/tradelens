@@ -1,19 +1,22 @@
 //! SQLite storage. One file per user; deals are the source of truth and trades are
 //! rebuilt from them. WAL mode lets the bridge thread and the UI write at once.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior};
 
-use crate::catalog::{CatalogItem, CatalogKind, FieldDef, FieldScope};
+use crate::catalog::{CatalogItem, CatalogKind, FieldDef, FieldScope, FieldValue};
 use crate::form::FormLayout;
 use crate::missed::MissedTrade;
 use crate::model::{
-    Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, JournalEntry, ManualTrade, Rules, TradeKey,
+    Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, DealEntry, DealKind, JournalEntry, ManualTrade,
+    PositionLevels, Rules, Side, TradeKey,
 };
 use crate::playbook::Playbook;
 use crate::review::{Period, PeriodReview, ReviewTemplate};
 use crate::search::{self, DocKind, Document, Hit};
+use crate::trades::build_trades;
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -60,7 +63,7 @@ impl Db {
     ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
+    /// [`DbError::Sqlite`] when the database fails.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         if let Some(dir) = path.parent() {
@@ -77,7 +80,7 @@ impl Db {
     ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
+    /// [`DbError::Sqlite`] when the database fails.
     pub fn in_memory() -> Result<Self> {
         let mut db = Self { conn: Connection::open_in_memory()?, path: None };
         db.prepare()?;
@@ -90,7 +93,7 @@ impl Db {
 
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
+    /// [`DbError::Sqlite`] when the database fails.
     fn prepare(&mut self) -> Result<()> {
         self.conn.pragma_update(None, "foreign_keys", "ON")?;
         self.conn.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -130,7 +133,7 @@ impl Db {
 
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
+    /// [`DbError::Sqlite`] when the database fails.
     pub fn schema_version(&self) -> Result<usize> {
         let version: i64 = self.conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         usize::try_from(version).map_err(|_| DbError::Invalid(format!("schema version {version}")))
@@ -141,119 +144,413 @@ impl Db {
     /// The account of `info` (by login and server), created when new; its balance,
     /// equity and server offset are refreshed.
     ///
+    /// Only what `info` actually carries is written: a report without a balance leaves
+    /// the last known one alone, and a name the trader chose is never replaced.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn upsert_account(&mut self, _info: &AccountInfo) -> Result<i64> {
-        Err(DbError::NotImplemented("v0.1: INSERT .. ON CONFLICT(login, server) DO UPDATE"))
+    /// [`DbError::Invalid`] when `info` has no login; [`DbError::Sqlite`] when the database fails.
+    pub fn upsert_account(&mut self, info: &AccountInfo) -> Result<i64> {
+        upsert_account_on(&self.conn, info)
     }
 
+    /// Every account, in the order they were first seen.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
+    /// [`DbError::Sqlite`] when the query fails.
     pub fn accounts(&self) -> Result<Vec<Account>> {
-        Err(DbError::NotImplemented("v0.1"))
+        let mut stmt = self.conn.prepare(&format!("SELECT {ACCOUNT_COLUMNS} FROM accounts ORDER BY id"))?;
+        let rows = stmt.query_map([], account_from_row)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Saves what the trader edits of an account: broker, name, currency, starting
+    /// balance and server offset. Login and server identify the account, and balance,
+    /// equity and the last sync belong to the sync, so none of those change here.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn update_account(&mut self, _account: &Account) -> Result<()> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError::Invalid`] when the account does not exist; [`DbError::Sqlite`] when the write fails.
+    pub fn update_account(&mut self, account: &Account) -> Result<()> {
+        let changed = self.conn.execute(
+            "UPDATE accounts SET broker = ?2, name = ?3, currency = ?4, initial_balance = ?5, server_offset_min = ?6
+             WHERE id = ?1",
+            rusqlite::params![
+                account.id,
+                account.broker,
+                account.name,
+                account.currency,
+                account.initial_balance,
+                account.server_offset_min
+            ],
+        )?;
+        if changed == 0 {
+            return Err(DbError::Invalid(format!("không có tài khoản số {}", account.id)));
+        }
+        Ok(())
     }
 
     // --- deals -----------------------------------------------------------------
 
     /// Writes a batch in one transaction; deals are keyed by (account, ticket).
     ///
+    /// The batch's account is upserted first. A deal already stored counts as
+    /// `updated` only when something changed, so sending the same batch twice reports
+    /// nothing the second time. What the EA measured and a report lacks (risk, reason,
+    /// stop, target) is kept when the new deal has none; a position's stop and target from
+    /// the batch's `positions` fill the deals that have none. Anything written is noted
+    /// in `import_log`.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn upsert_batch(&mut self, _batch: &DealBatch, _source: &str) -> Result<UpsertReport> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError::Invalid`] when the batch has no account login; [`DbError::Sqlite`] when the
+    /// database fails, in which case nothing of the batch is stored.
+    pub fn upsert_batch(&mut self, batch: &DealBatch, source: &str) -> Result<UpsertReport> {
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let account_id = upsert_account_on(&tx, &batch.account)?;
+        let levels: HashMap<i64, &PositionLevels> = batch.positions.iter().map(|p| (p.position_id, p)).collect();
+        let mut report = UpsertReport { account_id, ..UpsertReport::default() };
+        for incoming in &batch.deals {
+            let mut deal = incoming.clone();
+            if let Some(level) = levels.get(&deal.position_id).filter(|_| deal.position_id != 0) {
+                if deal.sl <= 0.0 {
+                    deal.sl = level.sl;
+                }
+                if deal.tp <= 0.0 {
+                    deal.tp = level.tp;
+                }
+            }
+            let stored = tx
+                .prepare_cached(&format!("SELECT {DEAL_COLUMNS} FROM deals WHERE account_id = ?1 AND ticket = ?2"))?
+                .query_row(rusqlite::params![account_id, deal.ticket], deal_from_row)
+                .optional()?;
+            match stored {
+                None => {
+                    write_deal(&tx, account_id, &deal, source)?;
+                    report.inserted += 1;
+                }
+                Some(stored) => {
+                    keep_measured(&mut deal, &stored);
+                    if deal != stored {
+                        write_deal(&tx, account_id, &deal, source)?;
+                        report.updated += 1;
+                    }
+                }
+            }
+        }
+        if report.inserted + report.updated > 0 {
+            let message = format!("{} deal mới, {} deal cập nhật", report.inserted, report.updated);
+            tx.execute(
+                "INSERT INTO import_log (at, source, account_id, inserted, updated, message) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![now_ms(), source, account_id, count(report.inserted), count(report.updated), message],
+            )?;
+        }
+        tx.commit()?;
+        Ok(report)
     }
 
-    /// The account's deals, or every account's when `None`.
+    /// The account's deals, or every account's when `None`, as (account id, deal),
+    /// oldest first.
     ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn deals(&self, _account_id: Option<i64>) -> Result<Vec<(i64, Deal)>> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError::Sqlite`] when the query fails.
+    pub fn deals(&self, account_id: Option<i64>) -> Result<Vec<(i64, Deal)>> {
+        let mut stmt = self.conn.prepare(&format!(
+            "SELECT account_id, {DEAL_COLUMNS} FROM deals WHERE (?1 IS NULL OR account_id = ?1)
+             ORDER BY account_id, time_msc, ticket"
+        ))?;
+        let rows = stmt.query_map([account_id], |r| Ok((r.get(0)?, deal_from_row_at(r, 1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Stores a hand-entered trade as an entry and an exit deal with negative tickets.
     ///
+    /// The entry deal gets the lower ticket of the two, so that the two sort entry first
+    /// even when they share a timestamp. The deals' position id is the entry's ticket;
+    /// commission, swap and profit go on the exit.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn add_manual_trade(&mut self, _account_id: i64, _trade: &ManualTrade) -> Result<TradeKey> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError::Invalid`] when the symbol is empty or the volume or a price is not a
+    /// positive number; [`DbError::Sqlite`] when the account does not exist or the write fails.
+    pub fn add_manual_trade(&mut self, account_id: i64, trade: &ManualTrade) -> Result<TradeKey> {
+        if trade.symbol.trim().is_empty() {
+            return Err(DbError::Invalid("thiếu mã giao dịch".into()));
+        }
+        for (label, value) in
+            [("khối lượng", trade.volume), ("giá vào", trade.open_price), ("giá ra", trade.close_price)]
+        {
+            if !(value.is_finite() && value > 0.0) {
+                return Err(DbError::Invalid(format!("{label} phải là số dương")));
+            }
+        }
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let lowest: i64 =
+            tx.query_row("SELECT COALESCE(MIN(ticket), 0) FROM deals WHERE account_id = ?1", [account_id], |r| {
+                r.get(0)
+            })?;
+        let exit_ticket = lowest.min(0) - 1;
+        let entry_ticket = exit_ticket - 1;
+        let (entry_kind, exit_kind) = match trade.side {
+            Side::Long => (DealKind::Buy, DealKind::Sell),
+            Side::Short => (DealKind::Sell, DealKind::Buy),
+        };
+        let deal = |ticket: i64, kind: DealKind, entry: DealEntry, time_msc: i64, price: f64| Deal {
+            ticket,
+            order: ticket,
+            position_id: entry_ticket,
+            time_msc,
+            symbol: trade.symbol.trim().to_owned(),
+            kind,
+            entry,
+            volume: trade.volume,
+            price,
+            commission: 0.0,
+            swap: 0.0,
+            fee: 0.0,
+            profit: 0.0,
+            magic: 0,
+            comment: String::new(),
+            sl: trade.sl,
+            tp: trade.tp,
+            risk: None,
+            reason: None,
+        };
+        let entry = deal(entry_ticket, entry_kind, DealEntry::In, trade.open_time, trade.open_price);
+        let exit = Deal {
+            commission: trade.commission,
+            swap: trade.swap,
+            profit: trade.profit,
+            ..deal(exit_ticket, exit_kind, DealEntry::Out, trade.close_time, trade.close_price)
+        };
+        write_deal(&tx, account_id, &entry, MANUAL_SOURCE)?;
+        write_deal(&tx, account_id, &exit, MANUAL_SOURCE)?;
+        tx.commit()?;
+        Ok(TradeKey { account_id, position_id: entry_ticket, segment: 0 })
     }
 
     // --- journal, rules, checklist, day notes -------------------------------
 
+    /// The journal entry of a trade, if the trader wrote one.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn journal(&self, _key: &TradeKey) -> Result<Option<JournalEntry>> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError`] when the query fails or the stored entry does not parse.
+    pub fn journal(&self, key: &TradeKey) -> Result<Option<JournalEntry>> {
+        let json: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT entry_json FROM journal WHERE account_id = ?1 AND position_id = ?2 AND segment = ?3",
+                rusqlite::params![key.account_id, key.position_id, key.segment],
+                |r| r.get(0),
+            )
+            .optional()?;
+        Ok(json.map(|json| serde_json::from_str(&json)).transpose()?)
     }
 
+    /// Every journal entry of the account, or of all accounts when `None`.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn journals(&self, _account_id: Option<i64>) -> Result<Vec<(TradeKey, JournalEntry)>> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError`] when the query fails or a stored entry does not parse.
+    pub fn journals(&self, account_id: Option<i64>) -> Result<Vec<(TradeKey, JournalEntry)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT account_id, position_id, segment, entry_json FROM journal
+             WHERE (?1 IS NULL OR account_id = ?1) ORDER BY account_id, position_id, segment",
+        )?;
+        let rows = stmt.query_map([account_id], |r| {
+            let key = TradeKey { account_id: r.get(0)?, position_id: r.get(1)?, segment: r.get(2)? };
+            Ok((key, r.get::<_, String>(3)?))
+        })?;
+        rows.map(|row| {
+            let (key, json) = row?;
+            Ok((key, serde_json::from_str(&json)?))
+        })
+        .collect()
     }
 
+    /// Writes the entry of a trade, appends it to the cloud changelog and refreshes its
+    /// full-text index, all in one transaction. Saving what is already stored does nothing.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn save_journal(&mut self, _key: &TradeKey, _entry: &JournalEntry) -> Result<()> {
-        Err(DbError::NotImplemented("v0.1: also append to the cloud changelog"))
+    /// [`DbError::Sqlite`] when the write fails, for instance because the account does not exist.
+    pub fn save_journal(&mut self, key: &TradeKey, entry: &JournalEntry) -> Result<()> {
+        let json = serde_json::to_string(entry)?;
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let stored: Option<String> = tx
+            .query_row(
+                "SELECT entry_json FROM journal WHERE account_id = ?1 AND position_id = ?2 AND segment = ?3",
+                rusqlite::params![key.account_id, key.position_id, key.segment],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if stored.as_deref() == Some(json.as_str()) {
+            return Ok(());
+        }
+        let now = now_ms();
+        tx.execute(
+            "INSERT INTO journal (account_id, position_id, segment, entry_json, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(account_id, position_id, segment)
+             DO UPDATE SET entry_json = excluded.entry_json, updated_at = excluded.updated_at",
+            rusqlite::params![key.account_id, key.position_id, key.segment, json, now],
+        )?;
+        append_change(&tx, now, "journal", &key.id(), Some(&json))?;
+        write_index(&tx, &journal_document(&tx, key, entry)?)?;
+        tx.commit()?;
+        Ok(())
     }
 
+    /// The account's discipline rules; all off when none were saved.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn rules(&self, _account_id: i64) -> Result<Rules> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError::Sqlite`] when the query fails.
+    pub fn rules(&self, account_id: i64) -> Result<Rules> {
+        let rules = self
+            .conn
+            .query_row(
+                "SELECT max_daily_loss, max_daily_trades, max_risk_pct, max_consecutive_losses, daily_target
+                 FROM rules WHERE account_id = ?1",
+                [account_id],
+                |r| {
+                    Ok(Rules {
+                        max_daily_loss: r.get(0)?,
+                        max_daily_trades: r.get(1)?,
+                        max_risk_pct: r.get(2)?,
+                        max_consecutive_losses: r.get(3)?,
+                        daily_target: r.get(4)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(rules.unwrap_or_default())
     }
 
+    /// Replaces the account's rules.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn save_rules(&mut self, _account_id: i64, _rules: &Rules) -> Result<()> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError::Sqlite`] when the write fails, for instance because the account does not exist.
+    pub fn save_rules(&mut self, account_id: i64, rules: &Rules) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO rules (account_id, max_daily_loss, max_daily_trades, max_risk_pct, max_consecutive_losses,
+                                daily_target)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(account_id) DO UPDATE SET
+                 max_daily_loss = excluded.max_daily_loss,
+                 max_daily_trades = excluded.max_daily_trades,
+                 max_risk_pct = excluded.max_risk_pct,
+                 max_consecutive_losses = excluded.max_consecutive_losses,
+                 daily_target = excluded.daily_target",
+            rusqlite::params![
+                account_id,
+                rules.max_daily_loss,
+                rules.max_daily_trades,
+                rules.max_risk_pct,
+                rules.max_consecutive_losses,
+                rules.daily_target
+            ],
+        )?;
+        Ok(())
     }
 
+    /// The checklist the trader runs through before entering: the items for every
+    /// account, then the account's own when `account_id` is given.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn checklist(&self, _account_id: Option<i64>) -> Result<Vec<ChecklistItem>> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError::Sqlite`] when the query fails.
+    pub fn checklist(&self, account_id: Option<i64>) -> Result<Vec<ChecklistItem>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, text FROM checklist WHERE account_id IS NULL OR account_id = ?1
+             ORDER BY account_id IS NOT NULL, position, id",
+        )?;
+        let rows = stmt.query_map([account_id], |r| Ok(ChecklistItem { id: r.get(0)?, text: r.get(1)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Replaces one checklist: the items for every account when `account_id` is `None`,
+    /// else that account's own. An item with an id keeps it (journal entries refer to
+    /// the ids they confirmed); an item with id 0 is new; stored items missing from
+    /// `items` are removed. Items keep the order given.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn save_checklist(&mut self, _account_id: Option<i64>, _items: &[ChecklistItem]) -> Result<()> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError::Sqlite`] when the write fails, for instance because the account does not exist.
+    pub fn save_checklist(&mut self, account_id: Option<i64>, items: &[ChecklistItem]) -> Result<()> {
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let mut kept = Vec::with_capacity(items.len());
+        for (position, item) in (0_i64..).zip(items) {
+            let changed = tx.execute(
+                "UPDATE checklist SET text = ?2, position = ?3 WHERE id = ?1 AND account_id IS ?4",
+                rusqlite::params![item.id, item.text, position, account_id],
+            )?;
+            if changed > 0 {
+                kept.push(item.id);
+            } else {
+                tx.execute(
+                    "INSERT INTO checklist (account_id, text, position) VALUES (?1, ?2, ?3)",
+                    rusqlite::params![account_id, item.text, position],
+                )?;
+                kept.push(tx.last_insert_rowid());
+            }
+        }
+        let stale: Vec<i64> = {
+            let mut stmt = tx.prepare("SELECT id FROM checklist WHERE account_id IS ?1")?;
+            stmt.query_map([account_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        };
+        for id in stale.into_iter().filter(|id| !kept.contains(id)) {
+            tx.execute("DELETE FROM checklist WHERE id = ?1", [id])?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
+    /// The note of a day (local date); `account_id` 0 is the note of all accounts.
+    /// A day without a note reads as an empty one.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn day_note(&self, _account_id: i64, _day: chrono::NaiveDate) -> Result<DayNote> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError::Sqlite`] when the query fails.
+    pub fn day_note(&self, account_id: i64, day: chrono::NaiveDate) -> Result<DayNote> {
+        let note = self
+            .conn
+            .query_row(
+                "SELECT plan, review, mood FROM day_notes WHERE account_id = ?1 AND day = ?2",
+                rusqlite::params![account_id, day.to_string()],
+                |r| Ok(DayNote { plan: r.get(0)?, review: r.get(1)?, mood: r.get(2)? }),
+            )
+            .optional()?;
+        Ok(note.unwrap_or_default())
     }
 
+    /// Writes the note of a day and refreshes its full-text index. The index reference
+    /// is `YYYY-MM-DD` for the note of all accounts and `YYYY-MM-DD:<account id>` for an
+    /// account's own, so the two never replace each other.
+    ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
-    pub fn save_day_note(&mut self, _account_id: i64, _day: chrono::NaiveDate, _note: &DayNote) -> Result<()> {
-        Err(DbError::NotImplemented("v0.1"))
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn save_day_note(&mut self, account_id: i64, day: chrono::NaiveDate, note: &DayNote) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT INTO day_notes (account_id, day, plan, review, mood) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(account_id, day) DO UPDATE SET
+                 plan = excluded.plan, review = excluded.review, mood = excluded.mood",
+            rusqlite::params![account_id, day.to_string(), note.plan, note.review, note.mood],
+        )?;
+        let doc = Document {
+            kind: DocKind::Day,
+            reference: if account_id == 0 { day.to_string() } else { format!("{day}:{account_id}") },
+            title: format!("Nhật ký ngày {}", day.format("%d/%m/%Y")),
+            body: [note.plan.as_str(), note.review.as_str(), note.mood.as_str()].join("\n"),
+        };
+        write_index(&tx, &doc)?;
+        tx.commit()?;
+        Ok(())
     }
 
     // --- the trader's catalogs and fields -----------------------------------
@@ -465,7 +762,6 @@ impl Db {
         period: Period,
         start: chrono::NaiveDate,
     ) -> Result<Option<PeriodReview>> {
-        use rusqlite::OptionalExtension;
         let row = self
             .conn
             .query_row(
@@ -530,21 +826,14 @@ impl Db {
     // --- search ---------------------------------------------------------------------
 
     /// Indexes `doc`, replacing what was indexed for the same thing. Called by every
-    /// write of a journal, day note, review, missed trade or setup.
+    /// write of a review, missed trade or setup; journal and day note writes index themselves.
     ///
     /// # Errors
     ///
     /// [`DbError::Sqlite`] when the write fails.
     pub fn index_document(&mut self, doc: &Document) -> Result<()> {
-        let kind = enum_name(&doc.kind)?;
         let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM search_index WHERE kind = ?1 AND reference = ?2", [&kind, &doc.reference])?;
-        if !doc.body.trim().is_empty() || !doc.title.trim().is_empty() {
-            tx.execute(
-                "INSERT INTO search_index (kind, reference, title, body) VALUES (?1, ?2, ?3, ?4)",
-                [&kind, &doc.reference, &doc.title, &doc.body],
-            )?;
-        }
+        write_index(&tx, doc)?;
         tx.commit()?;
         Ok(())
     }
@@ -577,15 +866,14 @@ impl Db {
 
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
+    /// [`DbError::Sqlite`] when the database fails.
     pub fn setting(&self, key: &str) -> Result<Option<String>> {
-        use rusqlite::OptionalExtension;
         Ok(self.conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).optional()?)
     }
 
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the database fails; [`DbError::NotImplemented`] until v0.1.
+    /// [`DbError::Sqlite`] when the database fails.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<()> {
         self.conn.execute(
             "INSERT INTO settings (key, value) VALUES (?1, ?2)
@@ -594,6 +882,246 @@ impl Db {
         )?;
         Ok(())
     }
+}
+
+/// The `source` of the deals of a hand-entered trade.
+const MANUAL_SOURCE: &str = "manual";
+
+/// The setting that holds this installation's id in the changelog.
+const DEVICE_ID_KEY: &str = "sync.device_id";
+
+const ACCOUNT_COLUMNS: &str = "id, login, server, broker, name, currency, initial_balance, last_balance, last_equity,
+     server_offset_min, last_sync";
+
+const DEAL_COLUMNS: &str = "ticket, order_id, position_id, time_msc, symbol, kind, entry, volume, price, commission,
+     swap, fee, profit, magic, comment, sl, tp, risk, reason";
+
+/// A row count as SQLite stores it.
+fn count(n: usize) -> i64 {
+    i64::try_from(n).unwrap_or(i64::MAX)
+}
+
+/// Unix milliseconds now.
+fn now_ms() -> i64 {
+    chrono::Utc::now().timestamp_millis()
+}
+
+fn account_from_row(r: &Row<'_>) -> rusqlite::Result<Account> {
+    Ok(Account {
+        id: r.get(0)?,
+        login: r.get(1)?,
+        server: r.get(2)?,
+        broker: r.get(3)?,
+        name: r.get(4)?,
+        currency: r.get(5)?,
+        initial_balance: r.get(6)?,
+        last_balance: r.get(7)?,
+        last_equity: r.get(8)?,
+        server_offset_min: r.get(9)?,
+        last_sync: r.get(10)?,
+    })
+}
+
+fn deal_from_row(r: &Row<'_>) -> rusqlite::Result<Deal> {
+    deal_from_row_at(r, 0)
+}
+
+/// A deal read from the columns of [`DEAL_COLUMNS`] starting at column `first`.
+fn deal_from_row_at(r: &Row<'_>, first: usize) -> rusqlite::Result<Deal> {
+    Ok(Deal {
+        ticket: r.get(first)?,
+        order: r.get(first + 1)?,
+        position_id: r.get(first + 2)?,
+        time_msc: r.get(first + 3)?,
+        symbol: r.get(first + 4)?,
+        kind: DealKind::parse(&r.get::<_, String>(first + 5)?),
+        entry: DealEntry::parse(&r.get::<_, String>(first + 6)?),
+        volume: r.get(first + 7)?,
+        price: r.get(first + 8)?,
+        commission: r.get(first + 9)?,
+        swap: r.get(first + 10)?,
+        fee: r.get(first + 11)?,
+        profit: r.get(first + 12)?,
+        magic: r.get(first + 13)?,
+        comment: r.get(first + 14)?,
+        sl: r.get(first + 15)?,
+        tp: r.get(first + 16)?,
+        risk: r.get(first + 17)?,
+        reason: r.get(first + 18)?,
+    })
+}
+
+/// Inserts a deal or replaces the stored one with the same (account, ticket).
+fn write_deal(conn: &Connection, account_id: i64, deal: &Deal, source: &str) -> Result<()> {
+    conn.prepare_cached(
+        "INSERT OR REPLACE INTO deals (account_id, ticket, order_id, position_id, time_msc, symbol, kind, entry,
+             volume, price, commission, swap, fee, profit, magic, comment, sl, tp, risk, reason, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+    )?
+    .execute(rusqlite::params![
+        account_id,
+        deal.ticket,
+        deal.order,
+        deal.position_id,
+        deal.time_msc,
+        deal.symbol,
+        deal.kind.as_str(),
+        deal.entry.as_str(),
+        deal.volume,
+        deal.price,
+        deal.commission,
+        deal.swap,
+        deal.fee,
+        deal.profit,
+        deal.magic,
+        deal.comment,
+        deal.sl,
+        deal.tp,
+        deal.risk,
+        deal.reason,
+        source
+    ])?;
+    Ok(())
+}
+
+/// What the EA measured and a report cannot tell (risk, reason, stop, target) is not
+/// lost when a report is imported over the EA's deals.
+fn keep_measured(deal: &mut Deal, stored: &Deal) {
+    if deal.risk.is_none() {
+        deal.risk = stored.risk;
+    }
+    if deal.reason.is_none() {
+        deal.reason.clone_from(&stored.reason);
+    }
+    if deal.sl <= 0.0 {
+        deal.sl = stored.sl;
+    }
+    if deal.tp <= 0.0 {
+        deal.tp = stored.tp;
+    }
+}
+
+/// [`Db::upsert_account`] on any connection or transaction.
+fn upsert_account_on(conn: &Connection, info: &AccountInfo) -> Result<i64> {
+    let login = info.login.trim();
+    if login.is_empty() {
+        return Err(DbError::Invalid("thiếu số tài khoản".into()));
+    }
+    // Empty text means "not reported": it neither blanks a stored value nor beats the default.
+    let id = conn.query_row(
+        "INSERT INTO accounts (login, server, broker, name, currency, last_balance, last_equity, server_offset_min,
+                               last_sync)
+         VALUES (?1, ?2, ?3, ?4, COALESCE(NULLIF(?5, ''), 'USD'), ?6, ?7, ?8, ?9)
+         ON CONFLICT(login, server) DO UPDATE SET
+             broker = COALESCE(NULLIF(?3, ''), broker),
+             name = COALESCE(NULLIF(name, ''), ?4),
+             currency = COALESCE(NULLIF(?5, ''), currency),
+             last_balance = COALESCE(?6, last_balance),
+             last_equity = COALESCE(?7, last_equity),
+             server_offset_min = COALESCE(?8, server_offset_min),
+             last_sync = ?9
+         RETURNING id",
+        rusqlite::params![
+            login,
+            info.server.trim(),
+            info.broker.trim(),
+            info.name.trim(),
+            info.currency.trim(),
+            info.balance,
+            info.equity,
+            info.server_offset_min,
+            now_ms()
+        ],
+        |r| r.get(0),
+    )?;
+    Ok(id)
+}
+
+/// Replaces what is indexed for `doc` (see [`Db::index_document`]); the caller owns the transaction.
+fn write_index(conn: &Connection, doc: &Document) -> Result<()> {
+    let kind = enum_name(&doc.kind)?;
+    conn.execute("DELETE FROM search_index WHERE kind = ?1 AND reference = ?2", [&kind, &doc.reference])?;
+    if !doc.body.trim().is_empty() || !doc.title.trim().is_empty() {
+        conn.execute(
+            "INSERT INTO search_index (kind, reference, title, body) VALUES (?1, ?2, ?3, ?4)",
+            [&kind, &doc.reference, &doc.title, &doc.body],
+        )?;
+    }
+    Ok(())
+}
+
+/// What the trader wrote on a trade, as one searchable text titled like the trade
+/// (`XAUUSD Buy 20/11`, from the trade's deals; a bare reference when they are gone).
+fn journal_document(conn: &Connection, key: &TradeKey, entry: &JournalEntry) -> Result<Document> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {DEAL_COLUMNS} FROM deals
+         WHERE account_id = ?1 AND (position_id = ?2 OR (position_id = 0 AND ticket = ?2))"
+    ))?;
+    let deals: Vec<Deal> = stmt
+        .query_map(rusqlite::params![key.account_id, key.position_id], deal_from_row)?
+        .collect::<rusqlite::Result<_>>()?;
+    let title = build_trades(key.account_id, &deals)
+        .into_iter()
+        .find(|t| t.key == *key)
+        .and_then(|t| {
+            let opened = chrono::DateTime::from_timestamp_millis(t.open_time)?;
+            Some(format!("{} {} {}", t.symbol, t.side.label(), opened.format("%d/%m")))
+        })
+        .unwrap_or_else(|| format!("Lệnh {}", key.position_id));
+
+    let mut parts: Vec<&str> = vec![&entry.setup];
+    parts.extend(entry.tags.iter().chain(&entry.mistakes).map(String::as_str));
+    parts.extend([entry.emotion_before.as_str(), entry.emotion_after.as_str(), entry.notes.as_str()]);
+    if let Some(plan) = &entry.plan {
+        parts.push(&plan.thesis);
+    }
+    parts.extend(entry.screenshots.iter().map(|s| s.caption.as_str()));
+    parts.extend(entry.custom.values().filter_map(|value| match value {
+        FieldValue::Text(text) => Some(text.as_str()),
+        _ => None,
+    }));
+    parts.retain(|part| !part.trim().is_empty());
+    Ok(Document { kind: DocKind::Trade, reference: key.id(), title, body: parts.join("\n") })
+}
+
+/// Appends a row to the cloud changelog (`value` `None` deletes), numbered after this
+/// device's last one.
+fn append_change(conn: &Connection, at: i64, entity: &str, key: &str, value: Option<&str>) -> Result<()> {
+    let device_id = device_id(conn)?;
+    conn.execute(
+        "INSERT INTO changes (device_id, seq, at, entity, key, value)
+         VALUES (?1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM changes WHERE device_id = ?1), ?2, ?3, ?4, ?5)",
+        rusqlite::params![device_id, at, entity, key, value],
+    )?;
+    Ok(())
+}
+
+/// This installation's id in the changelog, made on first use and kept in the settings.
+fn device_id(conn: &Connection) -> Result<String> {
+    let stored: Option<String> =
+        conn.query_row("SELECT value FROM settings WHERE key = ?1", [DEVICE_ID_KEY], |r| r.get(0)).optional()?;
+    if let Some(id) = stored {
+        return Ok(id);
+    }
+    // OR IGNORE: if another connection made one first, theirs wins and is read back.
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES (?1, ?2)",
+        [DEVICE_ID_KEY, new_device_id().as_str()],
+    )?;
+    Ok(conn.query_row("SELECT value FROM settings WHERE key = ?1", [DEVICE_ID_KEY], |r| r.get(0))?)
+}
+
+/// Random enough to tell this machine's changelog from another's; not a secret.
+fn new_device_id() -> String {
+    use std::hash::{BuildHasher, Hasher, RandomState};
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    let half = |salt: u8| {
+        let mut hasher = RandomState::new().build_hasher();
+        hasher.write(&nanos.to_le_bytes());
+        hasher.write_u8(salt);
+        hasher.finish()
+    };
+    format!("{:016x}{:016x}", half(0), half(1))
 }
 
 /// The stored name of a serde enum unit variant (`CatalogKind::ExitReason` → `exit_reason`).
