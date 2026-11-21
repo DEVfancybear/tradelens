@@ -18,6 +18,9 @@ fn main() -> impl std::process::Termination {
             title: "TradeLens".to_owned(),
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             app_id: "vn.dat.tradelens".to_owned(),
+            // A packaged runner reads `nsh\icon.ico`; this one is for `cargo run`.
+            #[cfg(all(target_os = "windows", debug_assertions))]
+            icon: Some(concat!(env!("CARGO_MANIFEST_DIR"), "/icon/icon.ico").into()),
             size: (1280, 800),
             ..Default::default()
         },

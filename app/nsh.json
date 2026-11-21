@@ -3,6 +3,7 @@
   "id": "vn.dat.tradelens",
   "version": "0.1.0",
   "build": 1,
+  "icon": "icon/png/icon-1024.png",
   "appearance": "system",
   "theme": "theme.json",
   "rust": ".",
