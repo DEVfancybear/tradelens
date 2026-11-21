@@ -10,7 +10,11 @@ Mọi request mang header `X-TradeLens-Token: <token>`; token sinh ngẫu nhiên
 | POST | `/api/v1/account` | `{"account": AccountInfo}` | `{"account_id":1}` |
 | POST | `/api/v1/screenshot` | ảnh PNG (≤ 8 MB) + header `X-TradeLens-Login`, `X-TradeLens-Server`, `X-TradeLens-Position`, `X-TradeLens-Moment: entry\|exit` | `{"path":"52012345/61234567-entry.png"}` |
 
-Lỗi: status 4xx/5xx với `{"error":"..."}` — `401` sai token, `400` JSON sai, `500` lỗi DB.
+Lỗi: status 4xx/5xx với `{"error":"..."}` — `401` sai hoặc thiếu token (kiểm tra trước mọi thứ khác, kể cả ping),
+`400` JSON/header sai (EA tách batch để bỏ deal hỏng), `404` sai đường dẫn (hoặc ảnh của tài khoản chưa biết, không kèm server),
+`405` sai method (kèm `Allow`), `413` body quá lớn (JSON > 4 MB, ảnh > 8 MB), `500` lỗi DB hoặc ghi file.
+
+`/deals` tăng revision của app chỉ khi có deal mới hoặc đổi; `/account` chỉ khi số dư, equity hay thông tin tài khoản đổi.
 
 ## DealBatch
 

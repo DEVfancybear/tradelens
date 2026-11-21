@@ -71,6 +71,12 @@ pub struct DealsAccepted {
     pub updated: usize,
 }
 
+/// The answer to `POST /api/v1/account`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountAccepted {
+    pub account_id: i64,
+}
+
 /// Any error: `{"error": "..."}` with a 4xx/5xx status.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ApiError {

@@ -4959,6 +4959,7 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
  "tiny_http",
  "tradelens-core",

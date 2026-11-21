@@ -13,6 +13,7 @@ use std::{
 };
 
 pub mod api;
+mod routes;
 mod server;
 
 pub use tradelens_core::DealBatch;
@@ -22,7 +23,9 @@ pub const DEFAULT_PORT: u16 = 7878;
 
 #[derive(Debug, Clone)]
 pub struct BridgeConfig {
+    /// The database file; the data folder (and its `attachments/`) is the file's folder.
     pub db_path: PathBuf,
+    /// 0 asks the system for a free port; [`Bridge::port`] tells which one was given.
     pub port: u16,
     /// Sent by clients in `X-TradeLens-Token`.
     pub token: String,
@@ -114,6 +117,7 @@ pub enum BridgeError {
 #[derive(Debug)]
 pub struct Bridge {
     pub revision: Revision,
+    port: u16,
     stop: Arc<std::sync::atomic::AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -121,17 +125,26 @@ pub struct Bridge {
 impl Bridge {
     /// Starts the server on its own thread. `on_event` is called from that thread.
     ///
+    /// The server is listening when this returns. Each stored batch, account update or
+    /// screenshot is visible to other connections of the database before it is answered.
+    ///
     /// # Errors
     ///
-    /// [`BridgeError::Bind`] when the port is taken; [`BridgeError::NotImplemented`] until v0.1.
+    /// [`BridgeError::Bind`] when the port is taken; [`BridgeError::Db`] when the database
+    /// cannot be opened.
     pub fn start(
         config: BridgeConfig,
         revision: Revision,
         on_event: impl Fn(BridgeEvent) + Send + 'static,
     ) -> Result<Self, BridgeError> {
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let thread = server::spawn(config, revision.clone(), Arc::clone(&stop), Box::new(on_event))?;
-        Ok(Self { revision, stop, thread: Some(thread) })
+        let running = server::spawn(config, revision.clone(), Arc::clone(&stop), Box::new(on_event))?;
+        Ok(Self { revision, port: running.port, stop, thread: Some(running.thread) })
+    }
+
+    /// The port the server listens on: the configured one, or the one the system chose for port 0.
+    pub fn port(&self) -> u16 {
+        self.port
     }
 }
 
