@@ -67,7 +67,7 @@ pub fn import(files: &[PathBuf], store: &Path, now_ms: i64) -> Vec<Result<Attach
 fn import_one(file: &Path, store: &Path, now_ms: i64) -> Result<Attachment, AttachError> {
     let name = file.file_name().map_or_else(|| file.display().to_string(), |n| n.to_string_lossy().into_owned());
     let io = |source| AttachError::Io { name: name.clone(), source };
-    let extension = file.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    let extension = file.extension().map_or_default(|e| e.to_string_lossy().to_ascii_lowercase());
     if !IMAGE_EXTENSIONS.contains(&extension.as_str()) {
         return Err(AttachError::NotAnImage { name });
     }

@@ -41,7 +41,7 @@ impl Clock {
 }
 
 pub fn naive(ms: i64) -> NaiveDateTime {
-    DateTime::from_timestamp_millis(ms).map(|d| d.naive_utc()).unwrap_or_default()
+    DateTime::from_timestamp_millis(ms).map_or_default(|d| d.naive_utc())
 }
 
 /// Milliseconds of a wall clock read as UTC.

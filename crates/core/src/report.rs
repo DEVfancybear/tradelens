@@ -59,7 +59,7 @@ impl ShareCard {
                 Side::Long => "Buy",
                 Side::Short => "Sell",
             },
-            result_r: r.filter(|_| figures).map(|r| signed(r, "R")).unwrap_or_default(),
+            result_r: r.filter(|_| figures).map_or_default(|r| signed(r, "R")),
             result_money: (privacy == Privacy::ShowMoney).then(|| {
                 let money = signed(net, "");
                 format!(

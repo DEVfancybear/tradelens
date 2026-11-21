@@ -289,8 +289,8 @@ mod tests {
         let defs = [def(FieldKind::Select)];
         assert_eq!(missing_expected(&defs, FieldScope::Trade, &CustomValues::new()), ["Khung vào lệnh"]);
         let filled = CustomValues::from([("entry_tf".to_owned(), FieldValue::Choice("M5".into()))]);
-        assert!(missing_expected(&defs, FieldScope::Trade, &filled).is_empty());
-        assert!(missing_expected(&defs, FieldScope::Day, &CustomValues::new()).is_empty());
+        assert_eq!(missing_expected(&defs, FieldScope::Trade, &filled), Vec::<&str>::new());
+        assert_eq!(missing_expected(&defs, FieldScope::Day, &CustomValues::new()), Vec::<&str>::new());
     }
 
     #[test]

@@ -737,6 +737,6 @@ mod tests {
         let id = db.save_field_def(&def).unwrap();
         let read = db.field_defs(FieldScope::Trade).unwrap();
         assert_eq!(read, vec![FieldDef { id, ..def }]);
-        assert!(db.field_defs(FieldScope::Day).unwrap().is_empty());
+        assert_eq!(db.field_defs(FieldScope::Day).unwrap(), Vec::<FieldDef>::new());
     }
 }
