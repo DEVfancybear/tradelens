@@ -1,2 +1,2 @@
-# Windows only; wheels for Python 3.6-3.14.
+# Windows only; Python 3.10+ (the script uses 3.10 syntax), MetaTrader5 wheels for 3.6-3.14.
 MetaTrader5>=5.0.6231
