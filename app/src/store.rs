@@ -276,9 +276,14 @@ impl Store {
         });
         match started {
             Ok(bridge) => {
+                // The bound port, which differs from the configured one when that is 0.
+                let port = bridge.port();
                 self.events.replace(Some(receiver));
                 self.bridge_handle.replace(Some(bridge));
-                self.bridge.update(|info| info.phase = BridgePhase::Listening { port });
+                self.bridge.update(|info| {
+                    info.port = port;
+                    info.phase = BridgePhase::Listening { port };
+                });
             }
             Err(error) => {
                 log::warn!("bridge: {error}");
