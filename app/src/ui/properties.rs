@@ -29,7 +29,7 @@ use super::{
 };
 
 /// The kinds a property can have, in the order the picker lists them.
-pub const KINDS: [FieldKind; 8] = [
+pub const KINDS: [FieldKind; 9] = [
     FieldKind::Text,
     FieldKind::LongText,
     FieldKind::Number,
@@ -38,6 +38,7 @@ pub const KINDS: [FieldKind; 8] = [
     FieldKind::Checkbox,
     FieldKind::Scale,
     FieldKind::Date,
+    FieldKind::Url,
 ];
 
 /// The kind's name as the trader reads it.
@@ -51,6 +52,7 @@ pub fn kind_name(kind: FieldKind) -> &'static str {
         FieldKind::Checkbox => "Checkbox",
         FieldKind::Scale => "Thang điểm",
         FieldKind::Date => "Ngày",
+        FieldKind::Url => "Liên kết",
     }
 }
 
@@ -65,6 +67,7 @@ pub fn kind_hint(kind: FieldKind) -> &'static str {
         FieldKind::Checkbox => "có / không",
         FieldKind::Scale => "1–5, 1–10",
         FieldKind::Date => "YYYY-MM-DD",
+        FieldKind::Url => "mở bằng trình duyệt",
     }
 }
 
@@ -79,6 +82,7 @@ pub fn kind_glyph(kind: FieldKind) -> &'static str {
         FieldKind::Checkbox => "☑",
         FieldKind::Scale => "☆",
         FieldKind::Date => "▦",
+        FieldKind::Url => "↗",
     }
 }
 
@@ -123,6 +127,7 @@ fn kind_key(kind: FieldKind) -> &'static str {
         FieldKind::Checkbox => "checkbox",
         FieldKind::Scale => "scale",
         FieldKind::Date => "date",
+        FieldKind::Url => "url",
     }
 }
 
@@ -800,6 +805,26 @@ fn custom_editor(slot: Slot, property: &Property, scale_max: u8) -> AnyElement {
             .child(text(format!("/ {scale_max}")).text_sm().text_color(move || theme().muted_foreground))
             .into_element(),
         FieldKind::Date => date_editor(slot, label).into_element(),
+        FieldKind::Url => view()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(view().flex_1().child(text_field(
+                label,
+                None,
+                "https://…",
+                move || slot.text(),
+                move |t| slot.set_text(t),
+            )))
+            .child(dynamic(move || {
+                (!slot.text().trim().is_empty()).then(|| {
+                    icon_action(Icon::Share, "Mở liên kết", Variant::Ghost, move || {
+                        // Whether a browser took it does not matter here.
+                        drop(open_url(slot.text().trim().to_owned()));
+                    })
+                })
+            }))
+            .into_element(),
     }
 }
 
