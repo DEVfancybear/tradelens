@@ -18,6 +18,8 @@ use crate::review::{Period, PeriodReview, ReviewTemplate};
 use crate::search::{self, DocKind, Document, Hit};
 use crate::trades::build_trades;
 
+mod notion;
+
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
     #[error("sqlite: {0}")]
@@ -339,15 +341,7 @@ impl Db {
     ///
     /// [`DbError`] when the query fails or the stored entry does not parse.
     pub fn journal(&self, key: &TradeKey) -> Result<Option<JournalEntry>> {
-        let json: Option<String> = self
-            .conn
-            .query_row(
-                "SELECT entry_json FROM journal WHERE account_id = ?1 AND position_id = ?2 AND segment = ?3",
-                rusqlite::params![key.account_id, key.position_id, key.segment],
-                |r| r.get(0),
-            )
-            .optional()?;
-        Ok(json.map(|json| serde_json::from_str(&json)).transpose()?)
+        journal_on(&self.conn, key)
     }
 
     /// Every journal entry of the account, or of all accounts when `None`.
@@ -378,27 +372,8 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the write fails, for instance because the account does not exist.
     pub fn save_journal(&mut self, key: &TradeKey, entry: &JournalEntry) -> Result<()> {
-        let json = serde_json::to_string(entry)?;
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let stored: Option<String> = tx
-            .query_row(
-                "SELECT entry_json FROM journal WHERE account_id = ?1 AND position_id = ?2 AND segment = ?3",
-                rusqlite::params![key.account_id, key.position_id, key.segment],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if stored.as_deref() == Some(json.as_str()) {
-            return Ok(());
-        }
-        let now = now_ms();
-        tx.execute(
-            "INSERT INTO journal (account_id, position_id, segment, entry_json, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(account_id, position_id, segment)
-             DO UPDATE SET entry_json = excluded.entry_json, updated_at = excluded.updated_at",
-            rusqlite::params![key.account_id, key.position_id, key.segment, json, now],
-        )?;
-        append_change(&tx, now, "journal", &key.id(), Some(&json))?;
-        write_index(&tx, &journal_document(&tx, key, entry)?)?;
+        save_journal_on(&tx, key, entry)?;
         tx.commit()?;
         Ok(())
     }
@@ -561,22 +536,7 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the query fails.
     pub fn catalog(&self, kind: CatalogKind) -> Result<Vec<CatalogItem>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, key, label, color, position, archived FROM catalog_items
-             WHERE kind = ?1 ORDER BY archived, position, id",
-        )?;
-        let rows = stmt.query_map([kind_name(kind)?], |r| {
-            Ok(CatalogItem {
-                id: r.get(0)?,
-                kind,
-                key: r.get(1)?,
-                label: r.get(2)?,
-                color: r.get(3)?,
-                position: r.get(4)?,
-                archived: r.get(5)?,
-            })
-        })?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        catalog_on(&self.conn, kind)
     }
 
     /// Adds an option (`item.id` 0) or changes one; returns its id. Keys are unique per kind.
@@ -585,20 +545,7 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the key is taken or the write fails.
     pub fn save_catalog_item(&mut self, item: &CatalogItem) -> Result<i64> {
-        let kind = kind_name(item.kind)?;
-        if item.id == 0 {
-            self.conn.execute(
-                "INSERT INTO catalog_items (kind, key, label, color, position, archived) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![kind, item.key, item.label, item.color, item.position, item.archived],
-            )?;
-            Ok(self.conn.last_insert_rowid())
-        } else {
-            self.conn.execute(
-                "UPDATE catalog_items SET label = ?2, color = ?3, position = ?4, archived = ?5 WHERE id = ?1",
-                rusqlite::params![item.id, item.label, item.color, item.position, item.archived],
-            )?;
-            Ok(item.id)
-        }
+        save_catalog_item_on(&self.conn, item)
     }
 
     /// The fields the trader defined for `scope`, in their order.
@@ -607,17 +554,7 @@ impl Db {
     ///
     /// [`DbError`] when the query fails or a stored definition does not parse.
     pub fn field_defs(&self, scope: FieldScope) -> Result<Vec<FieldDef>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, def_json FROM field_defs WHERE scope = ?1 ORDER BY archived, position, id")?;
-        let rows = stmt.query_map([scope_name(scope)?], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
-        rows.map(|row| {
-            let (id, json) = row?;
-            let mut def: FieldDef = serde_json::from_str(&json)?;
-            def.id = id;
-            Ok(def)
-        })
-        .collect()
+        field_defs_on(&self.conn, scope)
     }
 
     /// Adds a field (`def.id` 0) or changes one; returns its id.
@@ -626,21 +563,7 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the key is taken in its scope or the write fails.
     pub fn save_field_def(&mut self, def: &FieldDef) -> Result<i64> {
-        let json = serde_json::to_string(def)?;
-        let scope = scope_name(def.scope)?;
-        if def.id == 0 {
-            self.conn.execute(
-                "INSERT INTO field_defs (scope, key, def_json, position, archived) VALUES (?1, ?2, ?3, ?4, ?5)",
-                rusqlite::params![scope, def.key, json, def.position, def.archived],
-            )?;
-            Ok(self.conn.last_insert_rowid())
-        } else {
-            self.conn.execute(
-                "UPDATE field_defs SET def_json = ?2, position = ?3, archived = ?4 WHERE id = ?1",
-                rusqlite::params![def.id, json, def.position, def.archived],
-            )?;
-            Ok(def.id)
-        }
+        save_field_def_on(&self.conn, def)
     }
 
     /// The trader's arrangement of a form, or the default one.
@@ -649,10 +572,7 @@ impl Db {
     ///
     /// [`DbError`] when the setting cannot be read or does not parse.
     pub fn form_layout(&self, scope: FieldScope) -> Result<FormLayout> {
-        match self.setting(&format!("form.layout.{}", scope_name(scope)?))? {
-            Some(json) => Ok(serde_json::from_str(&json)?),
-            None => Ok(FormLayout::default_for(scope)),
-        }
+        form_layout_on(&self.conn, scope)
     }
 
     /// Saves the arrangement of a form.
@@ -661,8 +581,7 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the write fails.
     pub fn save_form_layout(&mut self, layout: &FormLayout) -> Result<()> {
-        let key = format!("form.layout.{}", scope_name(layout.scope)?);
-        self.set_setting(&key, &serde_json::to_string(layout)?)
+        save_form_layout_on(&self.conn, layout)
     }
 
     // --- playbook -------------------------------------------------------------
@@ -673,15 +592,7 @@ impl Db {
     ///
     /// [`DbError`] when the query fails or a stored setup does not parse.
     pub fn playbooks(&self) -> Result<Vec<Playbook>> {
-        let mut stmt = self.conn.prepare("SELECT id, json FROM playbooks ORDER BY archived, position, id")?;
-        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
-        rows.map(|row| {
-            let (id, json) = row?;
-            let mut playbook: Playbook = serde_json::from_str(&json)?;
-            playbook.id = id;
-            Ok(playbook)
-        })
-        .collect()
+        playbooks_on(&self.conn)
     }
 
     /// Adds a setup (`id` 0) or changes one; returns its id. Names are unique.
@@ -868,24 +779,161 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the database fails.
     pub fn setting(&self, key: &str) -> Result<Option<String>> {
-        Ok(self.conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).optional()?)
+        setting_on(&self.conn, key)
     }
 
     /// # Errors
     ///
     /// [`DbError::Sqlite`] when the database fails.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO settings (key, value) VALUES (?1, ?2)
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            [key, value],
-        )?;
-        Ok(())
+        set_setting_on(&self.conn, key, value)
     }
 }
 
 /// The `source` of the deals of a hand-entered trade.
 const MANUAL_SOURCE: &str = "manual";
+
+// --- statements shared by the methods above and by multi-step transactions ----------
+
+fn field_defs_on(conn: &Connection, scope: FieldScope) -> Result<Vec<FieldDef>> {
+    let mut stmt =
+        conn.prepare("SELECT id, def_json FROM field_defs WHERE scope = ?1 ORDER BY archived, position, id")?;
+    let rows = stmt.query_map([scope_name(scope)?], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+    rows.map(|row| {
+        let (id, json) = row?;
+        let mut def: FieldDef = serde_json::from_str(&json)?;
+        def.id = id;
+        Ok(def)
+    })
+    .collect()
+}
+
+fn save_field_def_on(conn: &Connection, def: &FieldDef) -> Result<i64> {
+    let json = serde_json::to_string(def)?;
+    let scope = scope_name(def.scope)?;
+    if def.id == 0 {
+        conn.execute(
+            "INSERT INTO field_defs (scope, key, def_json, position, archived) VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![scope, def.key, json, def.position, def.archived],
+        )?;
+        Ok(conn.last_insert_rowid())
+    } else {
+        conn.execute(
+            "UPDATE field_defs SET def_json = ?2, position = ?3, archived = ?4 WHERE id = ?1",
+            rusqlite::params![def.id, json, def.position, def.archived],
+        )?;
+        Ok(def.id)
+    }
+}
+
+fn catalog_on(conn: &Connection, kind: CatalogKind) -> Result<Vec<CatalogItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, key, label, color, position, archived FROM catalog_items
+         WHERE kind = ?1 ORDER BY archived, position, id",
+    )?;
+    let rows = stmt.query_map([kind_name(kind)?], |r| {
+        Ok(CatalogItem {
+            id: r.get(0)?,
+            kind,
+            key: r.get(1)?,
+            label: r.get(2)?,
+            color: r.get(3)?,
+            position: r.get(4)?,
+            archived: r.get(5)?,
+        })
+    })?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+fn save_catalog_item_on(conn: &Connection, item: &CatalogItem) -> Result<i64> {
+    let kind = kind_name(item.kind)?;
+    if item.id == 0 {
+        conn.execute(
+            "INSERT INTO catalog_items (kind, key, label, color, position, archived) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![kind, item.key, item.label, item.color, item.position, item.archived],
+        )?;
+        Ok(conn.last_insert_rowid())
+    } else {
+        conn.execute(
+            "UPDATE catalog_items SET label = ?2, color = ?3, position = ?4, archived = ?5 WHERE id = ?1",
+            rusqlite::params![item.id, item.label, item.color, item.position, item.archived],
+        )?;
+        Ok(item.id)
+    }
+}
+
+fn playbooks_on(conn: &Connection) -> Result<Vec<Playbook>> {
+    let mut stmt = conn.prepare("SELECT id, json FROM playbooks ORDER BY archived, position, id")?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+    rows.map(|row| {
+        let (id, json) = row?;
+        let mut playbook: Playbook = serde_json::from_str(&json)?;
+        playbook.id = id;
+        Ok(playbook)
+    })
+    .collect()
+}
+
+fn journal_on(conn: &Connection, key: &TradeKey) -> Result<Option<JournalEntry>> {
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT entry_json FROM journal WHERE account_id = ?1 AND position_id = ?2 AND segment = ?3",
+            rusqlite::params![key.account_id, key.position_id, key.segment],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(json.map(|json| serde_json::from_str(&json)).transpose()?)
+}
+
+/// Writes a journal entry, its changelog row and its index; saving what is stored does nothing.
+fn save_journal_on(conn: &Connection, key: &TradeKey, entry: &JournalEntry) -> Result<()> {
+    let json = serde_json::to_string(entry)?;
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT entry_json FROM journal WHERE account_id = ?1 AND position_id = ?2 AND segment = ?3",
+            rusqlite::params![key.account_id, key.position_id, key.segment],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if stored.as_deref() == Some(json.as_str()) {
+        return Ok(());
+    }
+    let now = now_ms();
+    conn.execute(
+        "INSERT INTO journal (account_id, position_id, segment, entry_json, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(account_id, position_id, segment)
+         DO UPDATE SET entry_json = excluded.entry_json, updated_at = excluded.updated_at",
+        rusqlite::params![key.account_id, key.position_id, key.segment, json, now],
+    )?;
+    append_change(conn, now, "journal", &key.id(), Some(&json))?;
+    write_index(conn, &journal_document(conn, key, entry)?)?;
+    Ok(())
+}
+
+fn setting_on(conn: &Connection, key: &str) -> Result<Option<String>> {
+    Ok(conn.query_row("SELECT value FROM settings WHERE key = ?1", [key], |r| r.get(0)).optional()?)
+}
+
+fn set_setting_on(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        [key, value],
+    )?;
+    Ok(())
+}
+
+fn form_layout_on(conn: &Connection, scope: FieldScope) -> Result<FormLayout> {
+    match setting_on(conn, &format!("form.layout.{}", scope_name(scope)?))? {
+        Some(json) => Ok(serde_json::from_str(&json)?),
+        None => Ok(FormLayout::default_for(scope)),
+    }
+}
+
+fn save_form_layout_on(conn: &Connection, layout: &FormLayout) -> Result<()> {
+    let key = format!("form.layout.{}", scope_name(layout.scope)?);
+    set_setting_on(conn, &key, &serde_json::to_string(layout)?)
+}
 
 /// The setting that holds this installation's id in the changelog.
 const DEVICE_ID_KEY: &str = "sync.device_id";

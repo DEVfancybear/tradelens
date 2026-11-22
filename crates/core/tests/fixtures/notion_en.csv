@@ -1,0 +1,6 @@
+﻿Name,Date,Pair,Direction,Lot,Entry,Exit,SL,TP,P&L,Setup,Tags,Mistakes,Emotion,Rating,Notes,Screenshot,Created time
+EURUSD breakout,"November 16, 2026 9:00 AM → November 16, 2026 3:10 PM",EURUSD,Long,0.2,1.0850,1.0950,1.0800,1.0950,$150.00,Breakout,"London open, Theo trend H4",,Calm,4,Held to the target.,chart1.png (https://example.com/c1.png),"November 16, 2026 3:12 PM"
+Gold fade,"November 17, 2026 8:15 AM",XAUUSD,Short,0.1,2650.25,2660.25,2660.25,2630.00,-$100.00,Fade,"News, london_open","Early entry, Revenge",Fear,2,"Stopped out, ""again"".",,"November 17, 2026 10:50 AM"
+Gold swing,"November 18, 2026 10:00 AM → November 19, 2026 4:30 PM",XAUUSD,Long,0.3,2640.00,2644.00,2630.00,2650.00,"$1,200.00",Breakout,A+ setup,,Confident,⭐⭐⭐,,https://example.com/gold.png,"November 19, 2026 4:35 PM"
+Cable scalp,"November 19, 2026 1:00 PM",GBPUSD,Sell,0.5,1.2640,1.2652,,,(30.00),,,Revenge,Greed,,Chased it.,,"November 19, 2026 1:20 PM"
+Yen,2026-11-20 10:00,USDJPY,Buy,1,150.250,150.700,,,−45.5,Breakout,,,,,,,2026-11-20T10:30:00

@@ -135,6 +135,8 @@ pub enum FieldKind {
     /// 1 to `max` stars or points.
     Scale,
     Date,
+    /// A link, stored as text.
+    Url,
 }
 
 /// A field the trader added, such as "Khung vào lệnh" (select) or "Mức tập trung" (scale 1–10).
@@ -221,7 +223,7 @@ impl FieldDef {
             }
         };
         match (self.kind, value) {
-            (FieldKind::Text | FieldKind::LongText, FieldValue::Text(_))
+            (FieldKind::Text | FieldKind::LongText | FieldKind::Url, FieldValue::Text(_))
             | (FieldKind::Number, FieldValue::Number(_))
             | (FieldKind::Checkbox, FieldValue::Flag(_)) => Ok(()),
             (FieldKind::Select, FieldValue::Choice(v)) => option(v),

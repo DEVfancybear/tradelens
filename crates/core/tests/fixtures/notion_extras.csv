@@ -1,0 +1,6 @@
+Name,Date,Pair,Direction,Lot,Entry,Exit,P&L,Tâm lý,Khung thời gian,Confluence,Đã xem lại,Link TradingView,Điểm,Ngày xem lại,Ghi chú thêm,Trống,Last edited time
+T1,2026-11-16 09:00,EURUSD,Long,0.1,1.0850,1.0900,50,Bình tĩnh,M15,"Order block, Fair value gap",Yes,https://www.tradingview.com/x/aaa/,8,2026-11-17,"Vào theo plan, chờ nến đóng",,2026-11-17 10:00
+T2,2026-11-17 09:00,XAUUSD,Short,0.1,2650.25,2640.25,100,Lo lắng,H1,Order block,No,https://www.tradingview.com/x/bbb/,6.5,2026-11-18,Dời SL vì sợ,,2026-11-18 10:00
+T3,2026-11-18 09:00,EURUSD,Long,0.2,1.0900,1.0880,-40,Bình tĩnh,M15,"Fair value gap, Liquidity sweep",Yes,https://www.tradingview.com/x/ccc/,9,2026-11-19,Chốt non,,2026-11-19 10:00
+T4,2026-11-19 09:00,GBPUSD,Long,0.1,1.2600,1.2640,40,Lo lắng,H1,"Order block, Liquidity sweep",No,https://www.tradingview.com/x/ddd/,7,2026-11-20,Tin tức mạnh,,2026-11-20 10:00
+T5,2026-11-20 09:00,EURUSD,Short,0.1,1.0900,1.0850,50,Bình tĩnh,M15,Order block,Yes,,10,,Ổn,,2026-11-21 10:00

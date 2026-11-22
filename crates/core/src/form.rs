@@ -347,7 +347,7 @@ pub fn convert(value: &FieldValue, to: FieldKind) -> Option<FieldValue> {
         V::Scale(n) => n.to_string(),
     };
     match to {
-        FieldKind::Text | FieldKind::LongText => Some(V::Text(text)),
+        FieldKind::Text | FieldKind::LongText | FieldKind::Url => Some(V::Text(text)),
         FieldKind::Number => match value {
             V::Number(n) => Some(V::Number(*n)),
             V::Scale(n) => Some(V::Number(f64::from(*n))),

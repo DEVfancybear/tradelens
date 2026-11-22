@@ -1,0 +1,300 @@
+//! From rows of text to trades: the deals of each row, its journal, and the rows that
+//! cannot be read, each with its line and its reason.
+
+use std::collections::{HashMap, HashSet};
+
+use chrono::NaiveDateTime;
+
+use crate::catalog::{CustomValues, FieldKind, FieldValue};
+use crate::import::ImportError;
+use crate::model::{AccountInfo, Deal, DealEntry, DealKind, Side};
+use crate::time::to_ms;
+
+use super::cells::{
+    parse_bool, parse_datetime, parse_number, parse_range_end, parse_rating, parse_side, split_files, split_list,
+    stable_hash,
+};
+use super::detect::Layout;
+use super::properties::value_of;
+use super::sheet::{Row, Sheet};
+use super::{Field, NotionMapping, NotionPlan, PlannedJournal, PlannedProperty, PlannedRow, RowIssue};
+
+/// The login of the account Notion trades go to when the caller names none.
+const DEFAULT_LOGIN: &str = "notion";
+
+/// Tickets of Notion trades start below this, far from the small negative tickets that
+/// hand-entered trades count down from.
+const TICKET_BASE: i64 = 1 << 40;
+
+/// A trade's id is 40 bits of a hash.
+const ID_MASK: u64 = (1 << 40) - 1;
+
+/// What a column the file lacks stands in for.
+const DEFAULT_VOLUME: f64 = 1.0;
+
+/// Whether an empty cell is an error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Need {
+    Required,
+    Optional,
+}
+
+pub(super) fn build(
+    sheet: &Sheet,
+    layout: &Layout,
+    mut properties: Vec<(usize, PlannedProperty)>,
+    overrides: &NotionMapping,
+) -> Result<NotionPlan, ImportError> {
+    let mut rows = Vec::new();
+    let mut issues = Vec::new();
+    let mut seen_titles: HashMap<(String, i64), usize> = HashMap::new();
+    let mut used_ids: HashSet<u64> = HashSet::new();
+    let mut seen_options: Vec<HashSet<String>> = vec![HashSet::new(); properties.len()];
+    let mut option_order: Vec<Vec<String>> = vec![Vec::new(); properties.len()];
+
+    for row in &sheet.rows {
+        match read_row(sheet, layout, row) {
+            Ok(parsed) => {
+                let key = (parsed.title.clone(), parsed.open_ms);
+                let occurrence = seen_titles.entry(key).or_insert(0);
+                let mut id =
+                    stable_hash(&[&parsed.title, &parsed.open_ms.to_string(), &occurrence.to_string()]) & ID_MASK;
+                *occurrence += 1;
+                while !used_ids.insert(id) {
+                    id = (id + 1) & ID_MASK;
+                }
+                let mut journal = parsed.journal;
+                for (index, (column, property)) in properties.iter_mut().enumerate() {
+                    let Some(value) = value_of(property.kind, row.cell(*column), sheet.locale) else {
+                        continue;
+                    };
+                    for option in choices_of(&value) {
+                        if seen_options[index].insert(option.clone()) {
+                            option_order[index].push(option);
+                        }
+                    }
+                    property.filled += 1;
+                    journal.custom.insert(property.key.clone(), value);
+                }
+                rows.push(parsed.trade.into_row(row.line, parsed.title, id, journal));
+            }
+            Err(reason) => issues.push(RowIssue { line: row.line, reason }),
+        }
+    }
+    for (index, (_, property)) in properties.iter_mut().enumerate() {
+        if matches!(property.kind, FieldKind::Select | FieldKind::MultiSelect) {
+            property.options = std::mem::take(&mut option_order[index]);
+        }
+    }
+    if rows.is_empty() {
+        let why: Vec<String> = issues.iter().take(3).map(ToString::to_string).collect();
+        return Err(ImportError::Invalid(format!("không đọc được dòng nào trong file ({})", why.join("; "))));
+    }
+
+    let name_of = |column: usize| sheet.headers[column].clone();
+    let account = if overrides.account_login.trim().is_empty() {
+        AccountInfo {
+            login: DEFAULT_LOGIN.to_owned(),
+            broker: "Notion".to_owned(),
+            name: "Nhật ký Notion".to_owned(),
+            currency: "USD".to_owned(),
+            ..AccountInfo::default()
+        }
+    } else {
+        AccountInfo { login: overrides.account_login.trim().to_owned(), ..AccountInfo::default() }
+    };
+    Ok(NotionPlan {
+        account,
+        headers: sheet.headers.clone(),
+        mapping: NotionMapping {
+            columns: layout.fields.iter().map(|&(field, column)| (field, name_of(column))).collect(),
+            account_login: overrides.account_login.clone(),
+        },
+        title_column: layout.title.map(name_of),
+        ignored_columns: layout.ignored.iter().map(|&c| name_of(c)).collect(),
+        properties: properties.into_iter().map(|(_, property)| property).collect(),
+        rows,
+        issues,
+        warnings: warnings(layout),
+        total_rows: sheet.rows.len(),
+    })
+}
+
+fn choices_of(value: &FieldValue) -> Vec<String> {
+    match value {
+        FieldValue::Choice(c) => vec![c.clone()],
+        FieldValue::Choices(cs) => cs.clone(),
+        _ => Vec::new(),
+    }
+}
+
+/// What the file lacks, and what the import assumes instead.
+fn warnings(layout: &Layout) -> Vec<String> {
+    let mut notes = Vec::new();
+    for (field, assumed) in [
+        (Field::Volume, "dùng 1 lot"),
+        (Field::OpenPrice, "giá vào để 0"),
+        (Field::ClosePrice, "giá ra để 0"),
+        (Field::Profit, "lãi/lỗ để 0"),
+    ] {
+        if layout.column(field).is_none() {
+            notes.push(format!("File không có cột {}: {assumed}.", field.label()));
+        }
+    }
+    notes
+}
+
+/// The numbers and times of a row, before they become deals.
+struct Trade {
+    symbol: String,
+    side: Side,
+    volume: f64,
+    open: NaiveDateTime,
+    close: NaiveDateTime,
+    open_price: f64,
+    close_price: f64,
+    sl: f64,
+    tp: f64,
+    profit: f64,
+    commission: f64,
+    swap: f64,
+}
+
+struct Parsed {
+    title: String,
+    open_ms: i64,
+    trade: Trade,
+    journal: PlannedJournal,
+}
+
+impl Trade {
+    /// The entry deal and the exit deal of a hand-entered trade (see [`crate::Db::add_manual_trade`]):
+    /// the entry has the lower ticket, costs and profit are on the exit.
+    fn into_row(self, line: usize, title: String, id: u64, journal: PlannedJournal) -> PlannedRow {
+        let exit_ticket = -(TICKET_BASE + 2 * i64::try_from(id).expect("a 40-bit id fits i64"));
+        let entry_ticket = exit_ticket - 1;
+        let (entry_kind, exit_kind) = match self.side {
+            Side::Long => (DealKind::Buy, DealKind::Sell),
+            Side::Short => (DealKind::Sell, DealKind::Buy),
+        };
+        let comment = if title.is_empty() { "Notion".to_owned() } else { title.clone() };
+        let deal = |ticket: i64, kind: DealKind, entry: DealEntry, at: NaiveDateTime, price: f64| Deal {
+            ticket,
+            order: ticket,
+            position_id: entry_ticket,
+            time_msc: to_ms(at),
+            symbol: self.symbol.clone(),
+            kind,
+            entry,
+            volume: self.volume,
+            price,
+            commission: 0.0,
+            swap: 0.0,
+            fee: 0.0,
+            profit: 0.0,
+            magic: 0,
+            comment: comment.clone(),
+            sl: self.sl,
+            tp: self.tp,
+            risk: None,
+            reason: None,
+        };
+        let entry = deal(entry_ticket, entry_kind, DealEntry::In, self.open, self.open_price);
+        let exit = Deal {
+            commission: self.commission,
+            swap: self.swap,
+            profit: self.profit,
+            ..deal(exit_ticket, exit_kind, DealEntry::Out, self.close, self.close_price)
+        };
+        PlannedRow { line, title, position_id: entry_ticket, entry, exit, journal }
+    }
+}
+
+/// Reads one row, or says in Vietnamese why it cannot be.
+fn read_row(sheet: &Sheet, layout: &Layout, row: &Row) -> Result<Parsed, String> {
+    let locale = sheet.locale;
+    let text = |field: Field| layout.column(field).map_or("", |column| row.cell(column));
+    let number = |field: Field, need: Need| -> Result<Option<f64>, String> {
+        let cell = text(field);
+        if cell.is_empty() {
+            return match need {
+                Need::Required if layout.column(field).is_some() => Err(format!("thiếu {}", field.label())),
+                _ => Ok(None),
+            };
+        }
+        parse_number(cell, locale.comma).map(Some).ok_or_else(|| format!("{} «{cell}» không phải là số", field.label()))
+    };
+    let positive = |field: Field| -> Result<Option<f64>, String> {
+        match number(field, Need::Required)? {
+            Some(value) if value <= 0.0 => {
+                Err(format!("{} phải là số dương, không phải «{}»", field.label(), text(field)))
+            }
+            other => Ok(other),
+        }
+    };
+
+    let open_cell = text(Field::OpenTime);
+    let open = parse_datetime(open_cell, locale.dates).ok_or_else(|| {
+        if open_cell.is_empty() {
+            "thiếu thời gian vào".to_owned()
+        } else {
+            format!("không đọc được thời gian vào «{open_cell}»")
+        }
+    })?;
+    let close_cell = text(Field::CloseTime);
+    let close = if close_cell.is_empty() {
+        parse_range_end(open_cell, locale.dates).unwrap_or(open)
+    } else {
+        parse_datetime(close_cell, locale.dates).ok_or_else(|| format!("không đọc được thời gian ra «{close_cell}»"))?
+    };
+    if close < open {
+        return Err("thời gian ra sớm hơn thời gian vào".to_owned());
+    }
+    let symbol = text(Field::Symbol).to_owned();
+    if symbol.is_empty() {
+        return Err("thiếu symbol".to_owned());
+    }
+    let side_cell = text(Field::Side);
+    let side = parse_side(side_cell).ok_or_else(|| {
+        if side_cell.is_empty() {
+            "thiếu chiều lệnh (Buy/Sell)".to_owned()
+        } else {
+            format!("chiều lệnh «{side_cell}» không phải Buy/Sell hoặc Long/Short")
+        }
+    })?;
+
+    let trade = Trade {
+        symbol,
+        side,
+        volume: positive(Field::Volume)?.unwrap_or(DEFAULT_VOLUME),
+        open,
+        close,
+        open_price: positive(Field::OpenPrice)?.unwrap_or(0.0),
+        close_price: positive(Field::ClosePrice)?.unwrap_or(0.0),
+        sl: number(Field::StopLoss, Need::Optional)?.unwrap_or(0.0),
+        tp: number(Field::TakeProfit, Need::Optional)?.unwrap_or(0.0),
+        profit: number(Field::Profit, Need::Required)?.unwrap_or(0.0),
+        commission: number(Field::Commission, Need::Optional)?.unwrap_or(0.0),
+        swap: number(Field::Swap, Need::Optional)?.unwrap_or(0.0),
+    };
+
+    let first_item = |field: Field| split_list(text(field)).into_iter().next().unwrap_or_default();
+    let journal = PlannedJournal {
+        setup: text(Field::Setup).to_owned(),
+        setup_grade: text(Field::SetupGrade).to_owned(),
+        tags: split_list(text(Field::Tags)),
+        mistakes: split_list(text(Field::Mistakes)),
+        emotion_before: first_item(Field::Emotion),
+        emotion_after: first_item(Field::EmotionAfter),
+        exit_reason: text(Field::ExitReason).to_owned(),
+        market: text(Field::Market).to_owned(),
+        rating: parse_rating(text(Field::Rating)).unwrap_or(0),
+        followed_plan: parse_bool(text(Field::FollowedPlan)),
+        review_later: parse_bool(text(Field::ReviewLater)),
+        notes: text(Field::Notes).to_owned(),
+        screenshots: split_files(text(Field::Screenshot)),
+        custom: CustomValues::new(),
+    };
+    let title = row.cell(layout.key_column).to_owned();
+    Ok(Parsed { title, open_ms: to_ms(open), trade, journal })
+}

@@ -32,7 +32,7 @@ pub enum ImportError {
 pub enum Format {
     Mt5Html,
     Mt5Xlsx,
-    /// A Notion database exported as CSV; it needs a [`notion::NotionMapping`].
+    /// A Notion database exported as CSV; read it with [`notion::infer`], which keeps the journal.
     NotionCsv,
     Json,
 }
@@ -59,19 +59,21 @@ impl Format {
     }
 }
 
-/// Reads any supported file.
+/// Reads any supported MT5 report or JSON batch. A Notion CSV carries a journal a batch cannot hold:
+/// it is refused here and read with [`notion::infer`].
 ///
 /// # Errors
 ///
-/// [`ImportError`] when the file cannot be read or holds no deals.
+/// [`ImportError`] when the file cannot be read or holds no deals, or is a Notion CSV.
 pub fn read_file(path: &Path) -> Result<(Format, DealBatch), ImportError> {
     let format = Format::of(path).ok_or_else(|| ImportError::Unsupported(path.display().to_string()))?;
     let batch = match format {
         Format::Mt5Html => mt5_html::parse(&std::fs::read(path)?)?,
         Format::Mt5Xlsx => mt5_xlsx::read(path)?,
         Format::NotionCsv => {
-            let bytes = std::fs::read(path)?;
-            notion::parse_csv(&bytes, &notion::NotionMapping::default())?
+            return Err(ImportError::Invalid(
+                "file CSV là nhật ký Notion: đọc bằng import::notion::infer rồi lưu bằng Db::import_notion".into(),
+            ));
         }
         Format::Json => json::parse(&std::fs::read(path)?)?,
     };

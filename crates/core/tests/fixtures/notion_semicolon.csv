@@ -1,0 +1,5 @@
+Name;Date;Symbol;Side;Volume;Open;Close;Profit;Commission;Notes
+Trade A;20.11.2026 14:05;EURUSD;Buy;0,10;1,08500;1,09000;"1.250,50";"-0,70";"Line one
+Line two; with a semicolon and ""quotes"""
+Trade B;21.11.2026 09:00;XAUUSD;Sell;0,05;2650,25;2655,25;-25,00;;Plain note
+Trade C;22.11.2026 10:15;USDJPY;Buy;1;150,250;150,100;-15,00;;
