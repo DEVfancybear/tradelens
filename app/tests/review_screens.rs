@@ -327,7 +327,9 @@ fn a_review_is_written_saved_and_found_again() {
     app.type_text("label:3 điều làm tốt tuần này", "Chờ retest đúng playbook").expect("an answer is typed");
     app.press("role:button[Lưu tổng kết]").expect("the save button");
 
-    let start = Period::Week.bounds(Local::now().date_naive()).0;
+    // No account is known, so no server offset either: the page counts days in UTC, which is
+    // another week than the machine's between its midnight and UTC's on a Monday.
+    let start = Period::Week.bounds(chrono::Utc::now().date_naive()).0;
     wait_for_database("the review being stored", || {
         fixture.db().review(None, Period::Week, start).is_ok_and(|r| r.is_some())
     });

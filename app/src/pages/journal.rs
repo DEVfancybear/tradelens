@@ -380,6 +380,18 @@ pub(crate) fn journal() -> impl IntoElement {
     // Today on the clock the trader chose, as the snapshot knows it.
     let today = move || store.snapshot_now().zone.today(chrono::Utc::now().timestamp_millis());
     let day = signal(today());
+    // The page opens on today, and keeps to today while the trader has not moved off it: the
+    // first snapshot (with the server's offset) may arrive after the page, and midnight passes.
+    let on_today = signal(true);
+    effect(move || {
+        let _ = store.snapshot();
+        if on_today.get_untracked() {
+            let now = today();
+            if day.get_untracked() != now {
+                day.set(now);
+            }
+        }
+    });
     let data = query_with(move || day.get(), |db, account, day| load(db, account, *day));
     let session = Session::new(write);
     session.follow(data);
@@ -391,6 +403,7 @@ pub(crate) fn journal() -> impl IntoElement {
         if dirty.get_untracked() {
             save_now();
         }
+        on_today.set(to == today());
         day.set(to);
     };
     // A day the search or the calendar asked for: show it (with its account), then forget it.
