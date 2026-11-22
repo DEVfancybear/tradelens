@@ -8,7 +8,7 @@ use tradelens_core::{
     time::{Clock, format_duration},
 };
 
-use super::{account_picker::account_picker, trade_detail};
+use super::{account_picker::account_picker, manual_entry, trade_detail};
 use crate::{
     format::{self, Sign},
     nav,
@@ -17,7 +17,8 @@ use crate::{
     trade_list::{self, Column, Direction, Filter, Order, Outcome},
     ui::{
         chips::{Tone, pnl_text},
-        controls::{Choice, Variant, action, segmented, select_field, text_field},
+        controls::{Choice, Variant, action, action_icon, segmented, select_field, text_field},
+        icons::Icon,
         parts::page_fill,
         table::{JOURNALED, NOT_JOURNALED, Sorting, TableSort, TradeCells, trades_table},
     },
@@ -27,6 +28,7 @@ use crate::{
 pub(crate) fn trades() -> impl IntoElement {
     dynamic(move || match nav::open_trade() {
         Some(key) => untracked(|| trade_detail::trade_detail(key)).into_element(),
+        None if nav::manual_entry_open() => untracked(manual_entry::manual_entry).into_element(),
         None => untracked(list).into_element(),
     })
 }
@@ -129,10 +131,17 @@ fn list() -> impl IntoElement {
         ),
     };
 
+    // Ctrl+N adds a trade by hand, as the button does.
+    on_key_with("mod+n", KeyOptions { pass_through: true, ..KeyOptions::default() }, |_| nav::open_manual_entry());
     page_fill(
         "Lệnh",
         "Gom từ deal MT5 theo position; bấm một lệnh để mở nhật ký",
-        account_picker(),
+        view().flex_row().items_center().gap_3().child(account_picker()).child(action_icon(
+            Icon::Plus,
+            "Thêm lệnh",
+            Variant::Primary,
+            nav::open_manual_entry,
+        )),
         view()
             .flex_1()
             .gap_4()

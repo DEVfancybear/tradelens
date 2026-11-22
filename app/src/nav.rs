@@ -1,7 +1,7 @@
 //! The routes: one page shows at a time, chosen in the sidebar.
 
 use nsh_core::prelude::*;
-use tradelens_core::TradeKey;
+use tradelens_core::{TradeKey, catalog::FieldScope};
 
 use crate::ui::icons::Icon;
 
@@ -96,6 +96,8 @@ pub(crate) fn current() -> Route {
 pub(crate) fn go(route: Route) {
     batch(|| {
         global::<OpenTrade>().set(OpenTrade(None));
+        global::<FormEditor>().set(FormEditor(None));
+        global::<ManualEntry>().set(ManualEntry(false));
         global::<Current>().set(Current(route));
     });
 }
@@ -120,4 +122,47 @@ pub(crate) fn show_trade(key: TradeKey) {
 /// Closes the trade's page: back to the trades list.
 pub(crate) fn close_trade() {
     global::<OpenTrade>().set(OpenTrade(None));
+}
+
+/// The form editor open over the current page, with the form it starts on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct FormEditor(Option<FieldScope>);
+
+/// The form the editor is open on (tracked where it is read); `None` while it is closed.
+pub(crate) fn form_editor() -> Option<FieldScope> {
+    global::<FormEditor>().get().0
+}
+
+/// Opens "Tuỳ biến form" over whatever page is showing, on the tab of `scope`. Closing it
+/// shows that page again.
+pub(crate) fn open_form_editor(scope: FieldScope) {
+    global::<FormEditor>().set(FormEditor(Some(scope)));
+}
+
+/// Closes the form editor.
+pub(crate) fn close_form_editor() {
+    global::<FormEditor>().set(FormEditor(None));
+}
+
+/// Whether the manual entry form is open over the trades list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct ManualEntry(bool);
+
+/// Whether the manual entry form is open (tracked where it is read).
+pub(crate) fn manual_entry_open() -> bool {
+    global::<ManualEntry>().get().0
+}
+
+/// Opens the manual entry form over the trades list, from any route.
+pub(crate) fn open_manual_entry() {
+    batch(|| {
+        global::<Current>().set(Current(Route::Trades));
+        global::<OpenTrade>().set(OpenTrade(None));
+        global::<ManualEntry>().set(ManualEntry(true));
+    });
+}
+
+/// Closes the manual entry form: back to the trades list.
+pub(crate) fn close_manual_entry() {
+    global::<ManualEntry>().set(ManualEntry(false));
 }

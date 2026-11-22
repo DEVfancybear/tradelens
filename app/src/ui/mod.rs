@@ -19,6 +19,7 @@ pub(crate) mod layout;
 pub(crate) mod month_grid;
 pub(crate) mod motion;
 pub(crate) mod parts;
+pub(crate) mod plan_vs_actual;
 pub mod properties;
 pub(crate) mod r_chart;
 pub mod reorder;

@@ -16,10 +16,20 @@ use crate::{
 const SIDEBAR_WIDTH: f32 = 236.0;
 
 pub(crate) fn shell() -> impl IntoElement {
-    view().flex_1().flex_row().child(sidebar()).child(view().flex_1().min_w(px(0.0)).child(dynamic(move || {
-        let route = nav::current();
-        untracked(|| pages::page(route))
-    })))
+    view()
+        .flex_1()
+        .flex_row()
+        .child(sidebar())
+        .child(view().flex_1().min_w(px(0.0)).child(dynamic(move || {
+            let route = nav::current();
+            // "Tuỳ biến form" covers the page of the route; closing it shows the page again.
+            match nav::form_editor() {
+                Some(scope) => untracked(|| pages::form_editor::form_editor(scope).into_element()),
+                None => untracked(|| pages::page(route)),
+            }
+        })))
+        // The plan prompt of a position the EA just reported: over every screen.
+        .child(pages::entry_plan::host())
 }
 
 fn sidebar() -> impl IntoElement {

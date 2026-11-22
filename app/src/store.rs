@@ -17,10 +17,10 @@ use std::{
 
 use nsh_core::prelude::*;
 use tradelens_bridge::{Bridge, BridgeConfig, BridgeError, BridgeEvent, DEFAULT_PORT, Revision};
-use tradelens_core::{Db, DbError, JournalEntry, TradeKey};
+use tradelens_core::{Db, DbError};
 
 use crate::{
-    journal_draft::Draft,
+    pages,
     snapshot::{self, Query, Range, Snapshot},
     trade_list::{Filter, Sort},
 };
@@ -207,34 +207,6 @@ impl Store {
         });
     }
 
-    /// Writes the edited fields of a trade's journal entry over the entry the database has
-    /// now, then reads the data again; `done` hears how the write went (in Vietnamese, for
-    /// the trader).
-    pub(crate) fn save_draft(self, key: TradeKey, draft: Draft, done: impl FnOnce(Result<(), String>) + 'static) {
-        let Some(db) = self.db.get() else {
-            return done(Err("Chưa mở được cơ sở dữ liệu.".to_owned()));
-        };
-        spawn(async move {
-            let saved = blocking(move || {
-                let mut db = db.lock().expect("database lock poisoned");
-                // Read the entry again: the bridge may have attached screenshots since the page opened.
-                let mut entry: JournalEntry = db.journal(&key)?.unwrap_or_default();
-                draft.apply(&mut entry);
-                db.save_journal(&key, &entry)
-            })
-            .await;
-            let outcome = match saved {
-                Ok(Ok(())) => Ok(()),
-                Ok(Err(error)) => Err(format!("Không lưu được nhật ký: {error}")),
-                Err(error) => Err(format!("Luồng ghi dữ liệu bị dừng: {error}")),
-            };
-            if outcome.is_ok() {
-                self.reload();
-            }
-            done(outcome);
-        });
-    }
-
     /// Opens the database off the UI thread, then starts the bridge and the first read.
     fn open(self) {
         let path = data_dir().map(|dir| dir.join(DB_FILE));
@@ -321,6 +293,12 @@ impl Store {
         let events: Vec<BridgeEvent> = self.events.with(|rx| rx.as_ref().map_or_default(|rx| rx.try_iter().collect()));
         if events.is_empty() {
             return;
+        }
+        // A position that just opened asks for its plan, over whatever screen is showing.
+        for event in &events {
+            if let BridgeEvent::PositionOpened(position) = event {
+                pages::entry_plan::enqueue(pages::entry_plan::PlanRequest::of_position(position));
+            }
         }
         self.bridge.update(|info| {
             for event in events {

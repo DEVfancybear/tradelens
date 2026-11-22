@@ -49,6 +49,8 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 | `gallery` (ảnh, badge EA, kéo/phím đổi thứ tự, Thêm ảnh) | `gallery.rs` (`pub`) | có |
 | `drag_handle`, `grid_drop_index`, `list_drop_index` | `reorder.rs` (`pub`) | có |
 | `property_list` + `PropertyList` + `PropertyEdits` (hàng thuộc tính, popover, thêm/ẩn/xoá, đổi kiểu) | `properties.rs` (`pub`) | có |
+| `plan_vs_actual(plan, on_write)`, `plan_rows(&EntryPlan, &Trade, currency)` (kế hoạch lúc vào đặt cạnh thực tế, từ `journal::review`) | `plan_vs_actual.rs` | có |
+| `tab_bar(group, options, label, value, on_change)` (hàng tab gạch chân, trên `tabs` / `tab`) | `tab_bar.rs` | có |
 | `chip`, `pnl_text`, `figure_text` | `chips.rs` | có |
 | `trades_table`, `recent_trades` | `table.rs` | có |
 | `equity_chart` | `chart.rs` | có |
@@ -101,6 +103,22 @@ Cả ba hàm đọc (`layout`, `defs` gồm cả thuộc tính đã lưu trữ, 
 cập nhật cái mà hàm đọc trả về, hàng sẽ theo. Thuộc tính có sẵn do màn vẽ trong `.builtin(..)` (trả `None` thì hiện dấu
 gạch). Đổi kiểu chuyển giá trị của **lệnh đang sửa** bằng `form::convert` (hỏi `alert_dialog` nếu mất dữ liệu); các lệnh
 khác do `on_def` của màn xử lý (màn Tuỳ biến form).
+
+### Tuỳ biến form, popup kế hoạch, nhập lệnh tay
+
+- **Mở Tuỳ biến form từ màn khác** (Cài đặt, chi tiết lệnh): `nav::open_form_editor(FieldScope::Trade)` phủ trang
+  hiện tại bằng `pages::form_editor`; `nav::close_form_editor()` (nút "Xong") hiện lại trang cũ, còn `nav::go(route)`
+  đóng nó. Màn mở nó nên lưu phần đang sửa trước (chi tiết lệnh làm vậy qua `Editor::leave`).
+- **Đổi kiểu thuộc tính** chuyển giá trị của *mọi* nhật ký đã lưu: `Db::apply_field_def(&FieldDef)` (đổi kiểu bằng
+  `form::convert`, đổi tên một lựa chọn theo vào giá trị, thêm lựa chọn từ giá trị mới) và `Db::kind_change_impact`
+  (đếm giá trị sẽ mất, để hỏi `alert_dialog`). Màn dùng `property_list` gọi `apply_field_def` trong `on_def`.
+- **Popup ghi kế hoạch**: `pages::entry_plan::enqueue(PlanRequest)` xếp một yêu cầu vào hàng đợi (sự kiện
+  `BridgeEvent::PositionOpened` do `store` đưa vào; chi tiết lệnh dùng cho "Viết / Sửa kế hoạch"); `entry_plan::host()`
+  gắn một lần trong `shell`. Một việc chạy bằng `Writer::run` mà chủ của nó là hộp thoại phải xong *trước khi* đóng
+  hộp thoại (đóng huỷ tác vụ), nên `finish` chỉ gọi trong `done`.
+- **Phím tắt**: Ctrl+N (từ Lệnh) mở nhập lệnh tay, Ctrl+Enter lưu ở đó.
+- Form nhật ký của lệnh dùng chung: `trade_detail::journal_form(fields, shots, suggestion, failure)` vẽ danh sách
+  thuộc tính của `FieldScope::Trade` từ `FormLayout`; chi tiết lệnh và nhập lệnh tay đều dùng nó.
 
 ## Motion (`src/ui/motion.rs`)
 

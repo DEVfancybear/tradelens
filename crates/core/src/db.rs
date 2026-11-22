@@ -18,6 +18,8 @@ use crate::review::{Period, PeriodReview, ReviewTemplate};
 use crate::search::{self, DocKind, Document, Hit};
 use crate::trades::build_trades;
 
+mod fields;
+pub use fields::{FieldApplied, KindImpact};
 mod notion;
 
 #[derive(Debug, thiserror::Error)]
