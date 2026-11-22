@@ -1,7 +1,7 @@
 //! Lịch P/L: Lãi lỗ theo từng ngày, tô màu theo kết quả.
 //! Design: `docs/design/screens/calendar.html`.
 
-use chrono::{Datelike, Local, NaiveDate};
+use chrono::{Datelike, NaiveDate};
 use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{DayNote, DbError, Rules, metrics, time::weekday_vi};
@@ -10,7 +10,6 @@ use super::account_picker::account_picker;
 use crate::{
     format::{self, Sign},
     insight, nav,
-    nav::Route,
     store::{query, query_with, store},
     ui::{
         chips::{Tone, chip, pnl_text},
@@ -40,7 +39,7 @@ fn next(month: Month) -> Month {
 
 pub(crate) fn calendar() -> impl IntoElement {
     let store = store();
-    let opened_on = Local::now().date_naive();
+    let opened_on = insight::today_now(&store.snapshot_now());
     let today = computed(move || insight::today_now(&store.snapshot()));
     let month = signal(month_of(opened_on));
     let selected = signal(Some(opened_on));
@@ -174,11 +173,8 @@ fn day_note_of(selected: Signal<Option<NaiveDate>>) -> crate::store::Reading<Day
         move || selected.get(),
         |db, account, day| {
             let Some(day) = day else { return Ok(DayNote::default()) };
-            let account = match account {
-                Some(id) => Some(id),
-                None => db.accounts()?.first().map(|a| a.id),
-            };
-            account.map_or_else(|| Ok(DayNote::default()), |id| db.day_note(id, *day))
+            // The note of all accounts is kept under account 0, as the day journal keeps it.
+            db.day_note(account.unwrap_or(0), *day)
         },
     )
 }
@@ -270,7 +266,7 @@ fn day_card(selected: Signal<Option<NaiveDate>>) -> impl IntoElement {
                     .children(rows)
                     .child(note_block(note))
                     .child(action_icon(Icon::Journal, "Mở nhật ký ngày", Variant::Secondary, move || {
-                        nav::go(Route::Journal);
+                        nav::show_journal_day(day, store.accounts.get_untracked().id());
                     }))
                     .into_element()
             })

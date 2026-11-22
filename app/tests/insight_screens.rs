@@ -183,16 +183,16 @@ fn the_analytics_page_breaks_results_down_and_prices_the_mistakes() {
     app.wait_for("1 lệnh").expect("and how many trades carried it");
     app.wait_for("Theo phiên").expect("the sessions table shows");
 
-    app.press("role:button[Phân tích: Symbol]").expect("the symbol tab");
+    app.press("role:tab[Phân tích: Symbol]").expect("the symbol tab");
     app.wait_for("Theo symbol").expect("the symbol breakdown shows");
     app.wait_for("EURUSD").expect("a symbol has its row");
     app.wait_for("+$100.00").expect("with its net result");
     app.wait_for("100.0%").expect("and its win rate");
 
-    app.press("role:button[Phân tích: Setup & tag]").expect("the setup tab");
+    app.press("role:tab[Phân tích: Setup & tag]").expect("the setup tab");
     app.wait_for("Breakout").expect("the setup the trader journalled shows");
 
-    app.press("role:button[Phân tích: Rủi ro (R)]").expect("the risk tab");
+    app.press("role:tab[Phân tích: Rủi ro (R)]").expect("the risk tab");
     app.wait_for("Phân phối R").expect("the R distribution shows");
     app.wait_for("Chưa có lệnh nào đo được R: đặt SL hoặc ghi rủi ro dự định.")
         .expect("trades without a stop have no R to show");
@@ -204,7 +204,7 @@ fn the_analytics_page_of_an_empty_range_says_so() {
     let mut app = fixture.start();
     app.press("role:button[Phân tích]").expect("the analytics row is a button");
     app.wait_for("Chưa có lệnh nào gắn lỗi").expect("the mistake card is empty");
-    app.press("role:button[Phân tích: Symbol]").expect("the symbol tab");
+    app.press("role:tab[Phân tích: Symbol]").expect("the symbol tab");
     app.wait_for("Chưa có lệnh nào trong khoảng này").expect("the table is empty");
 }
 

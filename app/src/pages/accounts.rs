@@ -74,13 +74,17 @@ impl AccountsData {
     }
 }
 
-/// Reads the accounts and checks their rules against their trades.
-fn load(db: &Db, today: NaiveDate) -> Result<AccountsData, DbError> {
+/// Reads the accounts and checks their rules against their trades. "Today" is each account's
+/// own, on the clock the trader chose, at the real time `now_utc_ms`.
+fn load(db: &Db, now_utc_ms: i64) -> Result<AccountsData, DbError> {
     let shared = db.checklist(None)?;
-    let from = today.checked_sub_days(Days::new(WINDOW_DAYS - 1)).unwrap_or(today);
     let accounts = account_trades::load(db, None)?
         .iter()
-        .map(|own| entry_of(db, own, &shared, today, from))
+        .map(|own| {
+            let today = own.today(now_utc_ms);
+            let from = today.checked_sub_days(Days::new(WINDOW_DAYS - 1)).unwrap_or(today);
+            entry_of(db, own, &shared, today, from)
+        })
         .collect::<Result<Vec<_>, DbError>>()?;
     Ok(AccountsData { shared_checklist: shared, accounts })
 }
@@ -179,7 +183,7 @@ fn offset_choices(current: Option<i32>) -> Vec<Choice> {
 }
 
 pub(crate) fn accounts() -> impl IntoElement {
-    let data = query(|db, _| load(db, account_trades::today()));
+    let data = query(|db, _| load(db, chrono::Utc::now().timestamp_millis()));
     let write = writer();
     let chosen = signal(None::<i64>);
     // The account shown: the one pressed, else the first. Equal ids do not wake the sections.
@@ -811,13 +815,13 @@ mod tests {
             positions: Vec::new(),
         };
         db.upsert_batch(&batch, "test").expect("stored");
-        let today = NaiveDate::from_ymd_opt(2026, 11, 20).expect("a date");
-        let before = load(&db, today).expect("loads");
+        let now = parse_mt5_time("2026.11.20 12:00:00").expect("a time");
+        let before = load(&db, now).expect("loads");
         assert!(before.accounts[0].violations.is_empty(), "no rule is on");
         let account = before.accounts[0].account.id;
         let rules = Rules { max_daily_loss: Some(200.0), max_daily_trades: Some(1), ..Rules::default() };
         db.save_rules(account, &rules).expect("saved");
-        let after = load(&db, today).expect("loads again");
+        let after = load(&db, now).expect("loads again");
         let entry = &after.accounts[0];
         assert_eq!(entry.rules, rules);
         assert_eq!(entry.violations.len(), 2, "the loss and the trade count");
@@ -835,7 +839,7 @@ mod tests {
             .expect("an account");
         db.save_checklist(None, &[ChecklistItem { id: 0, text: "chung".into() }]).expect("shared");
         db.save_checklist(Some(id), &[ChecklistItem { id: 0, text: "riêng".into() }]).expect("own");
-        let data = load(&db, NaiveDate::from_ymd_opt(2026, 11, 20).expect("a date")).expect("loads");
+        let data = load(&db, parse_mt5_time("2026.11.20 12:00:00").expect("a time")).expect("loads");
         assert_eq!(data.shared_checklist.len(), 1);
         assert_eq!(data.accounts[0].own_checklist.iter().map(|i| i.text.as_str()).collect::<Vec<_>>(), ["riêng"]);
     }

@@ -1,7 +1,7 @@
 //! Tổng kết & xem lại: câu hỏi tổng kết tuần/tháng, hàng chờ xem lại, mẫu ghi chú.
 //! Design: `docs/design/screens/review.html`. The AI summary is v0.3: a disabled card.
 
-use chrono::{Duration, Local, NaiveDate};
+use chrono::{Duration, NaiveDate};
 use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
@@ -13,7 +13,7 @@ use tradelens_core::{
 use super::account_picker::account_picker;
 use crate::{
     format::{self, Sign},
-    nav,
+    insight, nav,
     snapshot::Snapshot,
     store::{Reading, query, query_with, store, writer},
     ui::{
@@ -67,7 +67,7 @@ fn after(period: Period, day: NaiveDate) -> NaiveDate {
 
 pub(crate) fn review() -> impl IntoElement {
     let period = signal(Period::Week);
-    let anchor = signal(Local::now().date_naive());
+    let anchor = signal(insight::today_now(&store().snapshot_now()));
     let requested = global::<Jump>();
     effect(move || {
         let Some((wanted, start)) = requested.get().0 else { return };

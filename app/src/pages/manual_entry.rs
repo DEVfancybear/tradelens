@@ -7,9 +7,9 @@ use chrono::NaiveDateTime;
 use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
-    AccountInfo, Db, DbError, JournalEntry, ManualTrade, Side, TradeKey,
+    Account, AccountInfo, Db, DbError, JournalEntry, ManualTrade, Side, TradeKey,
     attachments::Attachment,
-    time::{format_duration, parse_mt5_time},
+    time::{Clock, format_duration, parse_mt5_time},
 };
 
 use super::trade_detail::{JournalFields, journal_form};
@@ -17,6 +17,7 @@ use crate::{
     format::{self, Sign},
     journal_draft::Draft,
     nav,
+    snapshot::Snapshot,
     store::{AccountFilter, Store, store, writer},
     ui::{
         controls::{Choice, Variant, action, action_icon, action_when, segmented, select_value, text_field},
@@ -78,6 +79,13 @@ fn parse_typed_time(typed: &str, server_offset_min: Option<i32>, local_offset_mi
         Some(server) => local - i64::from(local_offset_min - server) * 60_000,
         None => local,
     })
+}
+
+/// The clock times are typed on: the one the trader chose to see times on (their own zone, or
+/// the server's), so a time typed is a time read back the same.
+fn typed_clock(snapshot: &Snapshot, account: Option<&Account>) -> Clock {
+    let zone = snapshot.zone;
+    zone.display.clock(account.and_then(|a| a.server_offset_min), zone.local_offset_min)
 }
 
 /// The trade to store from what was typed, or what to fix, in Vietnamese.
@@ -233,9 +241,8 @@ fn entry_page(round: Signal<u32>, notice: Signal<Option<String>>) -> impl IntoEl
         let snapshot = store.snapshot_now();
         let account = inputs.account.get_untracked();
         let account_row = account.parse::<i64>().ok().and_then(|id| snapshot.accounts.iter().find(|a| a.id == id));
-        let offset = account_row.and_then(|a| a.server_offset_min);
-        let local_offset = chrono::Local::now().offset().local_minus_utc() / 60;
-        let trade = match build_trade(&inputs.input(), offset, local_offset) {
+        let clock = typed_clock(&snapshot, account_row);
+        let trade = match build_trade(&inputs.input(), clock.server_offset_min, clock.local_offset_min) {
             Ok(trade) => trade,
             Err(message) => return failure.set(Some(message)),
         };
@@ -336,7 +343,7 @@ fn number(label: &'static str, unit: Option<&'static str>, value: Signal<Option<
 fn preview_line(store: Store, inputs: Inputs) -> String {
     let snapshot = store.snapshot();
     let account = inputs.account.get().parse::<i64>().ok().and_then(|id| snapshot.accounts.iter().find(|a| a.id == id));
-    let local_offset = chrono::Local::now().offset().local_minus_utc() / 60;
+    let clock = typed_clock(&snapshot, account);
     // Only the times, the profit and the costs matter here: the rest stands in for a valid trade.
     let stand_in = TradeInput {
         profit: inputs.profit.get().or(Some(0.0)),
@@ -352,7 +359,7 @@ fn preview_line(store: Store, inputs: Inputs) -> String {
         sl: None,
         tp: None,
     };
-    match build_trade(&stand_in, account.and_then(|a| a.server_offset_min), local_offset) {
+    match build_trade(&stand_in, clock.server_offset_min, clock.local_offset_min) {
         Ok(trade) => computed_line(&trade, account.map_or("", |a| a.currency.as_str())),
         Err(_) => "Tự tính: nhập thời gian vào, ra và lãi/lỗ để xem kết quả ròng và thời gian giữ.".to_owned(),
     }

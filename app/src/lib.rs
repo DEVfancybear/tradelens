@@ -6,6 +6,7 @@
 //! - `snapshot`   what the pages show, read in one go (pure over a `Db`)
 //! - `trade_list` the trades page's filters and sort order
 //! - `journal_draft` the journal fields the trade page edits
+//! - `zone`       the clock times are shown on (the `time_display` setting) and "today"
 //! - `format`     numbers and times as text
 //! - `insight`   the calendar, analytics and discipline figures read out of a snapshot
 //! - `ui`         the app's styled components and tokens; pages use only these
@@ -21,6 +22,7 @@ mod snapshot;
 mod store;
 mod trade_list;
 pub mod ui;
+mod zone;
 
 use nsh_base::theme;
 use nsh_core::{element::desktop::window as app_window, prelude::*};

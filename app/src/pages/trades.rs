@@ -5,7 +5,7 @@ use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
     metrics::{self, Sample},
-    time::{Clock, format_duration},
+    time::format_duration,
 };
 
 use super::{account_picker::account_picker, manual_entry, trade_detail};
@@ -65,7 +65,7 @@ pub(crate) fn summarise(snapshot: &Snapshot, picked: &[usize]) -> Summary {
     let rows: Vec<&TradeRow> = picked.iter().filter_map(|&i| snapshot.rows.get(i)).collect();
     let samples: Vec<Sample<'_>> =
         rows.iter().filter(|row| row.trade.is_closed()).map(|row| Sample { trade: &row.trade, r: row.r }).collect();
-    let stats = metrics::stats(&samples, 0.0, &[], Clock::default());
+    let stats = metrics::stats(&samples, 0.0, &[], snapshot.zone.clock());
     Summary {
         trades: rows.len(),
         net: format::money(stats.net, Sign::Always, &snapshot.currency),

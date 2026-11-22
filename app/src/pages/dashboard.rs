@@ -5,7 +5,6 @@
 use std::sync::Arc;
 
 use chrono::Datelike;
-use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
     DbError, Rules,
@@ -25,13 +24,12 @@ use crate::{
         chips::{Tone, chip},
         controls::{Variant, action, action_icon, segmented},
         forms::{RuleLevel, progress_rule},
-        icons::{Icon, icon},
+        icons::Icon,
         layout::{columns, titled_card},
         month_grid::mini_month,
-        parts::{empty_state, page_with, stat_tile},
+        parts::{empty_state, page_with, stat_tile, warning_banner},
         r_chart::{RPoint, r_curve_chart},
         table::recent_trades,
-        theme::warning,
     },
 };
 
@@ -333,21 +331,6 @@ fn discipline_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
             })
         })),
     )
-}
-
-/// A one-line warning on a tinted ground.
-fn warning_banner(message: String) -> impl IntoElement {
-    view()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .p_3()
-        .rounded(move || theme().radius)
-        .border_1()
-        .border_color(move || warning().opacity(0.4))
-        .bg(move || warning().opacity(0.12))
-        .child(icon(Icon::Warning, 16.0).text_color(warning))
-        .child(text(message).flex_1().text_xs().text_color(warning))
 }
 
 /// The month's calendar in small, with a link to the full one.

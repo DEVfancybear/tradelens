@@ -15,6 +15,8 @@ use tradelens_core::{
     trades::{build_trades, cash_flows},
 };
 
+use crate::zone::{self, Zone};
+
 const DAY_MS: i64 = 86_400_000;
 
 /// How far back the overview looks.
@@ -111,6 +113,8 @@ pub(crate) struct TradeRow {
     /// The deals the position is made of, oldest first.
     pub(crate) deals: Vec<Deal>,
     clock: Clock,
+    /// Minutes the account's server is ahead of UTC, whatever clock the times are shown on.
+    server_offset_min: Option<i32>,
     /// Lowercase text the search box looks in.
     haystack: String,
 }
@@ -125,11 +129,6 @@ impl TradeRow {
         self.clock.local(server_ms)
     }
 
-    /// How the account's server times become the trader's.
-    pub(crate) fn clock(&self) -> Clock {
-        self.clock
-    }
-
     /// When the position opened, on the trader's clock.
     pub(crate) fn opened(&self) -> NaiveDateTime {
         self.clock.local(self.trade.open_time)
@@ -138,6 +137,12 @@ impl TradeRow {
     /// When the position closed, on the trader's clock; `None` while it is open.
     pub(crate) fn closed(&self) -> Option<NaiveDateTime> {
         self.trade.close_time.map(|t| self.clock.local(t))
+    }
+
+    /// A server time on the UTC clock (for the trading sessions), whatever clock is shown.
+    pub(crate) fn utc(&self, server_ms: i64) -> NaiveDateTime {
+        Clock { server_offset_min: self.server_offset_min, local_offset_min: self.clock.local_offset_min }
+            .utc(server_ms)
     }
 
     /// The time the trade is ordered by: its close, or its open while still open.
@@ -162,6 +167,8 @@ pub(crate) struct Catalogs {
 /// Everything the pages read, as of one moment.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Snapshot {
+    /// The clock the times are shown on and "today" is counted on.
+    pub(crate) zone: Zone,
     pub(crate) accounts: Vec<Account>,
     /// Every trade of the chosen accounts, newest first (open trades included).
     pub(crate) rows: Vec<TradeRow>,
@@ -196,6 +203,7 @@ impl Snapshot {
 /// [`DbError`] when a query fails or a stored entry does not parse.
 pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
     let accounts = db.accounts()?;
+    let display = zone::time_display(db)?;
     let journals: HashMap<TradeKey, JournalEntry> = db.journals(query.account)?.into_iter().collect();
     let playbooks = db.playbooks()?;
     let catalogs = Catalogs {
@@ -214,17 +222,15 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
     let mut start_total = 0.0;
     for (account_id, deals) in &deals_by_account {
         let account = accounts.iter().find(|a| a.id == *account_id);
-        let clock = Clock {
-            server_offset_min: account.and_then(|a| a.server_offset_min),
-            local_offset_min: query.local_offset_min,
-        };
+        let server_offset_min = account.and_then(|a| a.server_offset_min);
+        let clock = display.clock(server_offset_min, query.local_offset_min);
         let title = account.map_or_else(|| format!("Tài khoản {account_id}"), Account::title);
         let currency = account.map_or_default(|a| a.currency.clone());
         let trades = build_trades(*account_id, deals);
         let account_cash = cash_flows(deals);
         let account_rows: Vec<TradeRow> = trades
             .into_iter()
-            .map(|trade| make_row(trade, deals, &journals, &playbooks, &title, &currency, clock))
+            .map(|trade| make_row(trade, deals, &journals, &playbooks, &title, &currency, (clock, server_offset_min)))
             .collect();
         if let Some(account) = account {
             let samples = closed_samples(&account_rows);
@@ -237,10 +243,10 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
     rows.sort_by_key(|row| std::cmp::Reverse((row.sort_time(), row.trade.key.position_id)));
 
     let in_view: Vec<&Account> = accounts.iter().filter(|a| query.account.is_none_or(|id| id == a.id)).collect();
-    let clock = summary_clock(&in_view, query.local_offset_min);
-    let now_server = query.now_utc_ms + clock.server_offset_min.map_or(0, |m| i64::from(m) * 60_000);
+    let zone = summary_zone(&in_view, display, query.local_offset_min);
+    let now_server = query.now_utc_ms + zone.server_offset_min.map_or(0, |m| i64::from(m) * 60_000);
     let cutoff = query.range.cutoff(now_server);
-    let (stats, curve) = summarise(&rows, &cash, start_total, cutoff, clock);
+    let (stats, curve) = summarise(&rows, &cash, start_total, cutoff, zone.clock());
 
     let currencies: BTreeSet<&str> = in_view.iter().map(|a| a.currency.as_str()).collect();
     let currency = match currencies.len() {
@@ -251,6 +257,7 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
     let setups: BTreeSet<String> = rows.iter().filter(|r| !r.setup.is_empty()).map(|r| r.setup.clone()).collect();
 
     Ok(Snapshot {
+        zone,
         accounts,
         rows,
         journals,
@@ -271,7 +278,7 @@ fn make_row(
     playbooks: &[Playbook],
     account: &str,
     currency: &str,
-    clock: Clock,
+    (clock, server_offset_min): (Clock, Option<i32>),
 ) -> TradeRow {
     let entry = journals.get(&trade.key);
     let setup = entry.map_or_else(String::new, |e| setup_name(e, playbooks));
@@ -295,6 +302,7 @@ fn make_row(
         setup,
         deals: own,
         clock,
+        server_offset_min,
         haystack,
         trade,
     }
@@ -312,9 +320,9 @@ fn closed_samples(rows: &[TradeRow]) -> Vec<Sample<'_>> {
     rows.iter().filter(|row| row.trade.is_closed()).map(|row| Sample { trade: &row.trade, r: row.r }).collect()
 }
 
-/// The clock the statistics group days by: the one account's, else the first known offset.
-fn summary_clock(accounts: &[&Account], local_offset_min: i32) -> Clock {
-    Clock { server_offset_min: accounts.iter().find_map(|a| a.server_offset_min), local_offset_min }
+/// The zone the statistics group days by: the first known offset of the accounts in view.
+fn summary_zone(accounts: &[&Account], display: time::TimeDisplay, local_offset_min: i32) -> Zone {
+    Zone { display, server_offset_min: accounts.iter().find_map(|a| a.server_offset_min), local_offset_min }
 }
 
 /// The statistics and the curve of the closed trades from `cutoff` on, the balance carried
@@ -448,6 +456,30 @@ mod tests {
         assert_eq!(Range::YearToDate.cutoff(now).map(naive).map(|d| d.date()), NaiveDate::from_ymd_opt(2026, 1, 1));
     }
 
+    #[test]
+    fn the_time_display_setting_moves_every_time_and_today_of_the_snapshot() {
+        let mut db = seeded();
+        let account = db.accounts().expect("accounts").remove(0);
+        // The server runs two hours ahead of UTC, the trader seven.
+        db.update_account(&Account { server_offset_min: Some(120), ..account }).expect("the offset is stored");
+        let at_utc_plus_7 = Query { local_offset_min: 420, now_utc_ms: at("2026.11.20 20:00:00"), ..query(Range::All) };
+
+        let local = load(&db, &at_utc_plus_7).expect("loads");
+        let closed = |snapshot: &Snapshot| snapshot.rows[0].closed().expect("the trade is closed");
+        assert_eq!(closed(&local).format("%d/%m %H:%M").to_string(), "20/11 15:00", "10:00 at UTC+2 is 15:00 at UTC+7");
+        // 20:00 UTC is 22:00 at the server and 03:00 the next day at UTC+7.
+        assert_eq!(local.zone.today(at_utc_plus_7.now_utc_ms), NaiveDate::from_ymd_opt(2026, 11, 21).expect("a date"));
+
+        db.set_setting(zone::TIME_DISPLAY_KEY, "server").expect("the setting is stored");
+        let server = load(&db, &at_utc_plus_7).expect("loads again");
+        assert_eq!(closed(&server).format("%d/%m %H:%M").to_string(), "20/11 10:00", "the clock MT5 shows");
+        assert_eq!(server.zone.today(at_utc_plus_7.now_utc_ms), NaiveDate::from_ymd_opt(2026, 11, 20).expect("a date"));
+        // The trading sessions are on UTC whichever clock is shown.
+        let utc_hour =
+            |snapshot: &Snapshot| snapshot.rows[0].utc(snapshot.rows[0].trade.open_time).format("%H").to_string();
+        assert_eq!(utc_hour(&local), utc_hour(&server));
+        assert_eq!(utc_hour(&server), "07");
+    }
     #[test]
     fn journal_summary_follows_the_entry() {
         let mut db = seeded();

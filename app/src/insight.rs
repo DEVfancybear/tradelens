@@ -31,18 +31,15 @@ pub(crate) fn range_start(range: Range, today: NaiveDate) -> Option<NaiveDate> {
     }
 }
 
-/// The clock days are grouped by: the first known server offset of the trades shown.
+/// The clock days are grouped by: the snapshot's zone (the trader's choice of clock and the
+/// first known server offset of the accounts in view).
 pub(crate) fn summary_clock(snapshot: &Snapshot) -> Clock {
-    let known = snapshot.rows.iter().map(TradeRow::clock).find(|clock| clock.server_offset_min.is_some());
-    known.or_else(|| snapshot.rows.first().map(TradeRow::clock)).unwrap_or_default()
+    snapshot.zone.clock()
 }
 
-/// Today's date on the clock the trades' days use: the server's offset, when known, carries
-/// "now" into the trader's day; without it the stored times are read as UTC, so is "now".
+/// Today's date on [`summary_clock`], the clock the trades' days use.
 pub(crate) fn today(snapshot: &Snapshot, now_utc_ms: i64) -> NaiveDate {
-    let clock = summary_clock(snapshot);
-    let now_server = now_utc_ms + clock.server_offset_min.map_or(0, |minutes| i64::from(minutes) * 60_000);
-    clock.day(now_server)
+    snapshot.zone.today(now_utc_ms)
 }
 
 /// [`today`] by the machine's clock.
@@ -150,12 +147,7 @@ pub(crate) fn analyse(snapshot: &Snapshot, range: Range, today: NaiveDate) -> An
     let by_hour = metrics::breakdown(&samples, |x| opened_hour(x).into_iter().collect(), |h| format!("{h:02}:00"));
     let by_session = metrics::breakdown(
         &samples,
-        |x| {
-            row_of(x)
-                .map(|row| Session::of_utc_hour(hour_of(row.clock().utc(row.trade.open_time))))
-                .into_iter()
-                .collect()
-        },
+        |x| row_of(x).map(|row| Session::of_utc_hour(hour_of(row.utc(row.trade.open_time)))).into_iter().collect(),
         |s: &Session| s.label().to_owned(),
     );
     let by_setup = metrics::breakdown(

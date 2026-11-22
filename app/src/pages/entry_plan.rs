@@ -9,21 +9,25 @@ use nsh_base::{dialog, theme};
 use nsh_core::prelude::*;
 use tradelens_bridge::OpenedPosition;
 use tradelens_core::{
-    ChecklistItem, Db, DbError, Side, TradeKey,
+    ChecklistItem, Db, DbError, Side, Trade, TradeKey,
     catalog::{CatalogItem, CatalogKind},
     journal::EntryPlan,
+    metrics::{self, Sample},
+    rules::{self, ViolationKind},
 };
 
+use super::account_trades;
 use crate::{
     format,
     journal_draft::{key_of_choice, key_or_empty, ticked, unticked},
     snapshot::TradeRow,
-    store::{Reading, Writer, query, store, writer},
+    store::{Reading, Writer, query, query_with, store, writer},
     ui::{
         chips::{Tone, chip},
         controls::{Choice, Variant, action, action_icon, icon_action, select_value, textarea},
         forms::{NumberRange, checklist, number_field},
         icons::Icon,
+        parts::warning_banner,
         theme as tokens,
     },
 };
@@ -184,6 +188,96 @@ pub(crate) fn reward_risk_text(entry: Option<f64>, stop_loss: Option<f64>, take_
 /// that "written before the close" compares like with like.
 pub(crate) fn server_time(now_utc_ms: i64, server_offset_min: Option<i32>) -> i64 {
     now_utc_ms + server_offset_min.map_or(0, |m| i64::from(m) * 60_000)
+}
+
+/// The rules of the account that the plan, as it stands, would break by taking the trade:
+/// the risk per trade (the planned `risk` in money over the account's balance), the trades of
+/// the day, the day's loss and the losing streak. One line each, in Vietnamese; empty when
+/// the account is unknown, has no rules on, or the plan is within them.
+///
+/// The trade is judged as the one just opened: the stored one when the EA's deal is already
+/// in (its own risk replaced by `planned_risk` when that is set), else one made from the
+/// request. It is counted as a flat trade closed the instant after it opened, which puts it
+/// among the day's trades without moving the day's loss or giving it a losing streak of its own.
+fn plan_warnings(
+    db: &Db,
+    request: &PlanRequest,
+    planned_risk: Option<f64>,
+    now_utc_ms: i64,
+) -> Result<Vec<String>, DbError> {
+    let key = match resolve(db, &request.target) {
+        Ok(key) => key,
+        Err(DbError::Invalid(_)) => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let rules = db.rules(key.account_id)?;
+    let Some(own) = account_trades::load(db, Some(key.account_id))?.into_iter().next() else {
+        return Ok(Vec::new());
+    };
+    let mut planned = own.trades.iter().find(|t| t.key == key).cloned().unwrap_or_else(|| Trade {
+        key: key.clone(),
+        symbol: request.symbol.clone(),
+        side: request.side,
+        open_time: server_time(now_utc_ms, own.account.server_offset_min),
+        close_time: None,
+        volume: request.volume,
+        open_price: request.seed.entry.unwrap_or_default(),
+        close_price: None,
+        sl: request.seed.stop_loss.unwrap_or_default(),
+        tp: request.seed.take_profit.unwrap_or_default(),
+        commission: 0.0,
+        swap: 0.0,
+        fee: 0.0,
+        profit: 0.0,
+        risk: None,
+        magic: 0,
+        comment: String::new(),
+        manual: false,
+    });
+    if let Some(risk) = planned_risk.filter(|risk| *risk > 0.0) {
+        planned.risk = Some(risk);
+    }
+    planned.close_time = Some(planned.open_time.saturating_add(1));
+    planned.profit = 0.0;
+    planned.commission = 0.0;
+    planned.swap = 0.0;
+    planned.fee = 0.0;
+    let day = own.clock.day(planned.open_time);
+
+    let curve = own.curve();
+    let start = metrics::start_balance(&own.account, &own.samples(), &own.cash);
+    let balance_at = |ms: i64| if curve.is_empty() { start } else { rules::balance_before(&curve, ms) };
+    let samples: Vec<Sample<'_>> = own
+        .trades
+        .iter()
+        .filter(|t| t.is_closed() && t.key != key)
+        .chain(std::iter::once(&planned))
+        .map(|trade| Sample { trade, r: None })
+        .collect();
+    let title = own.account.title();
+    Ok(rules::evaluate(&rules, &samples, balance_at, own.clock)
+        .into_iter()
+        .filter(|v| v.trade.as_ref() == Some(&key) || (v.trade.is_none() && v.day == day))
+        .map(|v| warning_line(&v.kind, &title))
+        .collect())
+}
+
+/// What a broken rule says in the dialog: `Risk 1.9% vượt quy tắc 1.5% của tài khoản …`.
+fn warning_line(kind: &ViolationKind, account: &str) -> String {
+    match kind {
+        ViolationKind::RiskPerTrade(percent, limit) => {
+            format!("Risk {percent:.1}% vượt quy tắc {limit:.1}% của tài khoản {account}.")
+        }
+        ViolationKind::DailyTrades(count, limit) => {
+            format!("Lệnh thứ {count} trong ngày vượt quy tắc {limit} lệnh/ngày của tài khoản {account}.")
+        }
+        ViolationKind::DailyLoss(loss, limit) => {
+            format!("Lỗ trong ngày {loss:.2} đã vượt quy tắc {limit:.2} của tài khoản {account}.")
+        }
+        ViolationKind::AfterLosingStreak(streak, limit) => {
+            format!("Vào lệnh sau {streak} lệnh thua liên tiếp, vượt quy tắc {limit} của tài khoản {account}.")
+        }
+    }
 }
 
 /// The plan as the fields of the dialog hold it.
@@ -404,6 +498,16 @@ fn setup_fields(fields: Fields, choices: Reading<Choices>) -> impl IntoElement {
         ))
 }
 
+/// The rule warnings of the plan, read again when the planned risk changes or the data does.
+/// A memo, so that a read under way (which still holds the old lines) does not redraw them.
+fn rule_warnings(request: PlanRequest, risk: Signal<Option<f64>>) -> Memo<Vec<String>> {
+    let read = query_with(
+        move || risk.get(),
+        move |db, _, risk| plan_warnings(db, &request, *risk, chrono::Utc::now().timestamp_millis()),
+    );
+    computed(move || read.value().map_or_default(|lines| lines.to_vec()))
+}
+
 fn panel(request: &PlanRequest) -> impl IntoElement {
     let write = writer();
     let choices = query(load_choices);
@@ -436,6 +540,7 @@ fn panel(request: &PlanRequest) -> impl IntoElement {
     };
     let skip = move || later(write, &target);
     let thesis = fields.thesis;
+    let warnings = rule_warnings(request.clone(), fields.risk);
     view()
         .w(px(PANEL_WIDTH))
         .max_h(px(720.0))
@@ -450,6 +555,10 @@ fn panel(request: &PlanRequest) -> impl IntoElement {
                     .p_6()
                     .gap_4()
                     .child(header(request, waiting, skip.clone()))
+                    .child(dynamic(move || {
+                        let lines = warnings.get();
+                        untracked(|| view().gap_2().children(lines.into_iter().map(warning_banner)).into_element())
+                    }))
                     .child(field(
                         "Lý do vào lệnh (viết ngay, trước khi biết kết quả)",
                         textarea(
@@ -592,6 +701,8 @@ fn footer(busy: Signal<bool>, skip: impl Fn() + 'static, save: impl Fn() + 'stat
 
 #[cfg(test)]
 mod tests {
+    use tradelens_core::Rules;
+
     use super::*;
 
     fn position() -> OpenedPosition {
@@ -628,6 +739,96 @@ mod tests {
         assert_eq!(server_time(1_000_000, None), 1_000_000);
     }
 
+    /// An account with a balance of 10,000, one closed trade today, and `rules`.
+    fn account_with_rules(rules: &Rules) -> (Db, PlanRequest) {
+        use tradelens_core::{AccountInfo, Deal, DealBatch, DealEntry, DealKind, time::parse_mt5_time};
+        let deal = |ticket: i64, at: &str, entry: DealEntry, profit: f64| Deal {
+            ticket,
+            order: ticket,
+            position_id: 1,
+            time_msc: parse_mt5_time(at).expect("fixture times parse"),
+            symbol: "XAUUSD".into(),
+            kind: if entry == DealEntry::In { DealKind::Buy } else { DealKind::Sell },
+            entry,
+            volume: 0.5,
+            price: 2648.2,
+            commission: 0.0,
+            swap: 0.0,
+            fee: 0.0,
+            profit,
+            magic: 0,
+            comment: String::new(),
+            sl: 0.0,
+            tp: 0.0,
+            risk: None,
+            reason: None,
+        };
+        let mut db = Db::in_memory().expect("opens");
+        let batch = DealBatch {
+            account: AccountInfo {
+                login: "52012345".into(),
+                server: "Demo".into(),
+                balance: Some(10_000.0),
+                ..AccountInfo::default()
+            },
+            deals: vec![
+                deal(1, "2026.11.20 09:00:00", DealEntry::In, 0.0),
+                deal(2, "2026.11.20 09:30:00", DealEntry::Out, -50.0),
+            ],
+            positions: Vec::new(),
+        };
+        db.upsert_batch(&batch, "test").expect("the batch is stored");
+        let account = db.accounts().expect("accounts").remove(0).id;
+        db.save_rules(account, rules).expect("rules are saved");
+        (db, PlanRequest::of_position(&position()))
+    }
+    fn no_warnings() -> Vec<String> {
+        Vec::new()
+    }
+
+    fn at_noon() -> i64 {
+        tradelens_core::time::parse_mt5_time("2026.11.20 12:00:00").expect("a time")
+    }
+
+    #[test]
+    fn a_planned_risk_over_the_accounts_limit_is_warned_about() {
+        let (db, request) = account_with_rules(&Rules { max_risk_pct: Some(1.5), ..Rules::default() });
+        let warned = plan_warnings(&db, &request, Some(300.0), at_noon()).expect("reads");
+        assert_eq!(warned, ["Risk 3.0% vượt quy tắc 1.5% của tài khoản 52012345 · Demo."]);
+        assert!(plan_warnings(&db, &request, Some(100.0), at_noon()).expect("reads").is_empty(), "1% is within it");
+        assert!(plan_warnings(&db, &request, None, at_noon()).expect("reads").is_empty(), "no risk, nothing to judge");
+    }
+
+    #[test]
+    fn the_trades_of_the_day_count_this_one() {
+        let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(1), ..Rules::default() });
+        let warned = plan_warnings(&db, &request, None, at_noon()).expect("reads");
+        assert_eq!(warned, ["Lệnh thứ 2 trong ngày vượt quy tắc 1 lệnh/ngày của tài khoản 52012345 · Demo."]);
+        let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(2), ..Rules::default() });
+        assert_eq!(plan_warnings(&db, &request, None, at_noon()).expect("reads"), no_warnings());
+        // Another day: the earlier trade is not today's.
+        let tomorrow = at_noon() + 24 * 3_600_000;
+        let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(1), ..Rules::default() });
+        assert_eq!(plan_warnings(&db, &request, None, tomorrow).expect("reads"), no_warnings());
+    }
+
+    #[test]
+    fn a_losing_streak_and_a_blown_day_are_warned_about() {
+        let rules = Rules { max_consecutive_losses: Some(1), max_daily_loss: Some(40.0), ..Rules::default() };
+        let (db, request) = account_with_rules(&rules);
+        let warned = plan_warnings(&db, &request, None, at_noon()).expect("reads");
+        assert_eq!(warned.len(), 2, "{warned:?}");
+        assert!(warned.iter().any(|w| w.starts_with("Lỗ trong ngày 50.00 đã vượt quy tắc 40.00")));
+        assert!(warned.iter().any(|w| w.starts_with("Vào lệnh sau 1 lệnh thua liên tiếp")));
+    }
+
+    #[test]
+    fn an_account_without_rules_or_unknown_has_no_warnings() {
+        let (db, request) = account_with_rules(&Rules::default());
+        assert_eq!(plan_warnings(&db, &request, Some(5_000.0), at_noon()).expect("reads"), no_warnings());
+        let stranger = PlanRequest { target: Target::Reported { login: "999".into(), position_id: 1 }, ..request };
+        assert_eq!(plan_warnings(&db, &stranger, Some(5_000.0), at_noon()).expect("reads"), no_warnings());
+    }
     #[test]
     fn saving_a_plan_writes_it_and_takes_the_trade_out_of_the_review_queue() {
         use tradelens_core::AccountInfo;

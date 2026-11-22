@@ -4,7 +4,11 @@
 use nsh_base::theme;
 use nsh_core::prelude::*;
 
-use super::chips::Tone;
+use super::{
+    chips::Tone,
+    icons::{Icon, icon},
+    theme::warning,
+};
 
 /// The page's header: title, summary and the actions at the right.
 fn header(
@@ -147,4 +151,20 @@ pub(crate) fn planned(blocks: &'static [&'static str]) -> impl IntoElement {
                 .child(text(*line).text_sm().flex_1().text_color(move || theme().muted_foreground))
         })),
     )
+}
+
+/// A line of warning on a tinted ground: a rule about to be, or already, broken.
+pub(crate) fn warning_banner(message: impl IntoReactive<SharedString>) -> impl IntoElement {
+    view()
+        .role(AccessibilityRole::Alert)
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .p_3()
+        .rounded(move || theme().radius)
+        .border_1()
+        .border_color(move || warning().opacity(0.4))
+        .bg(move || warning().opacity(0.12))
+        .child(icon(Icon::Warning, 16.0).text_color(warning))
+        .child(text(message).flex_1().text_xs().text_color(warning))
 }

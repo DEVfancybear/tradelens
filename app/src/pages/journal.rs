@@ -22,7 +22,7 @@ use super::{
 use crate::{
     format::{self, Sign},
     nav,
-    store::{Reading, Writer, query_with, writer},
+    store::{AccountFilter, Reading, Writer, query_with, store, writer},
     ui::{
         chips::{Tone, chip, figure_text, pnl_text},
         controls::{Choice, Variant, action, action_when, icon_action, select_value, textarea},
@@ -376,8 +376,10 @@ impl Session {
 }
 
 pub(crate) fn journal() -> impl IntoElement {
-    let write = writer();
-    let day = signal(account_trades::today());
+    let (store, write) = (store(), writer());
+    // Today on the clock the trader chose, as the snapshot knows it.
+    let today = move || store.snapshot_now().zone.today(chrono::Utc::now().timestamp_millis());
+    let day = signal(today());
     let data = query_with(move || day.get(), |db, account, day| load(db, account, *day));
     let session = Session::new(write);
     session.follow(data);
@@ -391,6 +393,17 @@ pub(crate) fn journal() -> impl IntoElement {
         }
         day.set(to);
     };
+    // A day the search or the calendar asked for: show it (with its account), then forget it.
+    effect(move || {
+        let Some((wanted, account)) = nav::requested_journal_day() else { return };
+        untracked(|| {
+            batch(|| {
+                store.accounts.set(account.map_or(AccountFilter::All, AccountFilter::One));
+                go(wanted);
+            });
+            nav::take_journal_day();
+        });
+    });
     let step = move |days: i64| {
         let from = day.get_untracked();
         let to = if days < 0 {
@@ -417,7 +430,7 @@ pub(crate) fn journal() -> impl IntoElement {
                 .text_color(move || theme().foreground),
         )
         .child(icon_action(Icon::ChevronRight, "Ngày sau", Variant::Secondary, move || step(1)))
-        .child(action("Hôm nay", Variant::Secondary, move || go(account_trades::today())))
+        .child(action("Hôm nay", Variant::Secondary, move || go(today())))
         .child(account_picker())
         .child(text(move || status.get()).text_xs().text_color(move || theme().muted_foreground))
         .child(action_when("Lưu nhật ký", Variant::Primary, move || dirty.get() && !busy.get(), save_now));

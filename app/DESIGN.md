@@ -38,7 +38,7 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 
 | Component | File | Trạng thái |
 |---|---|---|
-| `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `empty_state`, `planned` | `parts.rs` | có |
+| `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `empty_state`, `planned`, `warning_banner(message)` (một dòng cảnh báo quy tắc, `role` Alert) | `parts.rs` | có |
 | `parts::property_row(label, control)` (hàng nhãn + điều khiển đơn giản, khác `properties`) | `parts.rs` | có |
 | `action` / `action_when` (Primary / Secondary / Ghost) | `controls.rs` | có |
 | `action_icon` / `action_icon_when` (icon trước nhãn), `icon_action` (chỉ icon, bắt buộc `accessibility_label`) | `controls.rs` | có |
@@ -62,7 +62,6 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 | `r_curve_chart(points, generation)` + `RPoint` (tổng R tích luỹ) | `r_chart.rs` | có |
 | `month_grid(weeks, figure, selected, currency, today, on_pick)` + `Figure`, `mini_month(weeks, today)` (tuần lấy từ `metrics::month_weeks`) | `month_grid.rs` | có |
 | `breakdown_table(name_title, rows, empty)` + `BreakdownRow` (bảng nhóm: lệnh, win rate, net, PF, R TB) | `breakdown.rs` | có |
-| `tab_bar(group, options, label, value, on_change)` (thẻ gạch chân) | `tab_bar.rs` | có |
 | `columns(main, side)` (hai cột tự xuống dòng), `titled_card(title, trailing, body)` | `layout.rs` | có |
 | `toast` | — | v0.1 |
 
@@ -147,3 +146,13 @@ Tôn trọng *reduce motion*: chỉ đổi opacity, không dịch chuyển.
 
 Khi một ô nhập bám theo `Reading::value()`, bọc bằng `computed(move || data.value())`: một lần đọc lại đang chạy cũng
 làm `value()` báo đổi (cờ `loading`), và nếu không có memo thì dữ liệu cũ ghi đè lên chỗ người dùng vừa sửa.
+
+### Giờ hiển thị và "hôm nay"
+
+Một nguồn duy nhất: `zone.rs`. Cài đặt `time_display` (`TimeDisplay::Local` / `Server`) cùng offset của server và của máy
+làm nên `Zone`, nằm trong `Snapshot::zone` (đọc lại khi cài đặt đổi vì `Writer` tăng revision). Giờ lệnh (`TradeRow::opened`,
+`closed`, `local`), ngày gom nhóm (`insight::summary_clock`) và "hôm nay" (`insight::today_now`, `Zone::today`) đều lấy từ đó;
+đừng gọi `chrono::Local::now()` để suy ra ngày hay giờ lệnh. Phiên giao dịch luôn theo UTC (`TradeRow::utc`). Trang đọc thẳng
+`Db` (`account_trades::load`) dùng `zone::time_display` và `AccountTrades::today(now_utc_ms)`.
+Mở Nhật ký ngày ở một ngày khác (kết quả tìm, nút "Mở nhật ký ngày" ở Lịch): `nav::show_journal_day(day, account_id)`; màn
+Nhật ký ngày đọc `nav::requested_journal_day()` rồi gọi `nav::take_journal_day()`.

@@ -8,7 +8,6 @@ use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{Db, DbError, time::TimeDisplay};
 
-use super::account_trades::TIME_DISPLAY_KEY;
 use crate::{
     store::{Reading, Writer, query, store, writer},
     ui::{
@@ -17,6 +16,7 @@ use crate::{
         parts::{card, page, property_row},
         theme::loss,
     },
+    zone::TIME_DISPLAY_KEY,
 };
 
 /// Settings keys; the bridge's two are read by `store.rs` when the app starts.

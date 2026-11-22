@@ -1,4 +1,4 @@
-//! A row of tabs with an underline that follows the selected one (the form editor's forms).
+//! A row of tabs with an underline that follows the selected one (analytics, the form editor's forms).
 //! Built on `nsh_base`'s `tabs` and `tab`, which draw nothing until styled here.
 
 use nsh_base::{tab, tabs, theme};

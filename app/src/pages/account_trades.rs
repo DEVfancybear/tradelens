@@ -8,31 +8,11 @@ use chrono::NaiveDate;
 use tradelens_core::{
     Account, Db, DbError, Deal, Trade,
     metrics::{self, EquityPoint, Sample},
-    time::{Clock, TimeDisplay},
+    time::Clock,
     trades::{build_trades, cash_flows},
 };
 
-/// The setting that holds which clock times are shown on (`local` or `server`).
-pub(crate) const TIME_DISPLAY_KEY: &str = "time_display";
-
-/// The clock choice the trader made in the settings.
-///
-/// # Errors
-///
-/// [`DbError`] when the setting cannot be read.
-pub(crate) fn time_display(db: &Db) -> Result<TimeDisplay, DbError> {
-    Ok(db.setting(TIME_DISPLAY_KEY)?.map_or_else(TimeDisplay::default, |text| TimeDisplay::parse(&text)))
-}
-
-/// Minutes the machine's zone is ahead of UTC.
-pub(crate) fn local_offset_min() -> i32 {
-    chrono::Local::now().offset().local_minus_utc() / 60
-}
-
-/// Today on the machine's calendar.
-pub(crate) fn today() -> NaiveDate {
-    chrono::Local::now().date_naive()
-}
+use crate::zone;
 
 /// One account with its trades, grouped by day on `clock`.
 #[derive(Debug, Clone)]
@@ -46,6 +26,11 @@ pub(crate) struct AccountTrades {
 }
 
 impl AccountTrades {
+    /// Today on the account's clock, at the real time `now_utc_ms`.
+    pub(crate) fn today(&self, now_utc_ms: i64) -> NaiveDate {
+        zone::today_on(self.clock, self.account.server_offset_min, now_utc_ms)
+    }
+
     /// The closed trades, for statistics and rules.
     pub(crate) fn samples(&self) -> Vec<Sample<'_>> {
         self.trades.iter().filter(|t| t.is_closed()).map(|trade| Sample { trade, r: None }).collect()
@@ -65,8 +50,8 @@ impl AccountTrades {
 ///
 /// [`DbError`] when a query fails.
 pub(crate) fn load(db: &Db, account: Option<i64>) -> Result<Vec<AccountTrades>, DbError> {
-    let display = time_display(db)?;
-    let local = local_offset_min();
+    let display = zone::time_display(db)?;
+    let local = zone::local_offset_min();
     let mut deals: BTreeMap<i64, Vec<Deal>> = BTreeMap::new();
     for (id, deal) in db.deals(account)? {
         deals.entry(id).or_default().push(deal);
@@ -92,6 +77,7 @@ mod tests {
     use tradelens_core::{DealBatch, DealEntry, DealKind, model::AccountInfo, time::parse_mt5_time};
 
     use super::*;
+    use crate::zone::TIME_DISPLAY_KEY;
 
     fn deal(ticket: i64, at: &str, kind: DealKind, entry: DealEntry, profit: f64) -> Deal {
         Deal {

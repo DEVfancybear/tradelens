@@ -3,12 +3,12 @@
 
 use std::time::{Duration, Instant};
 
-use chrono::Local;
+use chrono::{Datelike, Local, NaiveDate};
 use nsh_core::{Size, prelude::px};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::{DialogAnswer, Headless};
 use tradelens_core::{
-    ChecklistItem, Db, Deal, DealBatch, DealEntry, DealKind,
+    ChecklistItem, DayNote, Db, Deal, DealBatch, DealEntry, DealKind,
     catalog::{FieldDef, FieldKind, FieldScope, Requirement},
     model::AccountInfo,
 };
@@ -328,4 +328,76 @@ fn a_new_bridge_token_replaces_the_old_one_after_asking() {
         db.setting("bridge_token").expect("reads").is_some_and(|t| t != old)
     });
     app.wait_for("Đã tạo token mới: áp dụng khi mở lại ứng dụng.").expect("the page says it applies on the next start");
+}
+
+#[test]
+fn opening_a_day_of_the_calendar_shows_that_days_journal() {
+    let fixture = Fixture::new();
+    // The 15th of last month, whatever today is.
+    let first_of_month = Local::now().date_naive().with_day(1).expect("every month has a first");
+    let day = first_of_month.pred_opt().expect("a day before").with_day(15).expect("every month has a 15th");
+    let note = DayNote { plan: "Ghi chú của ngày cũ".into(), ..DayNote::default() };
+    fixture.db().save_day_note(0, day, &note).expect("the note is stored");
+    let mut app = fixture.start("Tổng quan");
+
+    app.press("role:button[Lịch P/L]").expect("the calendar row is a button");
+    app.wait_for("Tháng này").expect("the page opens");
+    app.press("role:button[Tháng trước]").expect("goes to last month");
+    app.press(&format!("role:button[Xem ngày {}]", day.format("%d/%m"))).expect("picks the day");
+    app.press("role:button[Mở nhật ký ngày]").expect("opens its journal");
+
+    app.wait_for("Kế hoạch và tổng kết").expect("the day journal opens");
+    app.wait_until("the day's note", Duration::from_secs(5), |screen| {
+        screen.input_text("label:Kế hoạch ngày") == Ok(Some("Ghi chú của ngày cũ"))
+    })
+    .expect("the note of the day asked for is there, not today's");
+    app.wait_for(&format!("text:/{}$/", day.format("%d.%m.%Y"))).expect("the header names the day");
+}
+
+#[test]
+fn the_time_display_setting_changes_the_times_the_pages_show() {
+    let fixture = Fixture::new();
+    // A server three hours ahead of the machine, so that the two clocks never agree.
+    let machine_offset = Local::now().offset().local_minus_utc() / 60;
+    let closed_on_server =
+        NaiveDate::from_ymd_opt(2026, 11, 20).and_then(|d| d.and_hms_opt(10, 0, 0)).expect("a date and time");
+    let closed_ms = closed_on_server.and_utc().timestamp_millis();
+    {
+        let mut db = fixture.db();
+        let batch = DealBatch {
+            account: AccountInfo {
+                login: "52012345".into(),
+                server: "Demo".into(),
+                currency: "USD".into(),
+                balance: Some(10_000.0),
+                server_offset_min: Some(machine_offset + 180),
+                ..AccountInfo::default()
+            },
+            deals: vec![
+                deal(10, 1, closed_ms - HOUR_MS, DealKind::Buy, DealEntry::In, 0.0),
+                deal(11, 1, closed_ms, DealKind::Sell, DealEntry::Out, 25.0),
+            ],
+            positions: Vec::new(),
+        };
+        db.upsert_batch(&batch, "test").expect("the batch is stored");
+    }
+    let on_server = closed_on_server.format("%d/%m %H:%M").to_string();
+    let on_machine = (closed_on_server - chrono::Duration::minutes(180)).format("%d/%m %H:%M").to_string();
+    assert_ne!(on_server, on_machine);
+
+    let mut app = fixture.start("Tổng quan");
+    app.press("role:button[Lệnh]").expect("the trades row is a button");
+    app.wait_for(&on_machine).expect("the trade's time is on the trader's clock");
+
+    app.press("role:button[Cài đặt]").expect("the settings row is a button");
+    app.wait_for("Chế độ màu").expect("the page opens");
+    app.press("role:button[Giờ hiển thị: Giờ server]").expect("the server's clock is chosen");
+    app.press("role:button[Lệnh]").expect("back to the trades");
+    app.wait_for(&on_server).expect("the same trade now shows the time MT5 reports");
+    app.wait_for_gone(&on_machine, Duration::from_secs(5)).expect("and no longer the machine's");
+
+    app.press("role:button[Cài đặt]").expect("the settings row is a button");
+    app.press("role:button[Giờ hiển thị: Giờ của bạn]").expect("the trader's clock is chosen again");
+    app.press("role:button[Lệnh]").expect("back to the trades");
+    app.wait_for(&on_machine).expect("the trader's clock is back");
 }

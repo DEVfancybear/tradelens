@@ -432,3 +432,29 @@ fn ctrl_n_opens_the_manual_entry_form_from_the_trades_list() {
     app.press("role:button[Huỷ]").expect("cancels");
     app.wait_for("Chưa có lệnh nào").expect("back on the list");
 }
+
+#[test]
+fn the_plan_prompt_warns_when_the_planned_risk_breaks_the_accounts_rule() {
+    let fixture = Fixture::new();
+    let mut db = fixture.db();
+    seed(&mut db);
+    let account = db.accounts().expect("accounts read").remove(0).id;
+    db.save_rules(account, &tradelens_core::Rules { max_risk_pct: Some(1.5), ..tradelens_core::Rules::default() })
+        .expect("the rules are stored");
+    drop(db);
+    let mut app = fixture.start();
+    let (port, token) = (bridge_port(&mut app), token(&fixture));
+
+    assert_eq!(post(port, &token, &opened_body(&[93])), 200);
+    app.wait_for_within("Lưu kế hoạch", Duration::from_secs(10)).expect("the prompt opens");
+    app.wait_for_gone("text:/vượt quy tắc/", Duration::from_secs(1)).expect("no risk is planned yet, so no warning");
+
+    // 300 of the 10,000 balance is 3%, over the 1.5% the account allows.
+    app.type_text("label:Risk", "300").expect("the risk is typed");
+    app.wait_for("Risk 3.0% vượt quy tắc 1.5% của tài khoản 52012345 · Demo.").expect("the rule is warned about");
+
+    // Within the rule the warning goes.
+    app.clear("label:Risk").expect("the risk is cleared");
+    app.type_text("label:Risk", "100").expect("the risk is retyped");
+    app.wait_for_gone("text:/vượt quy tắc/", Duration::from_secs(5)).expect("the warning goes with the risk");
+}
