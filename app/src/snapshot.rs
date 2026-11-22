@@ -125,6 +125,11 @@ impl TradeRow {
         self.clock.local(server_ms)
     }
 
+    /// How the account's server times become the trader's.
+    pub(crate) fn clock(&self) -> Clock {
+        self.clock
+    }
+
     /// When the position opened, on the trader's clock.
     pub(crate) fn opened(&self) -> NaiveDateTime {
         self.clock.local(self.trade.open_time)

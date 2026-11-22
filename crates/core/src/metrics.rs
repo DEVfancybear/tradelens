@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use chrono::NaiveDate;
+use chrono::{Datelike, Days, NaiveDate};
 
 use crate::{
     model::{Account, Trade},
@@ -219,6 +219,10 @@ pub struct DayStat {
     pub net: f64,
     pub trades: usize,
     pub wins: usize,
+    /// The sum of the R of the day's trades that have one.
+    pub r: f64,
+    /// How many of the day's trades have an R.
+    pub r_trades: usize,
 }
 
 /// Net results by the local day the trades closed.
@@ -230,8 +234,145 @@ pub fn daily(samples: &[Sample<'_>], clock: Clock) -> BTreeMap<NaiveDate, DaySta
         d.net += x.net();
         d.trades += 1;
         d.wins += usize::from(x.net() > FLAT);
+        if let Some(r) = x.r {
+            d.r += r;
+            d.r_trades += 1;
+        }
     }
     days
+}
+
+/// One day of a calendar month grid.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CalendarDay {
+    pub date: NaiveDate,
+    /// The day belongs to the month shown, not to a neighbour that fills the week.
+    pub in_month: bool,
+    /// What the trader made that day; `None` when no trade closed.
+    pub stat: Option<DayStat>,
+}
+
+/// One row of a month grid: seven days from Monday, and what the week made inside the month.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CalendarWeek {
+    pub days: [CalendarDay; 7],
+    /// Net of the week's days that belong to the month.
+    pub net: f64,
+    /// Trades of the week's days that belong to the month.
+    pub trades: usize,
+}
+
+/// The weeks (Monday first) that cover `month` of `year`, each day with its result from `days`.
+/// Empty for a month that does not exist.
+pub fn month_weeks(year: i32, month: u32, days: &BTreeMap<NaiveDate, DayStat>) -> Vec<CalendarWeek> {
+    let Some(first) = NaiveDate::from_ymd_opt(year, month, 1) else { return Vec::new() };
+    let Some(month_end) =
+        (if month == 12 { NaiveDate::from_ymd_opt(year + 1, 1, 1) } else { first.with_month(month + 1) })
+    else {
+        return Vec::new();
+    };
+    let length = usize::try_from((month_end - first).num_days()).unwrap_or(0);
+    let lead = usize::try_from(first.weekday().num_days_from_monday()).unwrap_or(0);
+    let Some(start) = first.checked_sub_days(Days::new(u64::try_from(lead).unwrap_or(0))) else {
+        return Vec::new();
+    };
+    let cells: Vec<CalendarDay> = start
+        .iter_days()
+        .take((lead + length).div_ceil(7) * 7)
+        .map(|date| CalendarDay { date, in_month: date >= first && date < month_end, stat: days.get(&date).copied() })
+        .collect();
+    cells
+        .as_chunks::<7>()
+        .0
+        .iter()
+        .map(|week| {
+            let inside = week.iter().filter(|d| d.in_month).filter_map(|d| d.stat);
+            let (net, trades) = inside.fold((0.0, 0), |(net, trades), s| (net + s.net, trades + s.trades));
+            CalendarWeek { days: *week, net, trades }
+        })
+        .collect()
+}
+
+/// What a month of daily results adds up to.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct MonthSummary {
+    pub net: f64,
+    pub trades: usize,
+    pub green_days: usize,
+    pub red_days: usize,
+    pub best_day: Option<(NaiveDate, f64)>,
+    pub worst_day: Option<(NaiveDate, f64)>,
+}
+
+/// The totals of `month` of `year` over `days`.
+pub fn month_summary(year: i32, month: u32, days: &BTreeMap<NaiveDate, DayStat>) -> MonthSummary {
+    let mut summary = MonthSummary::default();
+    for (&date, stat) in days.iter().filter(|(d, _)| d.year() == year && d.month() == month) {
+        summary.net += stat.net;
+        summary.trades += stat.trades;
+        if stat.net > FLAT {
+            summary.green_days += 1;
+            if summary.best_day.is_none_or(|(_, best)| stat.net > best) {
+                summary.best_day = Some((date, stat.net));
+            }
+        } else if stat.net < -FLAT {
+            summary.red_days += 1;
+            if summary.worst_day.is_none_or(|(_, worst)| stat.net < worst) {
+                summary.worst_day = Some((date, stat.net));
+            }
+        }
+    }
+    summary
+}
+
+/// Which limit of the account's rules a [`RuleUsage`] measures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuleKind {
+    DailyLoss,
+    DailyTrades,
+    RiskPerTrade,
+    LosingStreak,
+}
+
+/// How much of one rule's limit a day has used.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RuleUsage {
+    pub kind: RuleKind,
+    /// Money lost, trades taken, percent risked or losses in a row so far.
+    pub used: f64,
+    pub limit: f64,
+}
+
+impl RuleUsage {
+    /// The share of the limit used, 0 when the limit is zero.
+    pub fn ratio(&self) -> f64 {
+        if self.limit > FLAT { self.used / self.limit } else { 0.0 }
+    }
+}
+
+/// How far one day's trades (closed that day, any order) have gone toward each limit that
+/// `rules` sets. `balance` is the account's balance, for the risk limit in percent.
+pub fn rule_usage(rules: &crate::model::Rules, today: &[Sample<'_>], balance: f64) -> Vec<RuleUsage> {
+    let mut ordered: Vec<&Sample<'_>> = today.iter().collect();
+    ordered.sort_by_key(|x| x.trade.close_time.unwrap_or(x.trade.open_time));
+    let mut usage = Vec::new();
+    if let Some(limit) = rules.max_daily_loss {
+        let net: f64 = ordered.iter().map(|x| x.net()).sum();
+        usage.push(RuleUsage { kind: RuleKind::DailyLoss, used: (-net).max(0.0), limit });
+    }
+    if let Some(limit) = rules.max_daily_trades {
+        usage.push(RuleUsage { kind: RuleKind::DailyTrades, used: real(ordered.len()), limit: f64::from(limit) });
+    }
+    if let Some(limit) = rules.max_risk_pct {
+        let largest = ordered.iter().filter_map(|x| x.trade.risk).fold(0.0_f64, f64::max);
+        let used = if balance > FLAT { largest / balance * 100.0 } else { 0.0 };
+        usage.push(RuleUsage { kind: RuleKind::RiskPerTrade, used, limit });
+    }
+    if let Some(limit) = rules.max_consecutive_losses {
+        let streak = ordered.iter().rev().take_while(|x| x.net() < -FLAT).count();
+        usage.push(RuleUsage { kind: RuleKind::LosingStreak, used: real(streak), limit: f64::from(limit) });
+    }
+    usage
 }
 
 /// One row of a breakdown.

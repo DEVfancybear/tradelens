@@ -59,8 +59,8 @@ bằng NSH theo `app/DESIGN.md` và component trong `app/src/ui/`.
 | `switch_row`, `setting_row` | quy tắc, cài đặt, sync | `switch` | có (`forms.rs`) |
 | `checklist` (và `check_box`) | chi tiết lệnh, nhập tay, tài khoản | `checkbox` | có (`forms.rs`) |
 | `trades_table` | Lệnh, Tổng quan | `data_table` (ảo hoá) | v0.1 |
-| `equity_chart`, `bar_chart`, `diverging_bars`, `heatmap`, `histogram` | Tổng quan, Phân tích | `nsh_base::plot` (Line, Area, Bar, Cell) | v0.1–v0.2 |
-| `month_grid` | Lịch P/L, Tổng quan | `view` grid | v0.2 |
+| `equity_chart`, `bar_chart`, `diverging_bars`, `heatmap`, `histogram`, `r_curve_chart` | Tổng quan, Phân tích | `nsh_base::plot` (Line, Area, Bar); `heatmap` và `diverging_bars` là `view` | có (`chart.rs`, `charts.rs`, `r_chart.rs`) |
+| `month_grid`, `mini_month` | Lịch P/L, Tổng quan | `view` grid | có (`month_grid.rs`) |
 | `dropzone`, `image_slot` | Nguồn dữ liệu, chi tiết lệnh | `view` + `pick_paths`, kéo thả file | có (`files.rs`) |
 | `progress_rule` (thanh ngưỡng quy tắc) | Tổng quan, Tài khoản | `progress` | có (`forms.rs`) |
 | `property_list` + `property_row` (kéo ⋮⋮ đổi thứ tự, glyph kiểu, tên bấm để sửa, giá trị theo `FieldKind`, nhãn "riêng" cho thuộc tính tự thêm, dòng thuộc tính ẩn, "+ Thêm thuộc tính") | chi tiết lệnh, nhập tay, nhật ký ngày, lệnh bỏ lỡ | `view` + `drag` + `input` | có (`properties.rs`) |
@@ -68,7 +68,7 @@ bằng NSH theo `app/DESIGN.md` và component trong `app/src/ui/`.
 | `form_editor` (tab theo `FieldScope`, bảng thuộc tính, panel sửa, chọn kiểu, khôi phục đã xoá) | Tuỳ biến form | `tabs`, `data_table`, `alert_dialog` khi đổi kiểu mất dữ liệu | v0.2 |
 | `gallery` (nhiều ảnh, badge EA vào/ra, kéo đổi thứ tự, ô "Thêm ảnh" nhận chọn nhiều / kéo thả / Ctrl+V) | chi tiết lệnh, playbook, lệnh bỏ lỡ | `view` grid + `pick_paths(multiple)` + clipboard | có (`gallery.rs`) |
 | `plan_vs_actual` (bảng kế hoạch / thực tế / chênh) | chi tiết lệnh | `view` grid | v0.2 |
-| `queue_row`, `mistake_cost_bar` | Tổng kết, Phân tích | `view` + `progress` | v0.2 |
+| `queue_row`, `mistake_cost_bar` | Tổng kết, Phân tích | `view` + `progress` | `mistake_cost_bar` có (`charts.rs`); `queue_row` v0.2 |
 | `share_card` (render thành PNG theo `report::Privacy`) | Chia sẻ | `canvas` → ảnh | v0.3 |
 | `command_palette` (nhóm kết quả, tô sáng từ khoá, bỏ dấu) | Tìm kiếm | `command` | v0.2 |
 
@@ -105,10 +105,11 @@ qua `registry.assets(..)` vì desktop không tải Google Fonts.
 | Lệnh | Bấm một dòng hoặc nút ở cột Symbol mở chi tiết lệnh; Enter trên dòng đang chọn không mở | `data_table` của NSH 0.6.1 không có sự kiện Enter, nên đường dùng phím là nút Symbol (nhận Tab và Enter) |
 | Chi tiết lệnh | Không có biểu đồ giá của lệnh, nút Chia sẻ / Mở trên MT5, ảnh thu nhỏ (chỉ danh sách tên ảnh + nguồn), lưu tự động (thay bằng nút Lưu, tự lưu khi chuyển sang lệnh khác), Kế hoạch vs thực tế và thuộc tính kiểu Notion (khối "Sẽ có ở bản tới") | Biểu đồ giá cần nguồn nến (chưa có); chia sẻ là v0.3; thư viện ảnh, kế hoạch và form tuỳ biến là v0.2 |
 | Chi tiết lệnh | Mở bằng trạng thái `nav::open_trade` đè lên route Lệnh, không dùng `nav_stack` native | Chỉ cần một tầng; nút "‹ Lệnh" quay lại danh sách và giữ nguyên bộ lọc |
-| Tổng quan | Chỉ có hàng chỉ số, đường balance + drawdown và 5 lệnh gần đây; chưa có tab Balance/Equity/R, Kỷ luật hôm nay, lịch tháng và "Theo symbol" (khối "Sẽ có ở bản tới") | Equity cần lãi/lỗ đang mở; quy tắc và lịch là v0.2 |
+| Tổng quan | Biểu đồ chỉ có hai tab Balance và R (không có Equity); nút "Xem phân tích" thay "Phân tích" ở thẻ Theo symbol; thẻ lịch tên "Tháng này" kèm nút "Mở lịch", lưới chỉ T2–T6 và ô không có nút bấm; Kỷ luật hôm nay lấy quy tắc của tài khoản đầu tiên (trong phạm vi đang chọn) có đặt giới hạn, "vi phạm" đếm theo `rules::evaluate` | Equity cần lãi/lỗ đang mở mà nguồn dữ liệu chưa gửi theo thời gian; nút "Phân tích" trùng nhãn với mục sidebar nên test và trình đọc màn hình không phân biệt được; quy tắc thuộc từng tài khoản còn thiết kế chỉ vẽ một bộ |
+| Lịch P/L | Chưa có nút "Xuất ảnh tháng"; "Mở nhật ký ngày" chỉ chuyển sang màn Nhật ký (chưa chọn đúng ngày); ô lịch là `view` lưới (không dùng `plot` Cell); chọn ngày của tháng khác chuyển luôn sang tháng đó | Xuất ảnh là v0.3 (chia sẻ); màn Nhật ký ngày do mục khác dựng; mỗi ô mang chữ để đọc và để test tìm |
+| Phân tích | Chưa có "So sánh với 90N trước"; khoảng thời gian dùng chung bộ lọc 7N/30N/90N/YTD/Tất cả với Tổng quan; heatmap giờ × thứ và "Theo symbol" dựng bằng `view` (không dùng `plot` Cell/Bar); bảng "Theo giờ vào lệnh" thay biểu đồ giờ; giờ tính theo giờ của máy (không cố định giờ Việt Nam) | So sánh kỳ trước cần đọc hai khoảng cùng lúc, làm sau; mỗi ô và hàng mang chữ để đọc và để test tìm |
 | Tổng quan | Tiền hiện kèm ký hiệu đô la khi tiền tệ là USD (hoặc tài khoản chưa báo), còn lại dạng `123.45 EUR` | Chưa có cài đặt tiền tệ; thiết kế chỉ vẽ USD |
 | Nguồn dữ liệu | Mới có thẻ Bridge (trạng thái, cổng, token + sao chép, nhật ký); hướng dẫn cài EA và import vẫn là khối "Sẽ có ở bản tới" | Phần còn lại của v0.1 làm ở các mục 2 và 4 của lộ trình |
-| Mọi màn | Số dùng font mono của `theme.json` (`font-mono`), chưa đóng gói JetBrains Mono | Cần thêm font vào `app/assets/fonts/`, làm cùng mục hoàn thiện giao diện của v0.1 |
 | Thuộc tính | Kiểu Ngày nhập bằng ô chữ `YYYY-MM-DD` (có báo sai định dạng), chưa có lịch chọn; popover sửa thuộc tính áp dụng ngay (không có Huỷ / Lưu), tên và lựa chọn lưu khi Enter hoặc rời ô | `date_picker` của NSH cần dựng riêng; mỗi lần gõ không được ghi DB |
 | Thư viện ảnh | Mỗi ảnh có nút ✕ và tay nắm ⋮⋮ (kéo, hoặc phím mũi tên khi tay nắm đang focus); Ctrl+V nhận file ảnh đã copy hoặc ảnh trong clipboard | Thiết kế chỉ vẽ ⋮⋮; phím tắt và nút xoá cần cho thao tác bằng bàn phím |
 | Mọi màn | Bộ icon có thêm `ChevronRight` (đối xứng `ChevronLeft`) | Thiết kế dùng một chiều cho cả hai nút trước / sau |

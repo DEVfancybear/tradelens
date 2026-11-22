@@ -5,16 +5,22 @@
 //! (icons, form parts, galleries, property lists). They are public so that a component no
 //! screen uses yet is not dead code; the rest stay `pub(crate)`.
 
+pub(crate) mod breakdown;
 pub(crate) mod chart;
+pub(crate) mod charts;
 pub(crate) mod chips;
 pub(crate) mod controls;
 pub mod files;
 pub mod forms;
 pub mod gallery;
 pub mod icons;
+pub(crate) mod layout;
+pub(crate) mod month_grid;
 pub(crate) mod motion;
 pub(crate) mod parts;
 pub mod properties;
+pub(crate) mod r_chart;
 pub mod reorder;
+pub(crate) mod tab_bar;
 pub(crate) mod table;
 pub(crate) mod theme;

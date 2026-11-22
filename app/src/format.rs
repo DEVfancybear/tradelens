@@ -54,6 +54,21 @@ pub(crate) fn money(value: f64, sign: Sign, currency: &str) -> String {
     }
 }
 
+/// [`money`] rounded to whole units, for the small cells of a calendar: `+$330`, `−$1,249`.
+pub(crate) fn money_whole(value: f64, sign: Sign, currency: &str) -> String {
+    let negative = value < 0.0 && is_nonzero(value, 0);
+    let lead = match (negative, sign) {
+        (true, _) => MINUS.to_string(),
+        (false, Sign::Always) if is_nonzero(value, 0) => "+".to_owned(),
+        (false, _) => String::new(),
+    };
+    let digits = grouped(value, 0);
+    match currency {
+        "" | "USD" => format!("{lead}${digits}"),
+        code => format!("{lead}{digits} {code}"),
+    }
+}
+
 /// A result in R: `+1.8R`, `−1.2R`, or a dash when the trade has no stop to measure by.
 pub(crate) fn r_text(r: Option<f64>) -> String {
     let Some(r) = r else { return "—".to_owned() };
@@ -138,6 +153,14 @@ mod tests {
         assert_eq!(money(-116.349, Sign::Always, ""), "\u{2212}$116.35");
         assert_eq!(money(1_234_567.0, Sign::OnlyNegative, "USD"), "$1,234,567.00");
         assert_eq!(money(-5.0, Sign::OnlyNegative, "EUR"), "\u{2212}5.00 EUR");
+    }
+
+    #[test]
+    fn whole_money_drops_the_cents() {
+        assert_eq!(money_whole(330.4, Sign::Always, "USD"), "+$330");
+        assert_eq!(money_whole(-1249.5, Sign::Always, ""), "\u{2212}$1,250");
+        assert_eq!(money_whole(0.4, Sign::Always, "USD"), "$0");
+        assert_eq!(money_whole(-12.0, Sign::OnlyNegative, "EUR"), "\u{2212}12 EUR");
     }
 
     #[test]

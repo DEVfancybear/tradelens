@@ -27,6 +27,8 @@ Không viết mã màu trong code; thiếu vai trò thì thêm token trước.
 
 Inter cho chữ, JetBrains Mono cho số trong bảng lệnh. Thang: 12 (`text_xs`, nhãn), 14 (`text_sm`,
 nội dung), 16, 20 (`text_xl`, số KPI), 24 (`text_2xl`, tiêu đề trang). Đậm 500 cho nhãn nút, 600 cho tiêu đề.
+Font nằm ở `app/assets/fonts/` (Inter 400–700, JetBrains Mono 400–600) và được đăng ký bằng
+`registry.assets(assets!())` trong `lib.rs`, nên `font-sans` / `font-mono` của `theme.json` luôn ra đúng font.
 
 ## Khoảng cách và bo góc
 
@@ -50,6 +52,12 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 | `chip`, `pnl_text`, `figure_text` | `chips.rs` | có |
 | `trades_table`, `recent_trades` | `table.rs` | có |
 | `equity_chart` | `chart.rs` | có |
+| `bar_chart(items, label, height)` + `BarItem`, `histogram(buckets, label, height)`, `heatmap(grid)` + `HeatGrid`, `diverging_bars(items)` + `DivergingItem`, `mistake_cost_bar(name, trades, net, r, share)` | `charts.rs` | có |
+| `r_curve_chart(points, generation)` + `RPoint` (tổng R tích luỹ) | `r_chart.rs` | có |
+| `month_grid(weeks, figure, selected, currency, today, on_pick)` + `Figure`, `mini_month(weeks, today)` (tuần lấy từ `metrics::month_weeks`) | `month_grid.rs` | có |
+| `breakdown_table(name_title, rows, empty)` + `BreakdownRow` (bảng nhóm: lệnh, win rate, net, PF, R TB) | `breakdown.rs` | có |
+| `tab_bar(group, options, label, value, on_change)` (thẻ gạch chân) | `tab_bar.rs` | có |
+| `columns(main, side)` (hai cột tự xuống dòng), `titled_card(title, trailing, body)` | `layout.rs` | có |
 | `toast` | — | v0.1 |
 
 Các module `icons`, `forms`, `files`, `gallery`, `reorder`, `properties` là `pub` (và `ui` là `pub mod`) để một
