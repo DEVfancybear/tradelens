@@ -21,9 +21,8 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = tempfile::tempdir().expect("a temp dir");
-        let mut db = Db::open(dir.path().join("tradelens.db")).expect("the database opens");
-        // An ephemeral port, so no test claims the bridge's default one.
-        db.set_setting("bridge_port", "0").expect("the port is stored");
+        // The app opens the database the tests seed and read.
+        Db::open(dir.path().join("tradelens.db")).expect("the database opens");
         Self { dir }
     }
 

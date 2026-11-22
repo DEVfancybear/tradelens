@@ -14,8 +14,7 @@ fn start() -> Headless {
 fn opens_on_the_dashboard() {
     let mut app = start();
     assert!(app.screen().shows("Net P/L"));
-    // No data directory in this engine, so the bridge has nowhere to store what it receives.
-    app.wait_for("Bridge MT5: chưa chạy").expect("the sidebar says the bridge is off");
+    app.wait_for("Cloud: chưa đăng nhập").expect("the sidebar says how the data sources stand");
 }
 
 #[test]

@@ -8,7 +8,16 @@ Ngày là ước lượng cho một người làm toàn thời gian; mỗi mốc
 | **v0.1 Dữ liệu MT5** | Truy vấn DB, bridge chạy thật, EA và Python đầy đủ, import HTML/XLSX, trang Lệnh và chi tiết lệnh (nhật ký), Tổng quan với chỉ số và equity curve | 12/12/2026 | Lệnh đóng hiện trong app ≤ 5 giây; số liệu khớp báo cáo MT5 |
 | **v0.2 Phân tích & kỷ luật** | Lịch P/L, Phân tích theo symbol/giờ/phiên/setup, quy tắc và vi phạm, checklist, nhật ký ngày, import Notion CSV; nhật ký nâng cao: form tuỳ biến kiểu Notion, kế hoạch lúc vào vs thực tế (popup khi EA báo lệnh mới), hạng setup & điểm thực thi, lý do thoát, playbook, chi phí của lỗi, nhiều ảnh chart (EA tự chụp), lệnh bỏ lỡ, tổng kết tuần/tháng + hàng chờ, tìm kiếm toàn văn + mẫu ghi chú | 26/12/2026 | Mọi trang placeholder đã thay bằng màn hình thật |
 | **v0.3 Đám mây** | Đăng nhập Google/Microsoft, sync Google Drive/OneDrive, khôi phục sang máy mới, Notion API; thẻ chia sẻ (ẩn số tiền) và báo cáo PDF tháng; tóm tắt tuần bằng AI (tắt mặc định, key riêng) | 09/01/2027 | 2 máy sửa cùng lúc, sync xong không mất dữ liệu |
+| **v0.4 Kết nối MT5 & copier** | Đăng nhập tài khoản MT5 ngay trong app (mật khẩu trong Windows Credential Manager), app tự chạy terminal MT5 portable ẩn cho từng tài khoản và điều khiển qua gói Python `MetaTrader5` (không EA); lệnh tự vào nhật ký, popup ghi kế hoạch khi có lệnh mới; xem và quản lý lệnh trong app; copier nhiều tài khoản (cách tính lot, đổi symbol, copy ngược, lệnh chờ, sửa SL/TP, đóng một phần). Đặc tả đang chốt | — | Đăng nhập xong, lệnh đóng hiện trong app ≤ 5 giây không cần mở MT5 |
 | **v1.0 Phát hành** | Bộ cài Windows (`nsh package`), tự cập nhật, macOS, kiểm thử E2E, tài liệu người dùng | 23/01/2027 | Cài mới đến lệnh đầu tiên trong app dưới 10 phút |
+
+## Thay đổi 23/11/2026: bỏ EA và bridge
+
+EA `TradeLensSync`, crate `tradelens-bridge` (HTTP 127.0.0.1:7878, token) và `docs/sync-api.md` đã xoá
+để không phải bảo trì; thay bằng kết nối trực tiếp của v0.4. Cho tới đó lệnh vào app bằng import báo
+cáo HTML/XLSX hoặc file JSON của `python/tradelens_sync.py --out`. Bỏ luôn ảnh chart EA tự chụp (ảnh
+chỉ còn thêm tay); popup ghi kế hoạch chỉ mở từ chi tiết lệnh cho tới v0.4. Các dòng về EA/bridge ở
+dưới là lịch sử.
 
 ## Việc của v0.1, theo thứ tự
 

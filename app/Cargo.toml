@@ -12,7 +12,6 @@ workspace = true
 
 [dependencies]
 tradelens-core.workspace = true
-tradelens-bridge.workspace = true
 tradelens-cloud.workspace = true
 nsh-core.workspace = true
 nsh-base.workspace = true

@@ -22,7 +22,7 @@ Repo đóng gói sẵn hai skill trong `.claude/skills/` (nguồn: BeautifulRust
   (`cargo update`, kiểm tra bản major mới bằng `cargo search`); NSH ghim chính xác `=0.6.x`.
 
 - Nghiệp vụ nằm trong `crates/core` (thuần Rust, không UI, không mạng). UI chỉ gọi vào; luồng nền
-  (bridge, cloud) không chạm signal, chúng tăng `Revision`.
+  (kết nối MT5, cloud) không chạm signal, chúng tăng `Revision`.
 - Hàm chưa làm trả lỗi `NotImplemented("…")`, không dùng `todo!()` / `unimplemented!()`.
 - Không `unwrap()` ngoài test; `expect("lý do")` chỉ cho bất biến thật.
 - **UI theo thiết kế:** trước khi dựng hoặc sửa một màn, đọc `docs/design/README.md` (màn → route →

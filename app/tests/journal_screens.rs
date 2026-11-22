@@ -1,16 +1,11 @@
 //! The advanced trade journal, the form editor, the entry-plan prompt and manual entry,
 //! headless on the real engine over a database in a temporary data directory.
 
-use std::{
-    io::{Read, Write},
-    net::TcpStream,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use nsh_core::{Size, platform::Os, prelude::px};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::{DialogAnswer, Headless};
-use tradelens_bridge::api;
 use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, TradeKey,
     catalog::{FieldDef, FieldKind, FieldScope, FieldValue, Requirement},
@@ -28,9 +23,8 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = tempfile::tempdir().expect("a temp dir");
-        let mut db = Db::open(dir.path().join("tradelens.db")).expect("the database opens");
-        // An ephemeral port, so no test claims the bridge's default one.
-        db.set_setting("bridge_port", "0").expect("the port is stored");
+        // The app opens the database the tests seed and read.
+        Db::open(dir.path().join("tradelens.db")).expect("the database opens");
         Self { dir }
     }
 
@@ -141,6 +135,19 @@ fn open_trade(app: &mut Headless, symbol: &str) {
     app.wait_for(&format!("role:button[Mở nhật ký lệnh {symbol}]")).expect("the trades load");
     app.press(&format!("role:button[Mở nhật ký lệnh {symbol}] >> nth=0")).expect("a trade opens");
     app.wait_for("Nhật ký lệnh").expect("the journal card shows");
+}
+
+/// Presses "Viết kế hoạch" on the open trade until the plan prompt is up: a press that lands while
+/// the page is being read again reaches a button that is about to be replaced. Pressing twice is
+/// harmless, since a trade waits in the prompt's queue only once.
+fn open_plan_prompt(app: &mut Headless) {
+    for _ in 0..5 {
+        app.press("role:button[Viết kế hoạch]").expect("the trade has no plan yet");
+        if app.wait_for_within("Lưu kế hoạch", Duration::from_secs(2)).is_ok() {
+            return;
+        }
+    }
+    panic!("the plan prompt did not open");
 }
 
 fn focus_property(scope: FieldScope, kind: FieldKind) -> FieldDef {
@@ -287,94 +294,6 @@ fn changing_a_propertys_type_in_the_form_editor_converts_every_entry() {
     app.wait_for("Chi tiết lệnh").expect("back on the trade");
 }
 
-/// One request to the bridge on its own connection.
-fn post(port: u16, token: &str, body: &str) -> u16 {
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("connects");
-    stream.set_read_timeout(Some(Duration::from_secs(20))).expect("sets a timeout");
-    let head = format!(
-        "POST {} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nContent-Type: application/json\r\n{}: {token}\r\nContent-Length: {}\r\n\r\n",
-        api::DEALS,
-        api::TOKEN_HEADER,
-        body.len()
-    );
-    stream.write_all(head.as_bytes()).expect("sends the head");
-    stream.write_all(body.as_bytes()).expect("sends the body");
-    let mut raw = String::new();
-    stream.read_to_string(&mut raw).expect("reads the answer");
-    raw.split(' ').nth(1).and_then(|s| s.parse().ok()).expect("a status line")
-}
-
-/// The port the bridge listens on, from the sidebar's status line.
-fn bridge_port(app: &mut Headless) -> u16 {
-    app.wait_until("the bridge listens", Duration::from_secs(10), |screen| {
-        screen.texts().iter().any(|t| t.starts_with("Bridge MT5: đang nghe cổng"))
-    })
-    .expect("the bridge starts");
-    app.screen()
-        .texts()
-        .iter()
-        .find_map(|t| t.strip_prefix("Bridge MT5: đang nghe cổng ").and_then(|p| p.trim().parse().ok()))
-        .expect("the status line names a port")
-}
-
-/// What the EA sends when two positions open: an `in` deal each.
-fn opened_body(positions: &[i64]) -> String {
-    let at = now_ms();
-    let deals: Vec<String> = positions
-        .iter()
-        .map(|p| {
-            format!(
-                r#"{{"ticket":{},"order":{},"position_id":{p},"time_msc":{at},"symbol":"XAUUSD","type":"buy","entry":"in","volume":0.5,"price":2648.2,"commission":0,"swap":0,"profit":0,"sl":2644.3,"tp":2660.0,"risk":0}}"#,
-                p * 10,
-                p * 10
-            )
-        })
-        .collect();
-    format!(r#"{{"account":{{"login":"52012345","server":"Demo","currency":"USD"}},"deals":[{}]}}"#, deals.join(","))
-}
-
-fn token(fixture: &Fixture) -> String {
-    fixture.db().setting("bridge_token").expect("reads").expect("the app made a token")
-}
-
-#[test]
-fn a_position_the_ea_reports_asks_for_its_plan_and_waiting_ones_queue() {
-    let fixture = Fixture::new();
-    seed(&mut fixture.db());
-    let mut app = fixture.start();
-    let (port, token) = (bridge_port(&mut app), token(&fixture));
-
-    // Two positions open together: one dialog, with the other waiting behind it.
-    assert_eq!(post(port, &token, &opened_body(&[91, 92])), 200);
-    app.wait_for_within("Lưu kế hoạch", Duration::from_secs(10)).expect("the prompt opens over the overview");
-    app.wait_for("còn 1 lệnh đang chờ ghi kế hoạch").expect("the second one waits");
-    app.wait_for("text:/^EA MT5 · lệnh vừa mở/").expect("it says where it came from");
-
-    // "Ghi sau" keeps the first in the review queue and brings up the second.
-    app.press("role:button[Ghi sau]").expect("postpones the plan");
-    let db = fixture.db();
-    wait_for_database("the first trade being flagged", Duration::from_secs(5), || {
-        db.journal(&key_of(&db, 91)).expect("reads").is_some_and(|e| e.review_later)
-    });
-    app.wait_for_gone("còn 1 lệnh đang chờ ghi kế hoạch", Duration::from_secs(5)).expect("the queue shrank");
-    app.wait_for("Lưu kế hoạch").expect("the second prompt is up");
-
-    // The second plan is written and saved to that trade's journal.
-    app.type_text("label:Lý do vào lệnh", "Phá đỉnh phiên Á").expect("the reason is typed");
-    app.press("Lưu kế hoạch").expect("saves the plan");
-    wait_for_database("the plan being saved", Duration::from_secs(5), || {
-        db.journal(&key_of(&db, 92)).expect("reads").is_some_and(|e| e.plan.is_some())
-    });
-    let entry = db.journal(&key_of(&db, 92)).expect("reads").expect("an entry");
-    let plan = entry.plan.expect("a plan");
-    assert_eq!(plan.thesis, "Phá đỉnh phiên Á");
-    assert_eq!(plan.entry, Some(2648.2), "the levels start from MT5's");
-    assert_eq!(plan.stop_loss, Some(2644.3));
-    assert!(!entry.review_later);
-    app.wait_for_gone("Lưu kế hoạch", Duration::from_secs(5)).expect("the dialog closes with nothing waiting");
-    assert!(db.journal(&key_of(&db, 91)).expect("reads").expect("an entry").plan.is_none());
-}
-
 #[test]
 fn a_trade_typed_in_by_hand_is_stored_with_its_journal() {
     let fixture = Fixture::new();
@@ -443,18 +362,53 @@ fn the_plan_prompt_warns_when_the_planned_risk_breaks_the_accounts_rule() {
         .expect("the rules are stored");
     drop(db);
     let mut app = fixture.start();
-    let (port, token) = (bridge_port(&mut app), token(&fixture));
-
-    assert_eq!(post(port, &token, &opened_body(&[93])), 200);
-    app.wait_for_within("Lưu kế hoạch", Duration::from_secs(10)).expect("the prompt opens");
+    open_trade(&mut app, "XAUUSD");
+    open_plan_prompt(&mut app);
     app.wait_for_gone("text:/vượt quy tắc/", Duration::from_secs(1)).expect("no risk is planned yet, so no warning");
 
-    // 300 of the 10,000 balance is 3%, over the 1.5% the account allows.
+    // 300 of the balance before this trade (a little under 10,000) is about 3%, over the 1.5% the
+    // account allows.
     app.type_text("label:Risk", "300").expect("the risk is typed");
-    app.wait_for("Risk 3.0% vượt quy tắc 1.5% của tài khoản 52012345 · Demo.").expect("the rule is warned about");
+    app.wait_for(r"text:/^Risk 3\.\d% vượt quy tắc 1\.5% của tài khoản 52012345 · Demo\.$/")
+        .expect("the rule is warned about");
 
     // Within the rule the warning goes.
     app.clear("label:Risk").expect("the risk is cleared");
     app.type_text("label:Risk", "100").expect("the risk is retyped");
     app.wait_for_gone("text:/vượt quy tắc/", Duration::from_secs(5)).expect("the warning goes with the risk");
+}
+
+#[test]
+fn the_plan_prompt_saves_the_plan_or_flags_the_trade_for_later() {
+    let fixture = Fixture::new();
+    seed(&mut fixture.db());
+    let mut app = fixture.start();
+    open_trade(&mut app, "XAUUSD");
+    let db = fixture.db();
+    let shown = |db: &Db| {
+        [1, 2].into_iter().find(|p| db.journal(&key_of(db, *p)).expect("reads").is_some()).expect("a journal")
+    };
+
+    // "Ghi sau" writes no plan and keeps the trade in the review queue.
+    open_plan_prompt(&mut app);
+    app.press("role:button[Ghi sau]").expect("postpones the plan");
+    wait_for_database("the trade being flagged", Duration::from_secs(5), || {
+        [1, 2].into_iter().any(|p| db.journal(&key_of(&db, p)).expect("reads").is_some_and(|e| e.review_later))
+    });
+    app.wait_for_gone("Lưu kế hoạch", Duration::from_secs(5)).expect("the dialog closes");
+
+    // Written, the plan starts from the trade's own levels and takes it out of the queue.
+    let position = shown(&db);
+    open_plan_prompt(&mut app);
+    app.type_text("label:Lý do vào lệnh", "Phá đỉnh phiên Á").expect("the reason is typed");
+    app.press("Lưu kế hoạch").expect("saves the plan");
+    wait_for_database("the plan being saved", Duration::from_secs(5), || {
+        db.journal(&key_of(&db, position)).expect("reads").is_some_and(|e| e.plan.is_some())
+    });
+    let entry = db.journal(&key_of(&db, position)).expect("reads").expect("an entry");
+    let plan = entry.plan.expect("a plan");
+    assert_eq!(plan.thesis, "Phá đỉnh phiên Á");
+    assert_eq!(plan.entry, Some(2648.2), "the levels start from the trade's");
+    assert_eq!(plan.stop_loss, Some(2640.0));
+    assert!(!entry.review_later, "a written plan leaves the review queue");
 }

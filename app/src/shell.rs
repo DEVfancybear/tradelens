@@ -6,7 +6,6 @@ use nsh_core::prelude::*;
 use crate::{
     nav::{self, Route, SECTIONS},
     pages::{self, search},
-    store::store,
     ui::{
         controls::sidebar_row,
         icons::{Icon, icon},
@@ -88,10 +87,5 @@ fn route_row(route: Route) -> impl IntoElement {
 
 /// The data sources' state, at the sidebar's foot.
 fn status() -> impl IntoElement {
-    let store = store();
-    view()
-        .px_3()
-        .gap_1()
-        .child(text(move || store.bridge().status_line()).text_xs().text_color(move || theme().muted_foreground))
-        .child(text("Cloud: chưa đăng nhập").text_xs().text_color(move || theme().muted_foreground))
+    view().px_3().gap_1().child(text("Cloud: chưa đăng nhập").text_xs().text_color(move || theme().muted_foreground))
 }

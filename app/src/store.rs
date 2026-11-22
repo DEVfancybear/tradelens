@@ -2,44 +2,50 @@
 //! A `Copy` handle of signals, provided once by the root.
 //!
 //! The database is only touched on NSH's blocking threads. A [`Snapshot`] read there is
-//! swapped into a signal whole. Writers outside the UI (the bridge, later the cloud) never
-//! touch a signal: they bump the process-wide [`Revision`], which a short timer compares
-//! with the last one seen; a change reloads the snapshot.
+//! swapped into a signal whole. Writers outside the UI (an import, later the MT5 connection and
+//! the cloud) never touch a signal: they bump the process-wide [`Revision`], which a short
+//! timer compares with the last one seen; a change reloads the snapshot.
 
 use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex, OnceLock,
-        mpsc::{self, Receiver},
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
 
 use nsh_core::prelude::*;
-use tradelens_bridge::{Bridge, BridgeConfig, BridgeError, BridgeEvent, DEFAULT_PORT, Revision};
 use tradelens_core::{Db, DbError};
 
 use crate::{
-    pages,
     snapshot::{self, Query, Range, Snapshot},
     trade_list::{Filter, Sort},
 };
 
 /// How often the revision is compared with the one the store last loaded for: the longest a
-/// trade the bridge stored waits before the pages reload (a reload itself takes milliseconds).
+/// change written off the UI thread waits before the pages reload (a reload itself takes
+/// milliseconds).
 const POLL: Duration = Duration::from_millis(400);
 
 /// File name of the database in the app's data directory.
 const DB_FILE: &str = "tradelens.db";
 
-/// Settings keys of the bridge (`Db::setting`).
-const SETTING_TOKEN: &str = "bridge_token";
-const SETTING_PORT: &str = "bridge_port";
+/// A counter every writer of the database bumps, shared across threads.
+#[derive(Debug, Default)]
+struct Revision(AtomicU64);
 
-/// How many lines of the bridge's log the data sources page keeps.
-const LOG_LINES: usize = 40;
+impl Revision {
+    fn get(&self) -> u64 {
+        self.0.load(Ordering::Acquire)
+    }
 
-/// The revision the bridge and every other writer of the database bump.
+    fn bump(&self) {
+        self.0.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+/// The revision every writer of the database bumps.
 fn revision() -> &'static Revision {
     static REVISION: OnceLock<Revision> = OnceLock::new();
     REVISION.get_or_init(Revision::default)
@@ -80,42 +86,6 @@ pub(crate) enum Load {
     Failed(String),
 }
 
-/// Whether the bridge listens for the EA and the Python script.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) enum BridgePhase {
-    #[default]
-    Starting,
-    Listening {
-        port: u16,
-    },
-    /// It could not start, or stopped; the reason is shown to the trader.
-    Unavailable {
-        reason: String,
-    },
-}
-
-/// What the data sources page and the sidebar show of the bridge.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) struct BridgeInfo {
-    pub(crate) phase: BridgePhase,
-    /// Clients send it in `X-TradeLens-Token`.
-    pub(crate) token: String,
-    pub(crate) port: u16,
-    /// What the bridge received, newest last.
-    pub(crate) log: Vec<String>,
-}
-
-impl BridgeInfo {
-    /// The line at the sidebar's foot.
-    pub(crate) fn status_line(&self) -> String {
-        match &self.phase {
-            BridgePhase::Starting => "Bridge MT5: đang khởi động".to_owned(),
-            BridgePhase::Listening { port } => format!("Bridge MT5: đang nghe cổng {port}"),
-            BridgePhase::Unavailable { .. } => "Bridge MT5: chưa chạy".to_owned(),
-        }
-    }
-}
-
 type SharedDb = Arc<Mutex<Db>>;
 
 #[derive(Clone, Copy)]
@@ -123,8 +93,8 @@ pub(crate) struct Store {
     pub(crate) accounts: Signal<AccountFilter>,
     /// How far back the overview looks.
     pub(crate) range: Signal<Range>,
-    /// The revision the data was last asked for; moves when the bridge or the cloud stored
-    /// something.
+    /// The revision the data was last asked for; moves when something stored data off the
+    /// UI thread.
     pub(crate) revision: Signal<u64>,
     /// The trades page's filters and order, kept while a trade's page is open over it.
     pub(crate) trade_filter: Signal<Filter>,
@@ -133,12 +103,9 @@ pub(crate) struct Store {
     load: Signal<Load>,
     /// The database is open: reads that wait for it (`query`) start.
     ready: Signal<bool>,
-    bridge: Signal<BridgeInfo>,
     db: Stored<Option<SharedDb>>,
     /// The newest read asked for: an older one finishing later is dropped.
     generation: Stored<u64>,
-    bridge_handle: Stored<Option<Bridge>>,
-    events: Stored<Option<Receiver<BridgeEvent>>>,
 }
 
 impl Store {
@@ -152,11 +119,8 @@ impl Store {
             snapshot: signal_with(Arc::new(Snapshot::default()), SignalEquals::Never),
             load: signal(Load::Loading),
             ready: signal(false),
-            bridge: signal(BridgeInfo::default()),
             db: stored(None),
             generation: stored(0),
-            bridge_handle: stored(None),
-            events: stored(None),
         }
     }
 
@@ -172,10 +136,6 @@ impl Store {
 
     pub(crate) fn load_state(&self) -> Load {
         self.load.get()
-    }
-
-    pub(crate) fn bridge(&self) -> BridgeInfo {
-        self.bridge.get()
     }
 
     /// Reads the data again for the chosen accounts and range; the pages follow when it
@@ -207,69 +167,28 @@ impl Store {
         });
     }
 
-    /// Opens the database off the UI thread, then starts the bridge and the first read.
+    /// Opens the database off the UI thread, then makes the first read.
     fn open(self) {
         let path = data_dir().map(|dir| dir.join(DB_FILE));
         spawn(async move {
             let opened = blocking(move || open_database(path)).await;
             match opened {
-                Ok(Ok(opened)) => {
-                    self.db.replace(Some(opened.db));
+                Ok(Ok(db)) => {
+                    self.db.replace(Some(db));
                     self.ready.set(true);
                     self.reload();
-                    self.start_bridge(opened.bridge);
                 }
                 Ok(Err(error)) => {
                     log::error!("database: {error}");
                     self.load.set(Load::Failed(format!("Không mở được cơ sở dữ liệu: {error}")));
-                    self.set_unavailable("không có cơ sở dữ liệu".to_owned());
                 }
                 Err(error) => self.load.set(Load::Failed(format!("Luồng mở dữ liệu bị dừng: {error}"))),
             }
         });
     }
 
-    fn set_unavailable(self, reason: String) {
-        self.bridge.update(|info| info.phase = BridgePhase::Unavailable { reason });
-    }
-
-    /// Starts the bridge when the database lives in a file the bridge can open too.
-    fn start_bridge(self, config: Option<BridgeConfig>) {
-        let Some(config) = config else {
-            return self.set_unavailable("dữ liệu chỉ nằm trong bộ nhớ".to_owned());
-        };
-        let (port, token) = (config.port, config.token.clone());
-        self.bridge.update(|info| {
-            info.port = port;
-            info.token = token;
-        });
-        let (sender, receiver) = mpsc::channel();
-        // The bridge reports from its own thread, so events go through a channel the timer drains.
-        let started = Bridge::start(config, revision().clone(), move |event| {
-            if sender.send(event).is_err() {
-                log::debug!("the app stopped listening to the bridge");
-            }
-        });
-        match started {
-            Ok(bridge) => {
-                // The bound port, which differs from the configured one when that is 0.
-                let port = bridge.port();
-                self.events.replace(Some(receiver));
-                self.bridge_handle.replace(Some(bridge));
-                self.bridge.update(|info| {
-                    info.port = port;
-                    info.phase = BridgePhase::Listening { port };
-                });
-            }
-            Err(error) => {
-                log::warn!("bridge: {error}");
-                self.set_unavailable(bridge_reason(&error));
-            }
-        }
-    }
-
     /// Wires the signals to the work: a change of accounts, range or revision reloads, and a
-    /// timer brings the revision and the bridge's events over from other threads.
+    /// timer brings the revision over from other threads.
     fn start(self) {
         effect(move || {
             let _ = self.accounts.get();
@@ -284,87 +203,18 @@ impl Store {
                 seen.replace(now);
                 self.revision.set(now);
             }
-            self.drain_events();
         });
         self.open();
     }
-
-    fn drain_events(self) {
-        let events: Vec<BridgeEvent> = self.events.with(|rx| rx.as_ref().map_or_default(|rx| rx.try_iter().collect()));
-        if events.is_empty() {
-            return;
-        }
-        // A position that just opened asks for its plan, over whatever screen is showing.
-        for event in &events {
-            if let BridgeEvent::PositionOpened(position) = event {
-                pages::entry_plan::enqueue(pages::entry_plan::PlanRequest::of_position(position));
-            }
-        }
-        self.bridge.update(|info| {
-            for event in events {
-                apply_event(info, event);
-            }
-        });
-    }
 }
 
-/// Folds one bridge event into what the data sources page shows.
-fn apply_event(info: &mut BridgeInfo, event: BridgeEvent) {
-    let line = match event {
-        BridgeEvent::Listening { port } => {
-            info.phase = BridgePhase::Listening { port };
-            format!("Đang nghe cổng {port}")
-        }
-        BridgeEvent::Received { source, account, inserted, updated } => {
-            format!("{source} · tài khoản {account}: {inserted} deal mới, {updated} cập nhật")
-        }
-        BridgeEvent::PositionOpened(position) => {
-            format!("Lệnh mới mở: {} {} {}", position.symbol, position.side.label(), position.volume)
-        }
-        BridgeEvent::Rejected { reason } => format!("Từ chối: {reason}"),
-        BridgeEvent::Stopped { error } => {
-            let reason = error.unwrap_or_else(|| "đã dừng".to_owned());
-            info.phase = BridgePhase::Unavailable { reason: reason.clone() };
-            format!("Bridge dừng: {reason}")
-        }
+/// The database file in `path`, or one in memory when there is no data directory.
+fn open_database(path: Option<PathBuf>) -> Result<SharedDb, DbError> {
+    let db = match path {
+        Some(path) => Db::open(&path)?,
+        None => Db::in_memory()?,
     };
-    info.log.push(line);
-    if info.log.len() > LOG_LINES {
-        let excess = info.log.len() - LOG_LINES;
-        info.log.drain(..excess);
-    }
-}
-
-/// Why the bridge could not start, as the trader reads it.
-fn bridge_reason(error: &BridgeError) -> String {
-    match error {
-        BridgeError::NotImplemented(_) => "bridge chưa có trong bản này".to_owned(),
-        other => other.to_string(),
-    }
-}
-
-/// What opening the database produced.
-struct Opened {
-    db: SharedDb,
-    /// For the bridge: present when the database is a file.
-    bridge: Option<BridgeConfig>,
-}
-
-fn open_database(path: Option<PathBuf>) -> Result<Opened, DbError> {
-    let Some(path) = path else {
-        return Ok(Opened { db: Arc::new(Mutex::new(Db::in_memory()?)), bridge: None });
-    };
-    let mut db = Db::open(&path)?;
-    let token = match db.setting(SETTING_TOKEN)? {
-        Some(token) if !token.is_empty() => token,
-        _ => {
-            let token = tradelens_bridge::new_token();
-            db.set_setting(SETTING_TOKEN, &token)?;
-            token
-        }
-    };
-    let port = db.setting(SETTING_PORT)?.and_then(|p| p.parse().ok()).unwrap_or(DEFAULT_PORT);
-    Ok(Opened { db: Arc::new(Mutex::new(db)), bridge: Some(BridgeConfig { db_path: path, port, token }) })
+    Ok(Arc::new(Mutex::new(db)))
 }
 
 /// What a [`Reading`] holds: the last value that was read, and how the next read stands.
@@ -387,7 +237,7 @@ impl<T> Default for ReadState<T> {
 }
 
 /// A read of the database that follows the app: it runs on a blocking thread, and again
-/// whenever the store's revision (the bridge, an import, a [`Writer`] stored something), the
+/// whenever the store's revision (an import, a [`Writer`] stored something), the
 /// account filter or the query's own input changes. The last good value stays while the next
 /// is read and when a read fails. A `Copy` handle, made with [`query`] or [`query_with`].
 pub struct Reading<T: 'static> {
@@ -576,57 +426,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn events_fold_into_the_bridge_info() {
-        let mut info = BridgeInfo::default();
-        apply_event(&mut info, BridgeEvent::Listening { port: 7878 });
-        assert_eq!(info.phase, BridgePhase::Listening { port: 7878 });
-        assert_eq!(info.status_line(), "Bridge MT5: đang nghe cổng 7878");
-        apply_event(
-            &mut info,
-            BridgeEvent::Received { source: "ea".into(), account: "52012345".into(), inserted: 2, updated: 0 },
-        );
-        assert_eq!(info.log.last().map(String::as_str), Some("ea · tài khoản 52012345: 2 deal mới, 0 cập nhật"));
-        apply_event(&mut info, BridgeEvent::Stopped { error: Some("cổng bận".into()) });
-        assert_eq!(info.status_line(), "Bridge MT5: chưa chạy");
-    }
-
-    #[test]
-    fn the_log_keeps_its_newest_lines() {
-        let mut info = BridgeInfo::default();
-        for i in 0..(LOG_LINES + 5) {
-            apply_event(&mut info, BridgeEvent::Rejected { reason: i.to_string() });
-        }
-        assert_eq!(info.log.len(), LOG_LINES);
-        assert_eq!(info.log.last().map(String::as_str), Some(&*format!("Từ chối: {}", LOG_LINES + 4)));
-    }
-
-    #[test]
     fn the_account_filter_names_an_id_or_none() {
         assert_eq!(AccountFilter::All.id(), None);
         assert_eq!(AccountFilter::One(3).id(), Some(3));
     }
 
     #[test]
-    fn a_missing_bridge_reads_as_not_running() {
-        let reason = bridge_reason(&BridgeError::NotImplemented("bridge server"));
-        assert_eq!(reason, "bridge chưa có trong bản này");
+    fn opening_without_a_directory_uses_memory() {
+        let db = open_database(None).expect("a memory database opens");
+        assert_eq!(db.lock().expect("unlocked").accounts().expect("reads"), Vec::new());
     }
 
     #[test]
-    fn opening_without_a_directory_uses_memory_and_no_bridge() {
-        let opened = open_database(None).expect("a memory database opens");
-        assert!(opened.bridge.is_none());
-    }
-
-    #[test]
-    fn opening_a_file_makes_a_token_once() {
-        let dir = tempfile::tempdir().expect("a temp dir");
-        let path = dir.path().join(DB_FILE);
-        let first = open_database(Some(path.clone())).expect("opens").bridge.expect("a file has a bridge");
-        let second = open_database(Some(path)).expect("opens again").bridge.expect("a file has a bridge");
-        assert_eq!(first.token.len(), 32);
-        assert_eq!(first.token, second.token, "the token stays the same across runs");
-        assert_eq!(first.port, DEFAULT_PORT);
+    fn a_change_written_elsewhere_moves_the_revision() {
+        let before = revision().get();
+        data_changed();
+        assert!(revision().get() > before, "the revision moved from {before}");
     }
 
     mod helpers {
@@ -668,10 +483,7 @@ mod tests {
 
         fn start() -> (tempfile::TempDir, Headless) {
             let dir = tempfile::tempdir().expect("a temp dir");
-            let mut db = Db::open(dir.path().join(DB_FILE)).expect("the database opens");
-            // An ephemeral port, so no test claims the bridge's default one.
-            db.set_setting("bridge_port", "0").expect("the port is stored");
-            drop(db);
+            Db::open(dir.path().join(DB_FILE)).expect("the database opens");
             let config = EngineConfig {
                 viewport: Size::new(nsh_core::prelude::px(600.0), nsh_core::prelude::px(500.0)),
                 data_dir: Some(dir.path().to_path_buf()),

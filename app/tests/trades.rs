@@ -21,9 +21,8 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = tempfile::tempdir().expect("a temp dir");
-        let mut db = Db::open(dir.path().join("tradelens.db")).expect("the database opens");
-        // An ephemeral port, so no test claims the bridge's default one.
-        db.set_setting("bridge_port", "0").expect("the port is stored");
+        // The app opens the database the tests seed and read.
+        Db::open(dir.path().join("tradelens.db")).expect("the database opens");
         Self { dir }
     }
 
@@ -271,34 +270,18 @@ fn a_range_without_trades_says_the_curve_is_missing() {
 }
 
 #[test]
-fn a_trade_the_bridge_stores_appears_after_a_revision_bump() {
+fn a_trade_stored_elsewhere_appears_after_a_revision_bump() {
     let fixture = Fixture::new();
     seed(&mut fixture.db());
     let mut app = fixture.start();
     open_trades(&mut app);
     app.wait_for("Hiển thị 3 / 3 lệnh").expect("the trades load");
 
-    // Another connection writes, as the bridge does, then the revision moves.
-    fixture.db().upsert_batch(&batch(closed_trade(4, "USDJPY", 0, 15.0)), "bridge").expect("stored");
+    // Another connection writes, as an import does, then the revision moves.
+    fixture.db().upsert_batch(&batch(closed_trade(4, "USDJPY", 0, 15.0)), "test").expect("stored");
     let stored_at = Instant::now();
     nsh_app_tradelens::data_changed();
     app.wait_for_within(&trade_button("USDJPY"), Duration::from_secs(5)).expect("the new trade appears");
     app.wait_for("Hiển thị 4 / 4 lệnh").expect("the footer counts it");
     assert!(stored_at.elapsed() < Duration::from_secs(5), "within the 5 seconds of the acceptance criterion");
-}
-
-#[test]
-fn the_data_sources_page_shows_the_bridge_state_and_token() {
-    let fixture = Fixture::new();
-    let mut app = fixture.start();
-    app.press("role:button[Nguồn dữ liệu]").expect("the data sources row is a button");
-    app.wait_for("Bridge MT5").expect("the bridge card shows");
-    // Until the bridge's server exists it cannot start; with it, it listens.
-    app.wait_until("the bridge state", Duration::from_secs(5), |screen| {
-        screen.shows("Lý do: bridge chưa có trong bản này")
-            || screen.texts().iter().any(|t| t.starts_with("Bridge MT5: đang nghe cổng"))
-    })
-    .expect("the page says whether the bridge listens");
-    let token = app.screen().texts().into_iter().find(|t| t.len() == 32 && t.chars().all(|c| c.is_ascii_hexdigit()));
-    assert!(token.is_some(), "the token the EA must send is shown");
 }

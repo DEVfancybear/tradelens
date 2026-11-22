@@ -67,7 +67,21 @@ fn after(period: Period, day: NaiveDate) -> NaiveDate {
 
 pub(crate) fn review() -> impl IntoElement {
     let period = signal(Period::Week);
-    let anchor = signal(insight::today_now(&store().snapshot_now()));
+    let store = store();
+    let anchor = signal(insight::today_now(&store.snapshot_now()));
+    // While the period shown holds today, it moves with today: the first snapshot (with the
+    // server's offset) may arrive after the page, and midnight passes.
+    let known_today = signal(anchor.get_untracked());
+    effect(move || {
+        let now = insight::today_now(&store.snapshot());
+        let was = known_today.get_untracked();
+        if now != was {
+            known_today.set(now);
+            if anchor.get_untracked() == was {
+                anchor.set(now);
+            }
+        }
+    });
     let requested = global::<Jump>();
     effect(move || {
         let Some((wanted, start)) = requested.get().0 else { return };
