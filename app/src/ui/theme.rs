@@ -38,7 +38,6 @@ pub(crate) fn loss_soft() -> AdaptiveColor {
 }
 
 /// A rule close to its limit.
-#[expect(dead_code, reason = "the discipline rules of v0.2 show this colour")]
 pub(crate) fn warning() -> AdaptiveColor {
     token("warning")
 }

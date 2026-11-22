@@ -2669,6 +2669,7 @@ dependencies = [
 name = "nsh-app-tradelens"
 version = "0.1.0"
 dependencies = [
+ "base64 0.23.1",
  "chrono",
  "env_logger",
  "log",
@@ -2680,9 +2681,11 @@ dependencies = [
  "nsh-platform-windows",
  "nsh-testing",
  "tempfile",
+ "thiserror",
  "tradelens-bridge",
  "tradelens-cloud",
  "tradelens-core",
+ "url",
 ]
 
 [[package]]

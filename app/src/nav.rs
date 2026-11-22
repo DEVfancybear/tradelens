@@ -3,6 +3,8 @@
 use nsh_core::prelude::*;
 use tradelens_core::TradeKey;
 
+use crate::ui::icons::Icon;
+
 /// A screen of the app.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub(crate) enum Route {
@@ -63,21 +65,21 @@ impl Route {
         }
     }
 
-    /// A one-glyph mark until the icon set lands (`ui::icons`, v0.1).
-    pub(crate) fn glyph(self) -> &'static str {
+    /// The sidebar's icon for the route.
+    pub(crate) fn icon(self) -> Icon {
         match self {
-            Self::Dashboard => "◧",
-            Self::Trades => "≡",
-            Self::Calendar => "▦",
-            Self::Analytics => "◔",
-            Self::Journal => "✎",
-            Self::Review => "◫",
-            Self::Missed => "⊘",
-            Self::Playbook => "▤",
-            Self::Accounts => "◎",
-            Self::DataSources => "⇅",
-            Self::Cloud => "☁",
-            Self::Settings => "⚙",
+            Self::Dashboard => Icon::Dashboard,
+            Self::Trades => Icon::Trades,
+            Self::Calendar => Icon::Calendar,
+            Self::Analytics => Icon::Analytics,
+            Self::Journal => Icon::Journal,
+            Self::Review => Icon::Review,
+            Self::Missed => Icon::Missed,
+            Self::Playbook => Icon::Playbook,
+            Self::Accounts => Icon::Accounts,
+            Self::DataSources => Icon::DataSources,
+            Self::Cloud => Icon::Cloud,
+            Self::Settings => Icon::Settings,
         }
     }
 }

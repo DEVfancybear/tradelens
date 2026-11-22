@@ -36,13 +36,63 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 
 | Component | File | Trạng thái |
 |---|---|---|
-| `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `property_row`, `empty_state`, `planned` | `parts.rs` | có |
+| `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `empty_state`, `planned` | `parts.rs` | có |
+| `parts::property_row(label, control)` (hàng nhãn + điều khiển đơn giản, khác `properties`) | `parts.rs` | có |
 | `action` / `action_when` (Primary / Secondary / Ghost) | `controls.rs` | có |
-| `sidebar_row`, `segmented`, `select_field`, `text_field`, `textarea`, `tag_picker`, `rating` | `controls.rs` | có |
+| `action_icon` / `action_icon_when` (icon trước nhãn), `icon_action` (chỉ icon, bắt buộc `accessibility_label`) | `controls.rs` | có |
+| `sidebar_row` (icon), `segmented`, `select_field`, `select_value`, `text_field`, `commit_field`, `textarea`, `tag_picker`, `rating` / `rating_of`, `confirm` | `controls.rs` | có |
+| `icon(Icon, size)`, `Icon` (bộ icon nét 1.75 của thiết kế) | `icons.rs` (`pub`) | có |
+| `number_field`, `switch_row`, `setting_row`, `check_box`, `checklist`, `progress_rule` | `forms.rs` (`pub`) | có |
+| `dropzone`, `image_slot`, `Accept`, `pick_files`, `pasted_images`, `paths_of_uris` | `files.rs` (`pub`) | có |
+| `gallery` (ảnh, badge EA, kéo/phím đổi thứ tự, Thêm ảnh) | `gallery.rs` (`pub`) | có |
+| `drag_handle`, `grid_drop_index`, `list_drop_index` | `reorder.rs` (`pub`) | có |
+| `property_list` + `PropertyList` + `PropertyEdits` (hàng thuộc tính, popover, thêm/ẩn/xoá, đổi kiểu) | `properties.rs` (`pub`) | có |
 | `chip`, `pnl_text`, `figure_text` | `chips.rs` | có |
 | `trades_table`, `recent_trades` | `table.rs` | có |
 | `equity_chart` | `chart.rs` | có |
 | `toast` | — | v0.1 |
+
+Các module `icons`, `forms`, `files`, `gallery`, `reorder`, `properties` là `pub` (và `ui` là `pub mod`) để một
+component chưa màn nào dùng không bị `dead_code`; module còn lại giữ `pub(crate)`. Component mới của màn khác
+nên theo cách đó, không thêm `#[expect(dead_code)]`.
+
+### Icon
+
+`icon(Icon::Plus, 16.0)` vẽ bằng màu chữ đang kế thừa: đặt `.text_color(move || theme().muted_foreground)` lên
+icon hoặc phần tử cha. Nút chỉ có icon dùng `icon_action(Icon::Trash, "Xoá dòng", Variant::Ghost, on_press)`
+(nhãn truy cập là bắt buộc, test bấm bằng `label:Xoá dòng`); nút có icon và chữ dùng `action_icon`.
+
+### Đọc và ghi dữ liệu từ một màn (`store::query`, `Writer`)
+
+Màn không sửa `store.rs`. Trong thân component:
+
+```rust
+let trades = query(|db, account| db.journals(account));            // Reading<Vec<(TradeKey, JournalEntry)>>
+let month = query_with(move || month.get(), |db, account, m| load_month(db, account, *m));
+let write = writer();                                                // Copy, lấy lúc dựng, dùng trong listener
+// ...
+text(move || trades.value().map_or("Đang tải…".into(), |v| format!("{} lệnh", v.len())))
+action("Lưu", Variant::Primary, move || {
+    write.run(|db| db.save_day_note(1, day, &note), |result| { /* Err(String) tiếng Việt */ });
+})
+```
+
+- `query` / `query_with` chạy `load` trên luồng `blocking`, đọc lại khi revision đổi (bridge, import, `Writer`), khi
+  bộ lọc tài khoản đổi, và khi `input` của `query_with` đổi. Giá trị cũ giữ nguyên lúc đang đọc lại hay khi lỗi:
+  `value()` (`Option<Arc<T>>`), `error()`, `loading()`, `refresh()`.
+- `Writer::run(op, done)` chạy `op(&mut Db)` trên luồng `blocking`, thành công thì tăng revision (mọi `Reading` tự
+  đọc lại) rồi gọi `done(Result<T, String>)` trên luồng UI. `writer()` và `query()` chỉ gọi lúc dựng component
+  (dùng `use_context`), không gọi trong listener.
+- Trong `dynamic(..)`, chỉ đọc cái quyết định hình dạng, còn lại bọc `untracked(|| ..)`; nếu không, đổi giao diện
+  sáng/tối dựng lại vùng đó giữa lúc nút đang được tạo (panic "prop read after its owner was disposed").
+
+### Danh sách thuộc tính
+
+`property_list(PropertyList::new(layout, defs, values, PropertyEdits::new(on_layout, on_value, on_def)).builtin(|field| ..))`.
+Cả ba hàm đọc (`layout`, `defs` gồm cả thuộc tính đã lưu trữ, `values`) và các callback sửa là của màn: callback lưu rồi
+cập nhật cái mà hàm đọc trả về, hàng sẽ theo. Thuộc tính có sẵn do màn vẽ trong `.builtin(..)` (trả `None` thì hiện dấu
+gạch). Đổi kiểu chuyển giá trị của **lệnh đang sửa** bằng `form::convert` (hỏi `alert_dialog` nếu mất dữ liệu); các lệnh
+khác do `on_def` của màn xử lý (màn Tuỳ biến form).
 
 ## Motion (`src/ui/motion.rs`)
 

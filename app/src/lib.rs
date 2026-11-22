@@ -18,12 +18,12 @@ mod shell;
 mod snapshot;
 mod store;
 mod trade_list;
-mod ui;
+pub mod ui;
 
 use nsh_base::theme;
 use nsh_core::{element::desktop::window as app_window, prelude::*};
 
-pub use store::data_changed;
+pub use store::{Reading, Writer, data_changed, query, query_with, writer};
 
 /// The app's UI set (`nsh.json` `"rust"`).
 #[native_module("tradelens/native")]

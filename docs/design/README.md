@@ -47,26 +47,26 @@ bằng NSH theo `app/DESIGN.md` và component trong `app/src/ui/`.
 | Component | Dùng ở | Dựng trên `nsh_base` | Trạng thái |
 |---|---|---|---|
 | `page`, `card`, `stat_tile` | mọi màn | `view`, `scroll`, `text` | có (`parts.rs`) |
-| `action` Primary / Secondary / Ghost, nút chỉ có icon (cần `accessibility_label`) | mọi màn | `button` | có, thiếu icon |
+| `action` Primary / Secondary / Ghost, `action_icon`, nút chỉ có icon `icon_action` (cần `accessibility_label`) | mọi màn | `button` | có |
 | `sidebar_row` | shell | `button` | có |
-| `icon` (bộ icon nét 1.75) | mọi màn | `svg` | v0.1 |
+| `icon` (bộ icon nét 1.75) | mọi màn | `svg` | có (`icons.rs`) |
 | `pnl_text` (màu + dấu +/−, font mono, căn phải) | bảng, KPI, lịch | `text` | v0.1 |
 | `chip` (neutral / profit / loss / primary / warn) | Buy/Sell, setup, trạng thái | `view` + `text` | v0.1 |
 | `segmented` | khoảng thời gian, Buy/Sell, chế độ | `toggle_group` | v0.1 |
-| `select_field`, `text_field`, `number_field`, `textarea` | form | `select`, `input`, `number_input` | v0.1 |
-| `tag_picker` (chọn nhiều, + Thêm) | setup/tag/lỗi/cảm xúc | `toggle` | v0.1 |
-| `rating` (5 sao) | chi tiết lệnh, nhật ký ngày | `radio_group` | v0.1 |
-| `switch_row`, `setting_row` | quy tắc, cài đặt, sync | `switch` | v0.1 |
-| `checklist` | chi tiết lệnh, nhập tay, tài khoản | `checkbox` | v0.1 |
+| `select_field`, `text_field`, `number_field`, `textarea` | form | `select`, `input`, `number_input` | có |
+| `tag_picker` (chọn nhiều, + Thêm) | setup/tag/lỗi/cảm xúc | `toggle` | có |
+| `rating` (5 sao) | chi tiết lệnh, nhật ký ngày | `button` | có |
+| `switch_row`, `setting_row` | quy tắc, cài đặt, sync | `switch` | có (`forms.rs`) |
+| `checklist` (và `check_box`) | chi tiết lệnh, nhập tay, tài khoản | `checkbox` | có (`forms.rs`) |
 | `trades_table` | Lệnh, Tổng quan | `data_table` (ảo hoá) | v0.1 |
 | `equity_chart`, `bar_chart`, `diverging_bars`, `heatmap`, `histogram` | Tổng quan, Phân tích | `nsh_base::plot` (Line, Area, Bar, Cell) | v0.1–v0.2 |
 | `month_grid` | Lịch P/L, Tổng quan | `view` grid | v0.2 |
-| `dropzone`, `image_slot` | Nguồn dữ liệu, chi tiết lệnh | `view` + `pick_paths`, kéo thả file | v0.1 |
-| `progress_rule` (thanh ngưỡng quy tắc) | Tổng quan, Tài khoản | `progress` | v0.1 |
-| `property_list` + `property_row` (kéo ⋮⋮ đổi thứ tự, glyph kiểu, tên bấm để sửa, giá trị theo `FieldKind`, nhãn "riêng" cho thuộc tính tự thêm, dòng thuộc tính ẩn, "+ Thêm thuộc tính") | chi tiết lệnh, nhập tay, nhật ký ngày, lệnh bỏ lỡ | `view` + `drag` + `input` | v0.2 |
-| `property_popover` (đổi tên, kiểu, lựa chọn; Nên điền / Đưa vào Phân tích / Nhân bản / Ẩn / Xoá) | chi tiết lệnh | `popover` | v0.2 |
+| `dropzone`, `image_slot` | Nguồn dữ liệu, chi tiết lệnh | `view` + `pick_paths`, kéo thả file | có (`files.rs`) |
+| `progress_rule` (thanh ngưỡng quy tắc) | Tổng quan, Tài khoản | `progress` | có (`forms.rs`) |
+| `property_list` + `property_row` (kéo ⋮⋮ đổi thứ tự, glyph kiểu, tên bấm để sửa, giá trị theo `FieldKind`, nhãn "riêng" cho thuộc tính tự thêm, dòng thuộc tính ẩn, "+ Thêm thuộc tính") | chi tiết lệnh, nhập tay, nhật ký ngày, lệnh bỏ lỡ | `view` + `drag` + `input` | có (`properties.rs`) |
+| `property_popover` (đổi tên, kiểu, lựa chọn; Nên điền / Đưa vào Phân tích / Nhân bản / Ẩn / Xoá) | chi tiết lệnh | `popover` | có (trong `properties.rs`, mở từ tên thuộc tính) |
 | `form_editor` (tab theo `FieldScope`, bảng thuộc tính, panel sửa, chọn kiểu, khôi phục đã xoá) | Tuỳ biến form | `tabs`, `data_table`, `alert_dialog` khi đổi kiểu mất dữ liệu | v0.2 |
-| `gallery` (nhiều ảnh, badge EA vào/ra, kéo đổi thứ tự, ô "Thêm ảnh" nhận chọn nhiều / kéo thả / Ctrl+V) | chi tiết lệnh, playbook, lệnh bỏ lỡ | `view` grid + `pick_paths(multiple)` + clipboard | v0.2 |
+| `gallery` (nhiều ảnh, badge EA vào/ra, kéo đổi thứ tự, ô "Thêm ảnh" nhận chọn nhiều / kéo thả / Ctrl+V) | chi tiết lệnh, playbook, lệnh bỏ lỡ | `view` grid + `pick_paths(multiple)` + clipboard | có (`gallery.rs`) |
 | `plan_vs_actual` (bảng kế hoạch / thực tế / chênh) | chi tiết lệnh | `view` grid | v0.2 |
 | `queue_row`, `mistake_cost_bar` | Tổng kết, Phân tích | `view` + `progress` | v0.2 |
 | `share_card` (render thành PNG theo `report::Privacy`) | Chia sẻ | `canvas` → ảnh | v0.3 |
@@ -108,4 +108,7 @@ qua `registry.assets(..)` vì desktop không tải Google Fonts.
 | Tổng quan | Chỉ có hàng chỉ số, đường balance + drawdown và 5 lệnh gần đây; chưa có tab Balance/Equity/R, Kỷ luật hôm nay, lịch tháng và "Theo symbol" (khối "Sẽ có ở bản tới") | Equity cần lãi/lỗ đang mở; quy tắc và lịch là v0.2 |
 | Tổng quan | Tiền hiện kèm ký hiệu đô la khi tiền tệ là USD (hoặc tài khoản chưa báo), còn lại dạng `123.45 EUR` | Chưa có cài đặt tiền tệ; thiết kế chỉ vẽ USD |
 | Nguồn dữ liệu | Mới có thẻ Bridge (trạng thái, cổng, token + sao chép, nhật ký); hướng dẫn cài EA và import vẫn là khối "Sẽ có ở bản tới" | Phần còn lại của v0.1 làm ở các mục 2 và 4 của lộ trình |
-| Mọi màn | Số dùng font mono của `theme.json` (`font-mono`), chưa đóng gói JetBrains Mono; chưa có bộ icon (`ui::icons`), sidebar và nút dùng ký tự | Cần thêm font vào `app/assets/fonts/` và bộ SVG, làm cùng mục hoàn thiện giao diện của v0.1 |
+| Mọi màn | Số dùng font mono của `theme.json` (`font-mono`), chưa đóng gói JetBrains Mono | Cần thêm font vào `app/assets/fonts/`, làm cùng mục hoàn thiện giao diện của v0.1 |
+| Thuộc tính | Kiểu Ngày nhập bằng ô chữ `YYYY-MM-DD` (có báo sai định dạng), chưa có lịch chọn; popover sửa thuộc tính áp dụng ngay (không có Huỷ / Lưu), tên và lựa chọn lưu khi Enter hoặc rời ô | `date_picker` của NSH cần dựng riêng; mỗi lần gõ không được ghi DB |
+| Thư viện ảnh | Mỗi ảnh có nút ✕ và tay nắm ⋮⋮ (kéo, hoặc phím mũi tên khi tay nắm đang focus); Ctrl+V nhận file ảnh đã copy hoặc ảnh trong clipboard | Thiết kế chỉ vẽ ⋮⋮; phím tắt và nút xoá cần cho thao tác bằng bàn phím |
+| Mọi màn | Bộ icon có thêm `ChevronRight` (đối xứng `ChevronLeft`) | Thiết kế dùng một chiều cho cả hai nút trước / sau |

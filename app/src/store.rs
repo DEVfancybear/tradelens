@@ -131,6 +131,8 @@ pub(crate) struct Store {
     pub(crate) trade_sort: Signal<Option<Sort>>,
     snapshot: Signal<Arc<Snapshot>>,
     load: Signal<Load>,
+    /// The database is open: reads that wait for it (`query`) start.
+    ready: Signal<bool>,
     bridge: Signal<BridgeInfo>,
     db: Stored<Option<SharedDb>>,
     /// The newest read asked for: an older one finishing later is dropped.
@@ -149,6 +151,7 @@ impl Store {
             trade_sort: signal(None),
             snapshot: signal_with(Arc::new(Snapshot::default()), SignalEquals::Never),
             load: signal(Load::Loading),
+            ready: signal(false),
             bridge: signal(BridgeInfo::default()),
             db: stored(None),
             generation: stored(0),
@@ -240,6 +243,7 @@ impl Store {
             match opened {
                 Ok(Ok(opened)) => {
                     self.db.replace(Some(opened.db));
+                    self.ready.set(true);
                     self.reload();
                     self.start_bridge(opened.bridge);
                 }
@@ -385,6 +389,198 @@ fn open_database(path: Option<PathBuf>) -> Result<Opened, DbError> {
     Ok(Opened { db: Arc::new(Mutex::new(db)), bridge: Some(BridgeConfig { db_path: path, port, token }) })
 }
 
+/// What a [`Reading`] holds: the last value that was read, and how the next read stands.
+struct ReadState<T> {
+    value: Option<Arc<T>>,
+    error: Option<String>,
+    loading: bool,
+}
+
+impl<T> Clone for ReadState<T> {
+    fn clone(&self) -> Self {
+        Self { value: self.value.clone(), error: self.error.clone(), loading: self.loading }
+    }
+}
+
+impl<T> Default for ReadState<T> {
+    fn default() -> Self {
+        Self { value: None, error: None, loading: false }
+    }
+}
+
+/// A read of the database that follows the app: it runs on a blocking thread, and again
+/// whenever the store's revision (the bridge, an import, a [`Writer`] stored something), the
+/// account filter or the query's own input changes. The last good value stays while the next
+/// is read and when a read fails. A `Copy` handle, made with [`query`] or [`query_with`].
+pub struct Reading<T: 'static> {
+    state: Signal<ReadState<T>>,
+    again: Signal<u32>,
+}
+
+impl<T> Clone for Reading<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T> Copy for Reading<T> {}
+
+impl<T> std::fmt::Debug for Reading<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Reading").finish_non_exhaustive()
+    }
+}
+
+impl<T> Reading<T> {
+    /// The last value read, `None` until the first read arrives (tracked where it is read).
+    pub fn value(&self) -> Option<Arc<T>> {
+        self.state.with(|s| s.value.clone())
+    }
+
+    /// Why the last read failed, in Vietnamese; `None` when it went through (tracked).
+    pub fn error(&self) -> Option<String> {
+        self.state.with(|s| s.error.clone())
+    }
+
+    /// A read is under way (tracked); [`Reading::value`] still holds the previous one.
+    pub fn loading(&self) -> bool {
+        self.state.with(|s| s.loading)
+    }
+
+    /// Reads again now, for data that changed where the store cannot see it.
+    pub fn refresh(&self) {
+        self.again.update(|n| *n = n.wrapping_add(1));
+    }
+}
+
+/// Reads the database for the chosen accounts: `load` gets the database and the account filter
+/// (`None` for all accounts) and runs on a blocking thread. Call it while building a component
+/// (it makes an effect that the component owns).
+pub fn query<T: Send + 'static>(
+    load: impl Fn(&Db, Option<i64>) -> Result<T, DbError> + Send + Sync + 'static,
+) -> Reading<T> {
+    query_with(|| (), move |db, account, ()| load(db, account))
+}
+
+/// [`query`] with an input that is read where the query is made and moves with it: when what
+/// `input` reads changes (a chosen month, the open trade), `load` runs again with the new value.
+///
+/// # Panics
+///
+/// On the reading thread, when another thread panicked while holding the database lock.
+pub fn query_with<I: Send + 'static, T: Send + 'static>(
+    input: impl Fn() -> I + 'static,
+    load: impl Fn(&Db, Option<i64>, &I) -> Result<T, DbError> + Send + Sync + 'static,
+) -> Reading<T> {
+    let store = store();
+    let load = Arc::new(load);
+    let state = signal_with(ReadState::<T>::default(), SignalEquals::Never);
+    let again = signal(0_u32);
+    let generation = stored(0_u64);
+    effect(move || {
+        let ready = store.ready.get();
+        let _ = (store.revision.get(), again.get());
+        let account = store.accounts.get().id();
+        let input = input();
+        if !ready {
+            // The database never opened: say why instead of waiting for it.
+            if let Load::Failed(error) = store.load_state() {
+                state.update(|s| {
+                    s.error = Some(error);
+                    s.loading = false;
+                });
+            }
+            return;
+        }
+        untracked(|| {
+            let Some(db) = store.db.get() else { return };
+            let this_read = generation.with(|g| {
+                *g += 1;
+                *g
+            });
+            state.update(|s| s.loading = true);
+            let load = Arc::clone(&load);
+            spawn(async move {
+                let read = blocking(move || {
+                    let db = db.lock().expect("database lock poisoned");
+                    load(&db, account, &input)
+                })
+                .await;
+                if generation.get() != this_read {
+                    return;
+                }
+                state.update(|s| {
+                    s.loading = false;
+                    match read {
+                        Ok(Ok(value)) => {
+                            s.value = Some(Arc::new(value));
+                            s.error = None;
+                        }
+                        Ok(Err(error)) => s.error = Some(format!("Không đọc được dữ liệu: {error}")),
+                        Err(error) => s.error = Some(format!("Luồng đọc dữ liệu bị dừng: {error}")),
+                    }
+                });
+            });
+        });
+    });
+    Reading { state, again }
+}
+
+/// Writes to the database from a screen. Made with [`writer`] while building, then used from
+/// listeners: a `Copy` handle.
+#[derive(Clone, Copy)]
+pub struct Writer {
+    store: Store,
+}
+
+impl std::fmt::Debug for Writer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Writer").finish_non_exhaustive()
+    }
+}
+
+/// The handle to write with; call it while building a component, not in a listener.
+pub fn writer() -> Writer {
+    Writer { store: store() }
+}
+
+impl Writer {
+    /// Runs `op` on a blocking thread with the database; when it has stored something the
+    /// revision moves, so every [`Reading`] reads again. `done` then hears the result on the UI
+    /// thread, with the failure in Vietnamese for the trader.
+    ///
+    /// # Panics
+    ///
+    /// On the writing thread, when another thread panicked while holding the database lock.
+    pub fn run<T: Send + 'static>(
+        self,
+        op: impl FnOnce(&mut Db) -> Result<T, DbError> + Send + 'static,
+        done: impl FnOnce(Result<T, String>) + 'static,
+    ) {
+        let store = self.store;
+        let Some(db) = store.db.get() else {
+            return done(Err("Chưa mở được cơ sở dữ liệu.".to_owned()));
+        };
+        spawn(async move {
+            let written = blocking(move || {
+                let mut db = db.lock().expect("database lock poisoned");
+                op(&mut db)
+            })
+            .await;
+            let outcome = match written {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(error)) => Err(format!("Không ghi được dữ liệu: {error}")),
+                Err(error) => Err(format!("Luồng ghi dữ liệu bị dừng: {error}")),
+            };
+            if outcome.is_ok() {
+                data_changed();
+                store.revision.set(revision().get());
+            }
+            done(outcome);
+        });
+    }
+}
+
 /// Provides the store to everything the root makes after it, and starts its work.
 pub(crate) fn provide() {
     let store = Store::new();
@@ -453,5 +649,79 @@ mod tests {
         assert_eq!(first.token.len(), 32);
         assert_eq!(first.token, second.token, "the token stays the same across runs");
         assert_eq!(first.port, DEFAULT_PORT);
+    }
+
+    mod helpers {
+        use std::time::Duration;
+
+        use nsh_core::Size;
+        use nsh_engine::{EngineConfig, Root};
+        use nsh_testing::Headless;
+
+        use super::*;
+        use crate::ui::controls::{Variant, action};
+
+        /// Shows what a query reads and has buttons that write and change the query's input.
+        #[component]
+        fn Harness() -> impl IntoElement {
+            crate::ui::theme::install();
+            provide();
+            let key = signal("a");
+            let reads = query_with(move || key.get(), |db, _, key| db.setting(key));
+            let write = writer();
+            view()
+                .gap_2()
+                .child(text(move || match reads.value() {
+                    None => "nothing yet".to_owned(),
+                    Some(value) => format!("got {value:?}"),
+                }))
+                .child(text(move || format!("loading {}", reads.loading())))
+                .child(action("Ghi a", Variant::Secondary, move || {
+                    write.run(|db| db.set_setting("a", "one"), |_| {});
+                }))
+                .child(action("Ghi a hai", Variant::Secondary, move || {
+                    write.run(|db| db.set_setting("a", "two"), |_| {});
+                }))
+                .child(action("Ghi b", Variant::Secondary, move || {
+                    write.run(|db| db.set_setting("b", "bee"), |_| {});
+                }))
+                .child(action("Đọc b", Variant::Secondary, move || key.set("b")))
+        }
+
+        fn start() -> (tempfile::TempDir, Headless) {
+            let dir = tempfile::tempdir().expect("a temp dir");
+            let mut db = Db::open(dir.path().join(DB_FILE)).expect("the database opens");
+            // An ephemeral port, so no test claims the bridge's default one.
+            db.set_setting("bridge_port", "0").expect("the port is stored");
+            drop(db);
+            let config = EngineConfig {
+                viewport: Size::new(nsh_core::prelude::px(600.0), nsh_core::prelude::px(500.0)),
+                data_dir: Some(dir.path().to_path_buf()),
+                ..EngineConfig::new(Root::of::<Harness>())
+            };
+            (dir, Headless::start(config).expect("the engine starts"))
+        }
+
+        #[test]
+        fn a_query_waits_for_the_database_then_follows_every_write() {
+            let (_dir, mut app) = start();
+            app.wait_for_within("got None", Duration::from_secs(5)).expect("the first read finds no value");
+            app.press("Ghi a").expect("the write button");
+            app.wait_for_within("got Some(\"one\")", Duration::from_secs(5))
+                .expect("the query read again after the write");
+            app.press("Ghi a hai").expect("the second write");
+            app.wait_for_within("got Some(\"two\")", Duration::from_secs(5)).expect("and again after the next");
+            app.wait_for("loading false").expect("a read that is done is not loading");
+        }
+
+        #[test]
+        fn a_query_reads_again_when_its_input_changes() {
+            let (_dir, mut app) = start();
+            // The database opens in the background: the first read says it is ready to write to.
+            app.wait_for_within("got None", Duration::from_secs(5)).expect("input a has no value");
+            app.press("Ghi b").expect("the write button");
+            app.press("Đọc b").expect("changes the input");
+            app.wait_for_within("got Some(\"bee\")", Duration::from_secs(5)).expect("input b is read");
+        }
     }
 }

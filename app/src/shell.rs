@@ -7,7 +7,10 @@ use crate::{
     nav::{self, Route, SECTIONS},
     pages,
     store::store,
-    ui::controls::sidebar_row,
+    ui::{
+        controls::sidebar_row,
+        icons::{Icon, icon},
+    },
 };
 
 const SIDEBAR_WIDTH: f32 = 236.0;
@@ -59,13 +62,13 @@ fn brand() -> impl IntoElement {
                 .items_center()
                 .justify_center()
                 .bg(move || theme().primary)
-                .child(text("◉").text_sm().text_color(move || theme().primary_foreground)),
+                .child(icon(Icon::Search, 16.0).text_color(move || theme().primary_foreground)),
         )
         .child(text("TradeLens").text_base().font_weight(FontWeight::SEMIBOLD))
 }
 
 fn route_row(route: Route) -> impl IntoElement {
-    sidebar_row(route.glyph(), route.label(), move || nav::current() == route, move || nav::go(route))
+    sidebar_row(route.icon(), route.label(), move || nav::current() == route, move || nav::go(route))
 }
 
 /// The data sources' state, at the sidebar's foot.
