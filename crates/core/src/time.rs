@@ -40,6 +40,39 @@ impl Clock {
     }
 }
 
+/// Which clock the pages show times on (a setting of the trader's).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TimeDisplay {
+    /// The trader's own zone: server times are shifted when the server's offset is known.
+    #[default]
+    Local,
+    /// The broker server's wall clock, as MT5 shows it.
+    Server,
+}
+
+impl TimeDisplay {
+    /// The text the setting is stored as.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Server => "server",
+        }
+    }
+
+    /// The choice stored as `text`; anything else reads as the default (local).
+    pub fn parse(text: &str) -> Self {
+        if text.trim() == Self::Server.key() { Self::Server } else { Self::Local }
+    }
+
+    /// The clock of an account whose server is `server_offset_min` ahead of UTC.
+    pub fn clock(self, server_offset_min: Option<i32>, local_offset_min: i32) -> Clock {
+        match self {
+            Self::Local => Clock { server_offset_min, local_offset_min },
+            Self::Server => Clock { server_offset_min: None, local_offset_min },
+        }
+    }
+}
+
 pub fn naive(ms: i64) -> NaiveDateTime {
     DateTime::from_timestamp_millis(ms).map_or_default(|d| d.naive_utc())
 }
@@ -151,6 +184,18 @@ mod tests {
         assert_eq!(format_time(naive(ms)), "20/11/2026 14:05");
         assert!(parse_mt5_time("2026-11-20 14:05").is_some());
         assert!(parse_mt5_time("hello").is_none());
+    }
+
+    #[test]
+    fn the_display_choice_picks_the_clock() {
+        let ms = parse_mt5_time("2026.11.20 22:30:00").unwrap();
+        let local = TimeDisplay::Local.clock(Some(120), 420);
+        let server = TimeDisplay::Server.clock(Some(120), 420);
+        assert_eq!(format_time(local.local(ms)), "21/11/2026 03:30");
+        assert_eq!(format_time(server.local(ms)), "20/11/2026 22:30");
+        assert_eq!(TimeDisplay::parse("server"), TimeDisplay::Server);
+        assert_eq!(TimeDisplay::parse("anything"), TimeDisplay::Local);
+        assert_eq!(TimeDisplay::parse(TimeDisplay::Server.key()), TimeDisplay::Server);
     }
 
     #[test]

@@ -8,6 +8,7 @@
 pub(crate) mod breakdown;
 pub(crate) mod chart;
 pub(crate) mod charts;
+pub mod checklist_editor;
 pub(crate) mod chips;
 pub(crate) mod controls;
 pub mod files;
@@ -22,5 +23,7 @@ pub mod properties;
 pub(crate) mod r_chart;
 pub mod reorder;
 pub(crate) mod tab_bar;
+pub mod rule_row;
+pub mod selectable_card;
 pub(crate) mod table;
 pub(crate) mod theme;

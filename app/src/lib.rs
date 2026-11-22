@@ -49,6 +49,7 @@ pub fn App() -> impl IntoElement {
 pub fn Workspace() -> impl IntoElement {
     ui::theme::install();
     store::provide();
+    pages::follow_appearance();
     view().flex_1().bg(move || theme().background).text_color(move || theme().foreground).child(shell::shell())
 }
 

@@ -5,6 +5,7 @@ use nsh_core::prelude::*;
 use crate::nav::Route;
 
 mod account_picker;
+mod account_trades;
 mod accounts;
 mod analytics;
 mod calendar;
@@ -18,6 +19,8 @@ mod review;
 mod settings;
 mod trade_detail;
 mod trades;
+
+pub(crate) use settings::follow_appearance;
 
 pub(crate) fn page(route: Route) -> AnyElement {
     match route {

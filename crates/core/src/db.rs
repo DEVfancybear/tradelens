@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior};
 
-use crate::catalog::{CatalogItem, CatalogKind, FieldDef, FieldScope, FieldValue};
+use crate::catalog::{CatalogItem, CatalogKind, CustomValues, FieldDef, FieldScope, FieldValue};
 use crate::form::FormLayout;
 use crate::missed::MissedTrade;
 use crate::model::{
@@ -44,6 +44,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0006_missed_trades.sql"),
     include_str!("../migrations/0007_reviews.sql"),
     include_str!("../migrations/0008_search.sql"),
+    include_str!("../migrations/0009_day_note_custom.sql"),
 ];
 
 /// What an upsert of a batch did.
@@ -517,13 +518,42 @@ impl Db {
                  plan = excluded.plan, review = excluded.review, mood = excluded.mood",
             rusqlite::params![account_id, day.to_string(), note.plan, note.review, note.mood],
         )?;
-        let doc = Document {
-            kind: DocKind::Day,
-            reference: if account_id == 0 { day.to_string() } else { format!("{day}:{account_id}") },
-            title: format!("Nhật ký ngày {}", day.format("%d/%m/%Y")),
-            body: [note.plan.as_str(), note.review.as_str(), note.mood.as_str()].join("\n"),
-        };
-        write_index(&tx, &doc)?;
+        let values = day_values_on(&tx, account_id, day)?;
+        write_index(&tx, &day_document(account_id, day, note, &values))?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The values of the trader's own fields (scope `day`) on a day; `account_id` 0 is all
+    /// accounts. A day without a note has none.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError`] when the query fails or the stored values do not parse.
+    pub fn day_values(&self, account_id: i64, day: chrono::NaiveDate) -> Result<CustomValues> {
+        day_values_on(&self.conn, account_id, day)
+    }
+
+    /// Replaces the values of the trader's own fields on a day, keeping the plan, review and
+    /// mood (the day's note is created when there is none) and refreshing the day's search
+    /// document, whose reference is the same as [`Db::save_day_note`]'s.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError`] when the write fails.
+    pub fn save_day_values(&mut self, account_id: i64, day: chrono::NaiveDate, values: &CustomValues) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "INSERT INTO day_notes (account_id, day, custom_json) VALUES (?1, ?2, ?3)
+             ON CONFLICT(account_id, day) DO UPDATE SET custom_json = excluded.custom_json",
+            rusqlite::params![account_id, day.to_string(), serde_json::to_string(values)?],
+        )?;
+        let note = tx.query_row(
+            "SELECT plan, review, mood FROM day_notes WHERE account_id = ?1 AND day = ?2",
+            rusqlite::params![account_id, day.to_string()],
+            |r| Ok(DayNote { plan: r.get(0)?, review: r.get(1)?, mood: r.get(2)? }),
+        )?;
+        write_index(&tx, &day_document(account_id, day, &note, values))?;
         tx.commit()?;
         Ok(())
     }
@@ -921,6 +951,37 @@ fn set_setting_on(conn: &Connection, key: &str, value: &str) -> Result<()> {
         [key, value],
     )?;
     Ok(())
+}
+
+fn day_values_on(conn: &Connection, account_id: i64, day: chrono::NaiveDate) -> Result<CustomValues> {
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT custom_json FROM day_notes WHERE account_id = ?1 AND day = ?2",
+            rusqlite::params![account_id, day.to_string()],
+            |r| r.get(0),
+        )
+        .optional()?;
+    match json {
+        Some(json) => Ok(serde_json::from_str(&json)?),
+        None => Ok(CustomValues::new()),
+    }
+}
+
+/// What the trader wrote on a day (plan, review, mood and the text values of their own
+/// fields) as one searchable text. The reference is `YYYY-MM-DD` for the note of all accounts
+/// and `YYYY-MM-DD:<account id>` for an account's own.
+fn day_document(account_id: i64, day: chrono::NaiveDate, note: &DayNote, values: &CustomValues) -> Document {
+    let mut parts: Vec<&str> = vec![note.plan.as_str(), note.review.as_str(), note.mood.as_str()];
+    parts.extend(values.values().filter_map(|value| match value {
+        FieldValue::Text(text) => Some(text.as_str()),
+        _ => None,
+    }));
+    Document {
+        kind: DocKind::Day,
+        reference: if account_id == 0 { day.to_string() } else { format!("{day}:{account_id}") },
+        title: format!("Nhật ký ngày {}", day.format("%d/%m/%Y")),
+        body: parts.join("\n"),
+    }
 }
 
 fn form_layout_on(conn: &Connection, scope: FieldScope) -> Result<FormLayout> {

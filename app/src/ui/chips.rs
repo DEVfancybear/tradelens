@@ -63,7 +63,7 @@ pub(crate) fn chip(label: impl Into<SharedString>, tone: Tone) -> impl IntoEleme
 
 /// A profit or loss figure in the monospaced font: green with a plus, red with a minus.
 /// Colour and sign always go together, so the result never depends on colour alone.
-pub(crate) fn pnl_text(value: impl Fn() -> String + Clone + 'static) -> impl IntoElement {
+pub(crate) fn pnl_text(value: impl Fn() -> String + Clone + 'static) -> Text {
     let shown = value.clone();
     text(shown)
         .font_family(tokens::mono)

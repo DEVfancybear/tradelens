@@ -113,3 +113,15 @@ khác do `on_def` của màn xử lý (màn Tuỳ biến form).
 | Biểu đồ đổi khoảng thời gian | `appear_generation` của plot | `ENTER` |
 
 Tôn trọng *reduce motion*: chỉ đổi opacity, không dịch chuyển.
+
+### Component của Tài khoản & kỷ luật, Nhật ký ngày, Cài đặt
+
+| Component | File | Ghi chú |
+|---|---|---|
+| `rule_row(label, hint, unit, range, default, value, on_change)` | `rule_row.rs` (`pub`) | dòng quy tắc: ô số + công tắc; tắt thì `on_change(None)`, nhớ giá trị cũ |
+| `checklist_editor(group, items, on_change)` + `renamed` / `without` / `appended` | `checklist_editor.rs` (`pub`) | sửa chữ, xoá, thêm mục; giữ id, mục mới có id 0 |
+| `selectable_card(label, selected, on_press, body)` | `selectable_card.rs` (`pub`) | thẻ bấm để chọn (tài khoản, ngày trong tuần) |
+| `forms::switch_control` | `forms.rs` | công tắc đứng riêng, không kèm nhãn |
+
+Khi một ô nhập bám theo `Reading::value()`, bọc bằng `computed(move || data.value())`: một lần đọc lại đang chạy cũng
+làm `value()` báo đổi (cờ `loading`), và nếu không có memo thì dữ liệu cũ ghi đè lên chỗ người dùng vừa sửa.

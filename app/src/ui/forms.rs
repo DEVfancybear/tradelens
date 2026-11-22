@@ -126,8 +126,9 @@ pub fn switch_row(
     setting_row(label, hint, switch_control(label, checked, on_change))
 }
 
-/// The switch of a [`switch_row`]: a track and a thumb that slides along it.
-fn switch_control(
+/// The switch of a [`switch_row`] (or of a row that carries more than a switch, like a rule row): a
+/// track and a thumb that slides along it.
+pub fn switch_control(
     label: &'static str,
     checked: impl Fn() -> bool + 'static,
     on_change: impl Fn(bool) + 'static,
