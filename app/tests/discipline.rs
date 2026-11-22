@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use chrono::{Datelike, Local, NaiveDate};
 use nsh_core::{Size, prelude::px};
 use nsh_engine::{EngineConfig, Root};
-use nsh_testing::{DialogAnswer, Headless};
+use nsh_testing::Headless;
 use tradelens_core::{
     ChecklistItem, DayNote, Db, Deal, DealBatch, DealEntry, DealKind,
     catalog::{FieldDef, FieldKind, FieldScope, Requirement},
@@ -22,9 +22,8 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = tempfile::tempdir().expect("a temp dir");
-        let mut db = Db::open(dir.path().join("tradelens.db")).expect("the database opens");
-        // An ephemeral port, so no test claims the bridge's default one.
-        db.set_setting("bridge_port", "0").expect("the port is stored");
+        // The app opens the database the tests seed and read.
+        Db::open(dir.path().join("tradelens.db")).expect("the database opens");
         Self { dir }
     }
 
@@ -303,31 +302,6 @@ fn settings_are_kept_in_the_database() {
         db.setting("appearance").expect("reads").as_deref() == Some("light")
             && db.setting("time_display").expect("reads").as_deref() == Some("server")
     });
-}
-
-#[test]
-fn a_new_bridge_token_replaces_the_old_one_after_asking() {
-    let fixture = Fixture::new();
-    let mut app = fixture.start("Tổng quan");
-    let db = fixture.db();
-    wait_for_database("the first token", Duration::from_secs(5), || {
-        db.setting("bridge_token").expect("reads").is_some_and(|t| !t.is_empty())
-    });
-    let old = db.setting("bridge_token").expect("reads").expect("a token");
-    app.press("role:button[Cài đặt]").expect("the settings row is a button");
-    app.wait_for("Kết nối MT5 (bridge)").expect("the bridge card shows");
-
-    app.on_dialog(|_| DialogAnswer::Press("Huỷ".to_owned()));
-    app.press("role:button[Tạo token mới]").expect("asks");
-    std::thread::sleep(Duration::from_millis(300));
-    assert_eq!(db.setting("bridge_token").expect("reads"), Some(old.clone()), "cancelling changes nothing");
-
-    app.on_dialog(|_| DialogAnswer::Press("Tạo token mới".to_owned()));
-    app.press("role:button[Tạo token mới]").expect("asks again");
-    wait_for_database("the token being replaced", Duration::from_secs(5), || {
-        db.setting("bridge_token").expect("reads").is_some_and(|t| t != old)
-    });
-    app.wait_for("Đã tạo token mới: áp dụng khi mở lại ứng dụng.").expect("the page says it applies on the next start");
 }
 
 #[test]

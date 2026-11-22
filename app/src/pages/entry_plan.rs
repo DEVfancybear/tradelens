@@ -1,13 +1,11 @@
-//! Popup ghi kế hoạch: when the EA reports a position that just opened, a dialog over any
-//! screen asks for its plan (the reason, entry, stop, target, risk, chart, setup) while the
-//! result is still unknown. "Ghi sau" keeps the trade in the review queue instead; several
-//! opens wait their turn, one dialog at a time. The same dialog edits the plan of a trade
-//! already in the journal.
+//! Popup ghi kế hoạch: a dialog over any screen that writes the plan of a trade (the reason,
+//! entry, stop, target, risk, chart, setup). "Ghi sau" keeps the trade in the review queue
+//! instead; several plans wait their turn, one dialog at a time. Opened from a trade's page
+//! ("Sửa kế hoạch"); the MT5 connection of v0.4 is to open it for positions that just opened.
 //! Design: `docs/design/screens/entry-plan-prompt.html`.
 
 use nsh_base::{dialog, theme};
 use nsh_core::prelude::*;
-use tradelens_bridge::OpenedPosition;
 use tradelens_core::{
     ChecklistItem, Db, DbError, Side, Trade, TradeKey,
     catalog::{CatalogItem, CatalogKind},
@@ -37,19 +35,10 @@ const PANEL_WIDTH: f32 = 560.0;
 /// How far the scrim darkens the screen behind the dialog.
 const SCRIM_OPACITY: f32 = 0.72;
 
-/// Which trade a plan is for.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum Target {
-    /// A trade the journal already knows.
-    Trade(TradeKey),
-    /// A position the EA just reported, found by the account's login once it is saved.
-    Reported { login: String, position_id: i64 },
-}
-
 /// A plan to be written: the trade it is for and what the dialog starts with.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct PlanRequest {
-    pub(crate) target: Target,
+    pub(crate) target: TradeKey,
     pub(crate) symbol: String,
     pub(crate) side: Side,
     pub(crate) volume: f64,
@@ -62,32 +51,13 @@ pub(crate) struct PlanRequest {
 }
 
 impl PlanRequest {
-    /// The prompt for a position the EA just reported: entry, stop and target come from MT5.
-    pub(crate) fn of_position(position: &OpenedPosition) -> Self {
-        let level = |v: f64| (v > 0.0).then_some(v);
-        Self {
-            target: Target::Reported { login: position.account.clone(), position_id: position.position_id },
-            symbol: position.symbol.clone(),
-            side: position.side,
-            volume: position.volume,
-            origin: format!("EA MT5 · lệnh vừa mở · tài khoản {}", position.account),
-            seed: EntryPlan {
-                entry: level(position.price),
-                stop_loss: level(position.sl),
-                take_profit: level(position.tp),
-                ..EntryPlan::default()
-            },
-            playbook_id: None,
-        }
-    }
-
     /// The form for a trade already listed, starting from `plan` when one was written and from
     /// the trade's own levels when not.
     pub(crate) fn of_row(row: &TradeRow, plan: Option<EntryPlan>, playbook_id: Option<i64>) -> Self {
         let level = |v: f64| (v > 0.0).then_some(v);
         let trade = &row.trade;
         Self {
-            target: Target::Trade(trade.key.clone()),
+            target: trade.key.clone(),
             symbol: trade.symbol.clone(),
             side: trade.side,
             volume: trade.volume,
@@ -108,7 +78,7 @@ impl PlanRequest {
 struct Queue(Vec<PlanRequest>);
 
 /// Puts a plan in line: it shows at once when none is on screen. A plan for a trade that is
-/// already in line is not added twice (the EA may send a deal again).
+/// already in line is not added twice.
 pub(crate) fn enqueue(request: PlanRequest) {
     global::<Queue>().update(|queue| {
         if !queue.0.iter().any(|waiting| waiting.target == request.target) {
@@ -119,7 +89,7 @@ pub(crate) fn enqueue(request: PlanRequest) {
 
 /// Takes the plan for `target` out of line, so that a second press of the same button cannot
 /// take the next plan with it.
-fn finish(target: &Target) {
+fn finish(target: &TradeKey) {
     global::<Queue>().update(|queue| queue.0.retain(|waiting| waiting.target != *target));
 }
 
@@ -144,12 +114,11 @@ pub(crate) fn host() -> impl IntoElement {
 /// What "Ghi sau" and Escape do: flag the trade for review, then show the next plan. The
 /// dialog stays until the flag is written: the write runs in the dialog's own scope, which
 /// closing it would cancel.
-fn later(write: Writer, target: &Target) {
+fn later(write: Writer, target: &TradeKey) {
     let target = target.clone();
-    let flagged = target.clone();
+    let key = target.clone();
     write.run(
         move |db| {
-            let key = resolve(db, &flagged)?;
             let mut entry = db.journal(&key)?.unwrap_or_default();
             entry.review_later = true;
             db.save_journal(&key, &entry)
@@ -161,21 +130,6 @@ fn later(write: Writer, target: &Target) {
             finish(&target);
         },
     );
-}
-
-/// The journal key of a target; an error in Vietnamese when the account is not known.
-fn resolve(db: &Db, target: &Target) -> Result<TradeKey, DbError> {
-    match target {
-        Target::Trade(key) => Ok(key.clone()),
-        Target::Reported { login, position_id } => {
-            let account = db
-                .accounts()?
-                .into_iter()
-                .find(|a| a.login == *login)
-                .ok_or_else(|| DbError::Invalid(format!("chưa có tài khoản {login} trong dữ liệu")))?;
-            Ok(TradeKey { account_id: account.id, position_id: *position_id, segment: 0 })
-        }
-    }
 }
 
 /// Planned reward over planned risk as the dialog shows it: `1 : 3.2`.
@@ -195,8 +149,8 @@ pub(crate) fn server_time(now_utc_ms: i64, server_offset_min: Option<i32>) -> i6
 /// the day, the day's loss and the losing streak. One line each, in Vietnamese; empty when
 /// the account is unknown, has no rules on, or the plan is within them.
 ///
-/// The trade is judged as the one just opened: the stored one when the EA's deal is already
-/// in (its own risk replaced by `planned_risk` when that is set), else one made from the
+/// The trade is judged as the one just opened: the stored one when its deal is already in
+/// (its own risk replaced by `planned_risk` when that is set), else one made from the
 /// request. It is counted as a flat trade closed the instant after it opened, which puts it
 /// among the day's trades without moving the day's loss or giving it a losing streak of its own.
 fn plan_warnings(
@@ -205,11 +159,7 @@ fn plan_warnings(
     planned_risk: Option<f64>,
     now_utc_ms: i64,
 ) -> Result<Vec<String>, DbError> {
-    let key = match resolve(db, &request.target) {
-        Ok(key) => key,
-        Err(DbError::Invalid(_)) => return Ok(Vec::new()),
-        Err(error) => return Err(error),
-    };
+    let key = request.target.clone();
     let rules = db.rules(key.account_id)?;
     let Some(own) = account_trades::load(db, Some(key.account_id))?.into_iter().next() else {
         return Ok(Vec::new());
@@ -296,10 +246,9 @@ struct Draft {
 }
 
 /// Writes the plan, the setup and the checklist over the entry stored now.
-fn save_plan(db: &mut Db, target: &Target, draft: &Draft, now_utc_ms: i64) -> Result<(), DbError> {
-    let key = resolve(db, target)?;
+fn save_plan(db: &mut Db, key: &TradeKey, draft: &Draft, now_utc_ms: i64) -> Result<(), DbError> {
     let offset = db.accounts()?.into_iter().find(|a| a.id == key.account_id).and_then(|a| a.server_offset_min);
-    let mut entry = db.journal(&key)?.unwrap_or_default();
+    let mut entry = db.journal(key)?.unwrap_or_default();
     entry.plan = Some(EntryPlan {
         thesis: draft.thesis.trim().to_owned(),
         entry: draft.entry,
@@ -326,7 +275,7 @@ fn save_plan(db: &mut Db, target: &Target, draft: &Draft, now_utc_ms: i64) -> Re
     }
     // The plan is written: nothing is waiting for it in the review queue any more.
     entry.review_later = false;
-    db.save_journal(&key, &entry)
+    db.save_journal(key, &entry)
 }
 
 /// What the dialog's drop-downs and checklist read from the database.
@@ -684,7 +633,7 @@ fn footer(busy: Signal<bool>, skip: impl Fn() + 'static, save: impl Fn() + 'stat
         .justify_between()
         .gap_3()
         .child(
-            text("Entry, SL, TP lấy từ MT5 · ảnh chart lúc vào do EA tự chụp")
+            text("Entry, SL, TP lấy từ lệnh MT5 · ảnh chart thêm ở chi tiết lệnh")
                 .flex_1()
                 .min_w(px(200.0))
                 .text_xs()
@@ -705,26 +654,17 @@ mod tests {
 
     use super::*;
 
-    fn position() -> OpenedPosition {
-        OpenedPosition {
-            account: "52012345".into(),
-            position_id: 77,
+    /// The plan of position 77 of `account`, a buy of 0.5 XAUUSD the journal has not stored yet.
+    fn request_for(account_id: i64) -> PlanRequest {
+        PlanRequest {
+            target: TradeKey { account_id, position_id: 77, segment: 0 },
             symbol: "XAUUSD".into(),
             side: Side::Long,
             volume: 0.5,
-            price: 2648.2,
-            sl: 2644.3,
-            tp: 0.0,
+            origin: String::new(),
+            seed: EntryPlan { entry: Some(2648.2), stop_loss: Some(2644.3), ..EntryPlan::default() },
+            playbook_id: None,
         }
-    }
-
-    #[test]
-    fn the_prompt_starts_from_the_levels_mt5_reported() {
-        let request = PlanRequest::of_position(&position());
-        assert_eq!(request.seed.entry, Some(2648.2));
-        assert_eq!(request.seed.stop_loss, Some(2644.3));
-        assert_eq!(request.seed.take_profit, None, "a level of 0 means none was set");
-        assert_eq!(request.target, Target::Reported { login: "52012345".into(), position_id: 77 });
     }
 
     #[test]
@@ -780,7 +720,7 @@ mod tests {
         db.upsert_batch(&batch, "test").expect("the batch is stored");
         let account = db.accounts().expect("accounts").remove(0).id;
         db.save_rules(account, rules).expect("rules are saved");
-        (db, PlanRequest::of_position(&position()))
+        (db, request_for(account))
     }
     fn no_warnings() -> Vec<String> {
         Vec::new()
@@ -826,7 +766,7 @@ mod tests {
     fn an_account_without_rules_or_unknown_has_no_warnings() {
         let (db, request) = account_with_rules(&Rules::default());
         assert_eq!(plan_warnings(&db, &request, Some(5_000.0), at_noon()).expect("reads"), no_warnings());
-        let stranger = PlanRequest { target: Target::Reported { login: "999".into(), position_id: 1 }, ..request };
+        let stranger = request_for(request.target.account_id + 1);
         assert_eq!(plan_warnings(&db, &stranger, Some(5_000.0), at_noon()).expect("reads"), no_warnings());
     }
     #[test]
@@ -836,7 +776,6 @@ mod tests {
         let account = db
             .upsert_account(&AccountInfo { login: "52012345".into(), server: "S".into(), ..AccountInfo::default() })
             .expect("account");
-        let target = Target::Reported { login: "52012345".into(), position_id: 77 };
         let key = TradeKey { account_id: account, position_id: 77, segment: 0 };
         // "Ghi sau" first: the trade is flagged.
         let mut flagged = db.journal(&key).expect("reads").unwrap_or_default();
@@ -855,7 +794,7 @@ mod tests {
             emotion: None,
             checklist: vec![1],
         };
-        save_plan(&mut db, &target, &draft, 5_000).expect("the plan is saved");
+        save_plan(&mut db, &key, &draft, 5_000).expect("the plan is saved");
         let entry = db.journal(&key).expect("reads").expect("an entry");
         let plan = entry.plan.expect("a plan");
         assert_eq!(plan.thesis, "Phá đỉnh phiên Á");
@@ -865,25 +804,5 @@ mod tests {
         assert_eq!(entry.planned_risk, Some(150.0));
         assert!(!entry.review_later);
         assert_eq!(entry.checklist, [1]);
-    }
-
-    #[test]
-    fn a_plan_for_an_unknown_account_says_so() {
-        let mut db = Db::in_memory().expect("opens");
-        let target = Target::Reported { login: "999".into(), position_id: 1 };
-        let draft = Draft {
-            thesis: String::new(),
-            entry: None,
-            stop_loss: None,
-            take_profit: None,
-            risk: None,
-            timeframe: None,
-            playbook_id: None,
-            grade: None,
-            emotion: None,
-            checklist: Vec::new(),
-        };
-        let error = save_plan(&mut db, &target, &draft, 0).expect_err("no such account");
-        assert!(error.to_string().contains("999"));
     }
 }

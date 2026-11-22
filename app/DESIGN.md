@@ -90,7 +90,7 @@ action("Lưu", Variant::Primary, move || {
 })
 ```
 
-- `query` / `query_with` chạy `load` trên luồng `blocking`, đọc lại khi revision đổi (bridge, import, `Writer`), khi
+- `query` / `query_with` chạy `load` trên luồng `blocking`, đọc lại khi revision đổi (import, `Writer`), khi
   bộ lọc tài khoản đổi, và khi `input` của `query_with` đổi. Giá trị cũ giữ nguyên lúc đang đọc lại hay khi lỗi:
   `value()` (`Option<Arc<T>>`), `error()`, `loading()`, `refresh()`.
 - `Writer::run(op, done)` chạy `op(&mut Db)` trên luồng `blocking`, thành công thì tăng revision (mọi `Reading` tự
@@ -115,8 +115,8 @@ khác do `on_def` của màn xử lý (màn Tuỳ biến form).
 - **Đổi kiểu thuộc tính** chuyển giá trị của *mọi* nhật ký đã lưu: `Db::apply_field_def(&FieldDef)` (đổi kiểu bằng
   `form::convert`, đổi tên một lựa chọn theo vào giá trị, thêm lựa chọn từ giá trị mới) và `Db::kind_change_impact`
   (đếm giá trị sẽ mất, để hỏi `alert_dialog`). Màn dùng `property_list` gọi `apply_field_def` trong `on_def`.
-- **Popup ghi kế hoạch**: `pages::entry_plan::enqueue(PlanRequest)` xếp một yêu cầu vào hàng đợi (sự kiện
-  `BridgeEvent::PositionOpened` do `store` đưa vào; chi tiết lệnh dùng cho "Viết / Sửa kế hoạch"); `entry_plan::host()`
+- **Popup ghi kế hoạch**: `pages::entry_plan::enqueue(PlanRequest)` xếp một yêu cầu vào hàng đợi (chi tiết lệnh dùng
+  cho "Viết / Sửa kế hoạch"; kết nối MT5 của v0.4 sẽ đưa lệnh vừa mở vào); `entry_plan::host()`
   gắn một lần trong `shell`. Một việc chạy bằng `Writer::run` mà chủ của nó là hộp thoại phải xong *trước khi* đóng
   hộp thoại (đóng huỷ tác vụ), nên `finish` chỉ gọi trong `done`.
 - **Phím tắt**: Ctrl+N (từ Lệnh) mở nhập lệnh tay, Ctrl+Enter lưu ở đó.

@@ -1,5 +1,4 @@
-//! Cài đặt: appearance, the clock times are shown on, the bridge's port and token, where the
-//! data lives and the keyboard shortcuts. Design: `docs/design/screens/settings.html`.
+//! Cài đặt: appearance, the clock times are shown on, where the data lives and the keyboard shortcuts. Design: `docs/design/screens/settings.html`.
 //!
 //! Every choice is a setting of the database (`Db::set_setting`), so it survives restarts and
 //! travels with the data file.
@@ -9,23 +8,18 @@ use nsh_core::prelude::*;
 use tradelens_core::{Db, DbError, time::TimeDisplay};
 
 use crate::{
-    store::{Reading, Writer, query, store, writer},
+    store::{Reading, query, writer},
     ui::{
-        controls::{Variant, action, action_when, confirm, segmented},
-        forms::{NumberRange, number_field, setting_row},
-        parts::{card, page, property_row},
+        controls::{Variant, action_when, segmented},
+        forms::setting_row,
+        parts::{card, page},
         theme::loss,
     },
     zone::TIME_DISPLAY_KEY,
 };
 
-/// Settings keys; the bridge's two are read by `store.rs` when the app starts.
+/// The settings key of the look the trader chose.
 const APPEARANCE_KEY: &str = "appearance";
-const PORT_KEY: &str = "bridge_port";
-const TOKEN_KEY: &str = "bridge_token";
-
-/// The lowest port the bridge may be given (below it are the system's own).
-const LOWEST_PORT: u16 = 1024;
 
 /// The keys of the app, as the design lists them: what they do and the chord.
 const SHORTCUTS: &[(&str, &str)] = &[
@@ -75,14 +69,6 @@ fn clock_label(clock: TimeDisplay) -> &'static str {
     }
 }
 
-/// `value` as a port the bridge can listen on; `None` for a number that is not one.
-fn port_of(value: f64) -> Option<u16> {
-    if !value.is_finite() {
-        return None;
-    }
-    format!("{:.0}", value.round()).parse::<u16>().ok().filter(|port| *port >= LOWEST_PORT)
-}
-
 /// A file size as the data card says it: `18.4 MB`, `120 KB`.
 fn size_text(bytes: u64) -> String {
     const KB: u64 = 1_024;
@@ -96,8 +82,6 @@ fn size_text(bytes: u64) -> String {
 struct Stored {
     appearance: String,
     time_display: String,
-    port: Option<String>,
-    token: Option<String>,
     /// The data file and its size, when the data is in a file.
     file: Option<(String, u64)>,
 }
@@ -106,8 +90,6 @@ fn read_settings(db: &Db) -> Result<Stored, DbError> {
     Ok(Stored {
         appearance: db.setting(APPEARANCE_KEY)?.unwrap_or_default(),
         time_display: db.setting(TIME_DISPLAY_KEY)?.unwrap_or_default(),
-        port: db.setting(PORT_KEY)?,
-        token: db.setting(TOKEN_KEY)?,
         file: db.path().map(|path| {
             let size = std::fs::metadata(path).map_or(0, |m| m.len());
             (path.display().to_string(), size)
@@ -145,7 +127,7 @@ pub(crate) fn settings() -> impl IntoElement {
     };
     page(
         "Cài đặt",
-        "Giao diện, giờ hiển thị, kết nối MT5 và dữ liệu",
+        "Giao diện, giờ hiển thị và dữ liệu",
         view()
             .gap_6()
             .child(dynamic(move || {
@@ -163,8 +145,7 @@ pub(crate) fn settings() -> impl IntoElement {
                             .min_w(px(520.0))
                             .gap_6()
                             .child(appearance_card(looks, remember))
-                            .child(time_card(clock, remember))
-                            .child(bridge_card(stored, write, error)),
+                            .child(time_card(clock, remember)),
                     )
                     .child(
                         view()
@@ -221,103 +202,6 @@ fn time_card(clock: Signal<TimeDisplay>, remember: impl Fn(&'static str, String)
                 },
             ),
         ),
-    )
-}
-
-/// The port and token the EA and the Python script reach the app with.
-fn bridge_card(stored: Reading<Stored>, write: Writer, error: Signal<Option<String>>) -> impl IntoElement {
-    let store = store();
-    let port = signal(None::<f64>);
-    let note = signal(String::new());
-    effect(move || {
-        let saved = stored
-            .value()
-            .and_then(|s| s.port.as_deref().and_then(|p| p.parse::<f64>().ok()))
-            .unwrap_or_else(|| f64::from(tradelens_bridge::DEFAULT_PORT));
-        port.set(Some(saved));
-    });
-    let save_port = move || {
-        let Some(chosen) = port.get_untracked().and_then(port_of) else {
-            note.set(format!("Cổng phải từ {LOWEST_PORT} đến 65535."));
-            return;
-        };
-        note.set("Đang lưu…".to_owned());
-        write.run(
-            move |db: &mut Db| db.set_setting(PORT_KEY, &chosen.to_string()),
-            move |result| match result {
-                Ok(()) => note.set(format!("Đã lưu cổng {chosen}: áp dụng khi mở lại ứng dụng.")),
-                Err(failure) => note.set(failure),
-            },
-        );
-    };
-    let regenerate = move || {
-        spawn(async move {
-            let yes = confirm(
-                "Tạo token mới?",
-                "EA và script Python đang dùng token cũ sẽ bị từ chối cho đến khi bạn nhập token mới. \
-                 Token mới có hiệu lực khi mở lại ứng dụng.",
-                "Tạo token mới",
-            )
-            .await;
-            if yes {
-                let token = tradelens_bridge::new_token();
-                write.run(
-                    move |db: &mut Db| db.set_setting(TOKEN_KEY, &token),
-                    move |result| match result {
-                        Ok(()) => note.set("Đã tạo token mới: áp dụng khi mở lại ứng dụng.".to_owned()),
-                        Err(failure) => error.set(Some(failure)),
-                    },
-                );
-            }
-        });
-    };
-    let token = move || stored.value().and_then(|s| s.token.clone()).unwrap_or_default();
-    card(
-        "Kết nối MT5 (bridge)",
-        view()
-            .gap_2()
-            .child(text(move || store.bridge().status_line()).text_sm().font_weight(FontWeight::MEDIUM))
-            .child(setting_row(
-                "Cổng",
-                Some("Đổi cổng thì cập nhật cả EA; áp dụng khi mở lại ứng dụng"),
-                view()
-                    .flex_row()
-                    .items_center()
-                    .gap_3()
-                    .child(number_field(
-                        "Cổng bridge",
-                        None,
-                        NumberRange::between(f64::from(LOWEST_PORT), 65_535.0),
-                        move || port.get(),
-                        move |next| port.set(next),
-                    ))
-                    .child(action("Lưu cổng", Variant::Secondary, save_port)),
-            ))
-            .child(property_row(
-                "Token",
-                view()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        text(move || {
-                            let token = token();
-                            if token.is_empty() { "Chưa có (tạo khi mở ứng dụng)".to_owned() } else { token }
-                        })
-                        .text_sm()
-                        .font_family(crate::ui::theme::mono)
-                        .text_color(move || theme().foreground),
-                    )
-                    .child(action_when(
-                        "Sao chép",
-                        Variant::Secondary,
-                        move || !token().is_empty(),
-                        move || set_clipboard(token()),
-                    ))
-                    .child(action("Tạo token mới", Variant::Secondary, regenerate)),
-            ))
-            .child(text(move || note.get()).text_sm().text_color(move || theme().muted_foreground)),
     )
 }
 
@@ -421,16 +305,6 @@ mod tests {
     }
 
     #[test]
-    fn a_port_is_a_whole_number_the_system_leaves_to_apps() {
-        assert_eq!(port_of(7878.0), Some(7878));
-        assert_eq!(port_of(7878.4), Some(7878));
-        assert_eq!(port_of(80.0), None, "below 1024");
-        assert_eq!(port_of(70_000.0), None);
-        assert_eq!(port_of(-5.0), None);
-        assert_eq!(port_of(f64::NAN), None);
-    }
-
-    #[test]
     fn sizes_read_in_kilobytes_and_megabytes() {
         assert_eq!(size_text(512), "1 KB");
         assert_eq!(size_text(120 * 1_024), "120 KB");
@@ -445,10 +319,8 @@ mod tests {
         assert_eq!(empty.file, None, "a memory database has no file");
         db.set_setting(APPEARANCE_KEY, "light").expect("stored");
         db.set_setting(TIME_DISPLAY_KEY, "server").expect("stored");
-        db.set_setting(PORT_KEY, "7979").expect("stored");
         let read = read_settings(&db).expect("reads");
         assert_eq!(parse_appearance(&read.appearance), Appearance::Light);
         assert_eq!(TimeDisplay::parse(&read.time_display), TimeDisplay::Server);
-        assert_eq!(read.port.as_deref(), Some("7979"));
     }
 }

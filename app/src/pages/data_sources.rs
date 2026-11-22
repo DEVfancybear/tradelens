@@ -1,7 +1,7 @@
-//! Nguồn dữ liệu: Kết nối EA, script Python và import báo cáo.
-//! Design: `docs/design/screens/data-sources.html`. The bridge's state, the install guides,
-//! the import of MT5 reports and of a Notion export (automatic: no column mapping), and the
-//! log of what was imported.
+//! Nguồn dữ liệu: import báo cáo MT5, file JSON của script Python và CSV Notion.
+//! Design: `docs/design/screens/data-sources.html`. The import of MT5 reports and of a Notion
+//! export (automatic: no column mapping), how to export the history with the Python script, and
+//! the log of what was imported.
 
 use std::{path::PathBuf, rc::Rc};
 
@@ -17,12 +17,12 @@ use tradelens_core::{
 
 use crate::{
     format::{self, Sign},
-    store::{BridgePhase, query, store, writer},
+    store::{query, store, writer},
     ui::{
         chips::{Tone, chip, figure_text},
-        controls::{Choice, Variant, action, action_icon_when, select_field},
+        controls::{Choice, Variant, action_icon_when, select_field},
         files::{Accept, Pick, dropzone},
-        parts::{card, empty_state, page, property_row},
+        parts::{card, empty_state, page},
         properties::kind_name,
     },
 };
@@ -32,6 +32,9 @@ const REPORT_FILES: Accept = Accept { name: "Báo cáo MT5 hoặc JSON", extensi
 
 /// What the Notion importer takes.
 const NOTION_FILES: Accept = Accept { name: "CSV của Notion", extensions: &["csv"] };
+
+/// What the trader runs, in `python/`, to write the history of the open terminal to a file.
+const PYTHON_COMMAND: &str = "python tradelens_sync.py --days 365 --out deals.json";
 
 /// How many skipped rows a Notion summary spells out; the rest are counted.
 const ISSUES_SHOWN: usize = 10;
@@ -45,121 +48,25 @@ const DEFAULT_ACCOUNT: &str = "";
 pub(crate) fn data_sources() -> impl IntoElement {
     page(
         "Nguồn dữ liệu",
-        "Kết nối EA, script Python và import báo cáo.",
+        "Import báo cáo MT5, file JSON của script Python và CSV Notion.",
         view()
             .flex_row()
             .flex_wrap()
             .items_start()
             .gap_6()
-            .child(
-                view()
-                    .flex_1()
-                    .min_w(px(560.0))
-                    .gap_6()
-                    .child(bridge_card())
-                    .child(report_import_card())
-                    .child(notion_import_card()),
-            )
-            .child(view().w(px(420.0)).gap_6().child(ea_guide_card()).child(python_card()).child(import_log_card())),
+            .child(view().flex_1().min_w(px(560.0)).gap_6().child(report_import_card()).child(notion_import_card()))
+            .child(view().w(px(420.0)).gap_6().child(python_card()).child(import_log_card())),
     )
 }
 
-/// The bridge the EA and the Python script send deals to: whether it listens, where, with
-/// which token, and what it received.
-fn bridge_card() -> impl IntoElement {
-    let store = store();
-    card(
-        "Bridge MT5",
-        view()
-            .gap_3()
-            .child(text(move || store.bridge().status_line()).text_sm().font_weight(FontWeight::MEDIUM))
-            .child(dynamic(move || match store.bridge().phase {
-                BridgePhase::Unavailable { reason } => {
-                    Some(text(format!("Lý do: {reason}")).text_sm().text_color(move || theme().muted_foreground))
-                }
-                BridgePhase::Starting | BridgePhase::Listening { .. } => None,
-            }))
-            .child(property_row("Cổng", figure_text(move || store.bridge().port.to_string()).text_sm()))
-            .child(property_row(
-                "Token",
-                view()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_3()
-                    .child(figure_text(move || store.bridge().token).text_sm())
-                    .child(action("Sao chép", Variant::Secondary, move || set_clipboard(store.bridge().token))),
-            ))
-            .child(text("Nhật ký nhận dữ liệu").text_xs().text_color(move || theme().muted_foreground))
-            .child(dynamic(move || {
-                let lines = store.bridge().log;
-                let empty = lines.is_empty();
-                view()
-                    .gap_1()
-                    .when(empty, |v| {
-                        v.child(
-                            text("Chưa nhận dữ liệu nào từ EA hay script.")
-                                .text_sm()
-                                .text_color(move || theme().muted_foreground),
-                        )
-                    })
-                    .children(lines.into_iter().rev().map(|line| figure_text(move || line.clone()).text_xs()))
-            })),
-    )
-}
-
-// --- the install guides ---------------------------------------------------------------------------
-
-/// A numbered step of a guide.
-fn step(number: usize, body: impl IntoReactive<SharedString>) -> impl IntoElement {
-    view()
-        .flex_row()
-        .gap_2()
-        .child(text(format!("{number}.")).text_sm().text_color(move || theme().muted_foreground))
-        .child(text(body).text_sm().flex_1())
-}
-
-/// How to install the EA: the steps of `mt5/README.md`, with this app's port and token.
-fn ea_guide_card() -> impl IntoElement {
-    let store = store();
-    card(
-        "Cài EA TradeLensSync",
-        view()
-            .gap_3()
-            .child(step(
-                1,
-                "Mở thư mục dữ liệu MT5 (File → Open Data Folder). Copy TradeLensSync.mq5 vào MQL5/Experts/ và thư mục Include/TradeLens/ vào MQL5/Include/, rồi mở MetaEditor và biên dịch TradeLensSync.mq5.",
-            ))
-            .child(step(
-                2,
-                move || {
-                    format!(
-                        "Tools → Options → Expert Advisors → bật Allow WebRequest for listed URL và thêm http://127.0.0.1:{}.",
-                        store.bridge().port
-                    )
-                },
-            ))
-            .child(step(
-                3,
-                "Gắn EA vào một chart bất kỳ, dán token ở thẻ Bridge MT5 vào input InpToken (cổng vào InpPort) và bật Algo Trading. Deal mới hiện trong app sau khoảng 2 giây.",
-            ))
-            .child(
-                text("EA chỉ đọc lịch sử và gửi sang app; không mở hay sửa lệnh.")
-                    .text_xs()
-                    .text_color(move || theme().muted_foreground),
-            ),
-    )
-}
-
-/// How to run the Python script that sends the history of the open terminal.
+/// How to export the history of the open terminal with the Python script.
 fn python_card() -> impl IntoElement {
-    let store = store();
     card(
         "Script Python (MetaTrader5)",
         view()
             .gap_3()
             .child(
-                text("Lấy lại toàn bộ lịch sử từ terminal đang mở (chỉ Windows). Dùng --out deals.json để ghi file rồi import ở thẻ bên trái.")
+                text("Ghi lịch sử của terminal MT5 đang mở ra file JSON (chỉ Windows), rồi import file đó ở thẻ bên trái.")
                     .text_sm()
                     .text_color(move || theme().muted_foreground),
             )
@@ -172,19 +79,9 @@ fn python_card() -> impl IntoElement {
                     .border_1()
                     .border_color(move || theme().border)
                     .child(figure_text(|| "pip install -r requirements.txt".to_owned()).text_xs())
-                    .child(figure_text(move || python_command(&store.bridge().token, store.bridge().port)).text_xs()),
+                    .child(figure_text(|| PYTHON_COMMAND.to_owned()).text_xs()),
             ),
     )
-}
-
-/// The command that syncs a year of history to this app's bridge.
-fn python_command(token: &str, port: u16) -> String {
-    let url = if port == tradelens_bridge::DEFAULT_PORT || port == 0 {
-        String::new()
-    } else {
-        format!(" --url http://127.0.0.1:{port}")
-    };
-    format!("python tradelens_sync.py --token {token} --days 365{url}")
 }
 
 // --- importing an MT5 report -------------------------------------------------------------------------
@@ -596,15 +493,6 @@ mod tests {
     use tradelens_core::{catalog::FieldKind, import::notion::PropertyCreated};
 
     use super::*;
-
-    #[test]
-    fn the_python_command_names_the_port_only_when_it_is_not_the_default() {
-        assert_eq!(python_command("abc", 7878), "python tradelens_sync.py --token abc --days 365");
-        assert_eq!(
-            python_command("abc", 9000),
-            "python tradelens_sync.py --token abc --days 365 --url http://127.0.0.1:9000"
-        );
-    }
 
     #[test]
     fn sources_read_as_the_trader_names_them() {

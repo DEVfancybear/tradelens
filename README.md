@@ -1,6 +1,6 @@
 # TradeLens
 
-Nhật ký giao dịch desktop cho trader **MetaTrader 5**: tự lấy lệnh từ terminal, gom thành giao dịch,
+Nhật ký giao dịch desktop cho trader **MetaTrader 5**: lấy lệnh từ báo cáo MT5, gom thành giao dịch,
 tính thống kê, viết nhật ký từng lệnh, theo dõi kỷ luật và sync lên Google Drive / OneDrive.
 
 UI viết bằng [Native Shell (NSH)](https://github.com/longbridge/nsh) ở chế độ Rust: native trên
@@ -13,12 +13,10 @@ Windows, macOS và Linux, không có JavaScript VM.
 
 ```text
 crates/core     tradelens-core   model, deal → lệnh, thống kê, quy tắc, SQLite, import báo cáo
-crates/bridge   tradelens-bridge HTTP 127.0.0.1 nhận deal từ EA và script Python
 crates/cloud    tradelens-cloud  đăng nhập Google/Microsoft, sync Google Drive / OneDrive
 app/            nsh-app-tradelens  giao diện NSH
-mt5/            EA TradeLensSync.mq5
-python/         tradelens_sync.py (gói MetaTrader5)
-docs/           kiến trúc, API bridge, sync đám mây, lộ trình
+python/         tradelens_sync.py (gói MetaTrader5): ghi lịch sử ra file JSON để import
+docs/           kiến trúc, sync đám mây, lộ trình
 docs/design/    thiết kế UI: 12 màn (HTML tham chiếu + ảnh) và chuẩn để code
 ```
 
@@ -32,13 +30,12 @@ cargo run -p nsh-app-tradelens  # mở app trên desktop
 # hoặc với NSH CLI: nsh run app
 ```
 
-## Kết nối MT5
+## Đưa lệnh MT5 vào app
 
-1. Mở app → **Nguồn dữ liệu**, copy token.
-2. MT5 → Tools → Options → Expert Advisors → bật *Allow WebRequest* và thêm `http://127.0.0.1:7878`.
-3. Copy `mt5/TradeLensSync.mq5` vào `MQL5/Experts`, biên dịch, gắn vào một chart, dán token.
+- MT5 → *History* → chuột phải → *Report* → lưu HTML hoặc XLSX, rồi kéo thả vào **Nguồn dữ liệu**.
+- Hoặc chạy `python python/tradelens_sync.py --days 365 --out deals.json` khi terminal đang mở, rồi import file JSON.
 
-Chi tiết: [docs/sync-api.md](docs/sync-api.md).
+Kết nối trực tiếp (đăng nhập MT5 ngay trong app, không cần EA) là mốc v0.4, xem [docs/roadmap.md](docs/roadmap.md).
 
 ## License
 

@@ -1,5 +1,5 @@
-//! A [`DealBatch`] as JSON: what the Python script writes with `--out`, and what the
-//! bridge receives. The format is documented in `docs/sync-api.md`.
+//! A [`DealBatch`] as JSON: what the Python script (`python/tradelens_sync.py`) writes with
+//! `--out`. The fields are those of [`DealBatch`] and its `Deal`s.
 
 use crate::model::DealBatch;
 

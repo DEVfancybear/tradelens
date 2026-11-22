@@ -1,5 +1,5 @@
 //! SQLite storage. One file per user; deals are the source of truth and trades are
-//! rebuilt from them. WAL mode lets the bridge thread and the UI write at once.
+//! rebuilt from them. WAL mode lets a background writer and the UI write at once.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

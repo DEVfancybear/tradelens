@@ -1,41 +1,21 @@
-"""Send MT5 deal history to TradeLens (or to a JSON file to import).
+"""Write the MT5 deal history to a JSON file that TradeLens imports (Nguồn dữ liệu → Import).
 
 Uses the official MetaTrader5 package, so it runs on Windows with the terminal open.
 
     pip install -r requirements.txt
-    python tradelens_sync.py --token <token> --days 365
-    python tradelens_sync.py --token <token> --watch 30   # keep syncing every 30 seconds
-    python tradelens_sync.py --out deals.json             # then import the file in the app
+    python tradelens_sync.py --days 365 --out deals.json
 
-Only deals the app has not acknowledged yet are sent: a cursor (the newest acknowledged
-`time_msc` plus the tickets of the last hour) is kept per account in
-`~/.tradelens/cursor-<login>.json`. A failed request leaves the cursor where it was, so the
-next run resends exactly what is missing; the app keys deals by (account, ticket), so
-resending is harmless.
-
-Payload: docs/sync-api.md (DealBatch).
+The file is a DealBatch (`crates/core/src/model.rs`); importing it twice is harmless, since the
+app keys deals by (account, ticket).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
-import time
-import urllib.error
-import urllib.request
-from collections.abc import Callable, Iterable, Sequence
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
-
-DEFAULT_URL = "http://127.0.0.1:7878"
-TOKEN_HEADER = "X-TradeLens-Token"
-
-BATCH_SIZE = 200
-OVERLAP_SEC = 3600  # re-read this far behind the cursor to catch deals that reach history late
-MAX_BACKOFF_SEC = 60
 
 DEAL_TYPES = {
     0: "buy",
@@ -68,26 +48,11 @@ DEAL_BUY, DEAL_SELL = 0, 1
 ENTRY_IN = 0
 
 
-class BridgeError(Exception):
-    """The bridge did not accept a request. `status` is None when it could not be reached."""
-
-    def __init__(self, message: str, status: int | None = None, *, retryable: bool = True) -> None:
-        super().__init__(message)
-        self.status = status
-        self.retryable = retryable
-
-
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--url", default=DEFAULT_URL, help="bridge address (default %(default)s)")
-    parser.add_argument("--token", help="token from the app's Data sources screen")
-    parser.add_argument("--days", type=int, default=90, help="how far back to read the first time (default %(default)s)")
-    parser.add_argument("--out", help="write the batch to this JSON file instead of posting it")
+    parser.add_argument("--out", required=True, help="the JSON file to write")
+    parser.add_argument("--days", type=int, default=90, help="how far back to read (default %(default)s)")
     parser.add_argument("--terminal", help="path to terminal64.exe when several terminals are installed")
-    parser.add_argument("--watch", type=int, metavar="SECONDS", help="keep running and sync every SECONDS")
-    parser.add_argument("--full", action="store_true", help="ignore the cursor and resend the last --days days")
-    parser.add_argument("--retries", type=int, default=3, help="retries per request when the app is unreachable")
-    parser.add_argument("--state-dir", help="where cursors are kept (default ~/.tradelens)")
     parser.add_argument("--server-offset-min", type=int, help="broker server offset from UTC in minutes, if auto-detect fails")
     return parser.parse_args(argv)
 
@@ -233,15 +198,11 @@ def deal_json(deal: Any, levels: Levels | None = None) -> dict[str, Any]:
     }
 
 
-def history_window(days: int, cursor_msc: int = 0, now: datetime | None = None) -> tuple[datetime, datetime]:
-    """The `history_deals_get` range. MT5 times are server times that the package passes through
-    as if they were UTC, so the cursor is turned back into a datetime the same way."""
+def history_window(days: int, now: datetime | None = None) -> tuple[datetime, datetime]:
+    """The `history_deals_get` range: the last `days` days, with a day of slack on both ends
+    because MT5 times are server times that the package passes through as if they were UTC."""
     end = (now or datetime.now(timezone.utc)) + timedelta(days=1)
-    if cursor_msc > 0:
-        start = datetime.fromtimestamp(cursor_msc / 1000 - OVERLAP_SEC, tz=timezone.utc)
-    else:
-        start = end - timedelta(days=max(days, 0) + 1)
-    return start, end
+    return end - timedelta(days=max(days, 0) + 1), end
 
 
 def read_deals(mt5: Any, window: tuple[datetime, datetime]) -> list[Any]:
@@ -256,189 +217,26 @@ def read_deals(mt5: Any, window: tuple[datetime, datetime]) -> list[Any]:
 
 
 def read_batch(mt5: Any, days: int, offset_min: int | None = None) -> dict[str, Any]:
-    """Everything of the last `days` days, ignoring the cursor (the `--out` file)."""
+    """Everything of the last `days` days, as the `--out` file holds it."""
     window = history_window(days)
     deals = read_deals(mt5, window)
     levels = Levels(mt5, window)
     return {"account": account_info(mt5, offset_min), "deals": [deal_json(d, levels) for d in deals]}
 
 
-# --- cursor ----------------------------------------------------------------------------------
-
-
-class Cursor:
-    """What the app has acknowledged for one account, kept in a small JSON file."""
-
-    def __init__(self, path: Path | None) -> None:
-        self.path = path
-        self.msc = 0
-        self.sent: dict[int, int] = {}  # ticket -> time_msc, only the last OVERLAP_SEC
-        self.offset_min: int | None = None  # last offset that was measured on a live market
-        if path is not None and path.exists():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                self.msc = int(data.get("cursor_msc", 0))
-                self.sent = {int(k): int(v) for k, v in data.get("sent", {}).items()}
-                self.offset_min = data.get("server_offset_min")
-            except (OSError, ValueError, AttributeError):
-                self.msc, self.sent = 0, {}  # unreadable state: send everything again, harmlessly
-
-    def is_new(self, ticket: int, msc: int) -> bool:
-        if msc > self.msc:
-            return True
-        if msc < self.msc - OVERLAP_SEC * 1000:
-            return False
-        return ticket not in self.sent
-
-    def ack(self, deals: Iterable[Any]) -> None:
-        for deal in deals:
-            self.sent[int(deal.ticket)] = int(deal.time_msc)
-            self.msc = max(self.msc, int(deal.time_msc))
-        limit = self.msc - OVERLAP_SEC * 1000
-        self.sent = {t: m for t, m in self.sent.items() if m >= limit}
-        self.save()
-
-    def save(self) -> None:
-        if self.path is None:
-            return
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
-        payload = {"cursor_msc": self.msc, "sent": self.sent, "server_offset_min": self.offset_min}
-        temporary.write_text(json.dumps(payload), encoding="utf-8")
-        os.replace(temporary, self.path)  # atomic: a crash never leaves half a cursor
-
-
-def cursor_path(login: str, state_dir: str | None) -> Path:
-    base = Path(state_dir) if state_dir else Path.home() / ".tradelens"
-    safe = "".join(c for c in login if c.isalnum())
-    return base / f"cursor-{safe}.json"
-
-
-# --- HTTP ------------------------------------------------------------------------------------
-
-PostFn = Callable[[str, dict[str, Any]], dict[str, Any]]
-
-
-def post(url: str, token: str, batch: dict[str, Any], path: str = "/api/v1/deals") -> dict[str, Any]:
-    """POST a JSON body; raises BridgeError (never urllib's errors) so callers decide on retries."""
-    request = urllib.request.Request(
-        f"{url}{path}",
-        data=json.dumps(batch, ensure_ascii=False).encode("utf-8"),
-        headers={"Content-Type": "application/json", TOKEN_HEADER: token},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=30) as response:
-            return json.load(response)
-    except urllib.error.HTTPError as err:
-        detail = err.read().decode("utf-8", "replace")
-        if err.code == 401:
-            msg = "app từ chối token (401): --token phải trùng token ở màn Nguồn dữ liệu của app"
-            raise BridgeError(msg, 401, retryable=False) from err
-        raise BridgeError(f"app trả lỗi {err.code}: {detail}", err.code, retryable=err.code >= 500) from err
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as err:
-        msg = f"không kết nối được app tại {url} ({err}) — app đã mở và cổng đúng chưa?"
-        raise BridgeError(msg) from err
-
-
-def with_retries(call: Callable[[], Any], retries: int, sleep: Callable[[float], None] = time.sleep) -> Any:
-    """Run `call`, retrying retryable BridgeErrors with 2, 4, 8... seconds between attempts."""
-    wait = 2.0
-    for attempt in range(retries + 1):
-        try:
-            return call()
-        except BridgeError as err:
-            if not err.retryable or attempt == retries:
-                raise
-            print(f"TradeLens: {err}; thử lại sau {wait:.0f} giây", file=sys.stderr)
-            sleep(wait)
-            wait = min(wait * 2, MAX_BACKOFF_SEC)
-    msg = "unreachable"
-    raise AssertionError(msg)
-
-
-def deliver(send: PostFn, account: dict[str, Any], chunk: Sequence[Any], levels: Levels) -> None:
-    """Send one chunk of deals; if the app answers 400, send them one by one and skip the bad ones."""
-    payloads = [deal_json(d, levels) for d in chunk]
-    try:
-        send("/api/v1/deals", {"account": account, "deals": payloads})
-    except BridgeError as err:
-        if err.status != 400:
-            raise
-        for deal, payload in zip(chunk, payloads, strict=True):
-            try:
-                send("/api/v1/deals", {"account": account, "deals": [payload]})
-            except BridgeError as single:
-                if single.status != 400:
-                    raise
-                print(f"TradeLens: app từ chối deal {deal.ticket} (JSON sai), bỏ qua: {single}", file=sys.stderr)
-
-
-def sync_once(mt5: Any, send: PostFn, cursor: Cursor, days: int, *, full: bool = False, offset_min: int | None = None) -> int:
-    """Send the deals the app has not acknowledged; returns how many were sent.
-
-    The cursor moves after each acknowledged batch, so an error halfway loses nothing.
-    """
-    if full:
-        cursor.msc, cursor.sent = 0, {}
-    window = history_window(days, cursor.msc)
-    fresh = [d for d in read_deals(mt5, window) if cursor.is_new(int(d.ticket), int(d.time_msc))]
-    measured = offset_min if offset_min is not None else server_offset_min(mt5)
-    if measured is not None:
-        cursor.offset_min = measured
-    account = account_info(mt5, measured if measured is not None else cursor.offset_min)
-    if not fresh:
-        send("/api/v1/account", {"account": account})  # balance, equity and "still alive"
-        return 0
-    levels = Levels(mt5, window)
-    for start in range(0, len(fresh), BATCH_SIZE):
-        chunk = fresh[start : start + BATCH_SIZE]
-        deliver(send, account, chunk, levels)
-        cursor.ack(chunk)
-    return len(fresh)
-
-
-def run_sync(mt5: Any, args: argparse.Namespace) -> int:
-    info = mt5.account_info()
-    login = str(info.login) if info is not None else "unknown"
-    cursor = Cursor(cursor_path(login, args.state_dir))
-    full = args.full
-
-    def send(path: str, body: dict[str, Any]) -> dict[str, Any]:
-        return with_retries(lambda: post(args.url, args.token, body, path), args.retries)
-
-    while True:
-        try:
-            sent = sync_once(mt5, send, cursor, args.days, full=full, offset_min=args.server_offset_min)
-            full = False
-            print(f"TradeLens: đã gửi {sent} deal mới")
-        except BridgeError as err:
-            print(f"TradeLens: {err}", file=sys.stderr)
-            if not args.watch or not err.retryable:
-                return 1
-        if not args.watch:
-            return 0
-        time.sleep(args.watch)
-
-
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
-    if not args.out and not args.token:
-        print("cần --token (gửi vào app) hoặc --out (ghi file)", file=sys.stderr)
-        return 2
     import MetaTrader5 as mt5  # noqa: PLC0415 - Windows-only, imported after argument checks
 
     if not (mt5.initialize(args.terminal) if args.terminal else mt5.initialize()):
         print(f"không kết nối được MT5: {mt5.last_error()}", file=sys.stderr)
         return 1
     try:
-        if args.out:
-            batch = read_batch(mt5, args.days, args.server_offset_min)
-            with open(args.out, "w", encoding="utf-8") as file:
-                json.dump(batch, file, ensure_ascii=False, indent=2)
-            print(f"đã ghi {len(batch['deals'])} deal vào {args.out}")
-            return 0
-        return run_sync(mt5, args)
+        batch = read_batch(mt5, args.days, args.server_offset_min)
+        with open(args.out, "w", encoding="utf-8") as file:
+            json.dump(batch, file, ensure_ascii=False, indent=2)
+        print(f"đã ghi {len(batch['deals'])} deal vào {args.out}")
+        return 0
     except RuntimeError as err:
         print(f"TradeLens: {err}", file=sys.stderr)
         return 1

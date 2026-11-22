@@ -26,9 +26,8 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let dir = tempfile::tempdir().expect("a temp dir");
-        let mut db = Db::open(dir.path().join("tradelens.db")).expect("the database opens");
-        // An ephemeral port, so no test claims the bridge's default one.
-        db.set_setting("bridge_port", "0").expect("the port is stored");
+        // The app opens the database the tests seed and read.
+        Db::open(dir.path().join("tradelens.db")).expect("the database opens");
         Self { dir }
     }
 
@@ -415,24 +414,21 @@ fn a_query_with_no_match_says_so() {
 // --- Nguồn dữ liệu ---------------------------------------------------------------------------------------
 
 #[test]
-fn the_data_sources_page_guides_the_ea_install_with_this_apps_port() {
+fn the_data_sources_page_shows_how_to_export_the_history_with_python() {
     let fixture = Fixture::new();
     let mut app = fixture.start();
-    open_page(&mut app, "Nguồn dữ liệu", "Bridge MT5");
-    app.wait_for("Cài EA TradeLensSync").expect("the EA guide shows");
-    app.wait_for("Script Python (MetaTrader5)").expect("and the script's");
-    shows_text_containing(
-        &mut app,
-        "the port in the WebRequest step",
-        "Allow WebRequest for listed URL và thêm http://127.0.0.1:",
-    );
+    open_page(&mut app, "Nguồn dữ liệu", "Nhật ký import");
+    app.wait_for("Script Python (MetaTrader5)").expect("the script's card shows");
+    app.wait_for("python tradelens_sync.py --days 365 --out deals.json")
+        .expect("with the command that writes the file");
+    assert!(!app.screen().shows("Cài EA TradeLensSync"), "the EA is gone");
 }
 
 #[test]
 fn an_mt5_html_report_adds_its_trades() {
     let fixture = Fixture::new();
     let mut app = fixture.start();
-    open_page(&mut app, "Nguồn dữ liệu", "Bridge MT5");
+    open_page(&mut app, "Nguồn dữ liệu", "Nhật ký import");
     app.wait_for("Chưa import gì").expect("the log is empty");
 
     app.on_pick_paths(vec![fixture_file("mt5_en_hedge.html")]).expect("answers the dialog");
@@ -456,7 +452,7 @@ fn a_file_that_is_not_a_report_is_refused_with_a_reason() {
     let broken = fixture.dir.path().join("broken.html");
     std::fs::write(&broken, "<html><body>không có bảng deal</body></html>").expect("writes");
     let mut app = fixture.start();
-    open_page(&mut app, "Nguồn dữ liệu", "Bridge MT5");
+    open_page(&mut app, "Nguồn dữ liệu", "Nhật ký import");
     app.on_pick_paths(vec![broken]).expect("answers the dialog");
     app.press("label:Kéo thả báo cáo MT5 vào đây").expect("the drop zone opens the dialog");
     shows_text_containing(&mut app, "the reason", "broken.html: không tìm thấy bảng Deals trong báo cáo");
@@ -471,7 +467,7 @@ fn a_notion_export_is_previewed_then_imported_with_no_column_mapping() {
     assert!(rows > 0 && !plan.properties.is_empty(), "the fixture has trades and extra columns");
 
     let mut app = fixture.start();
-    open_page(&mut app, "Nguồn dữ liệu", "Bridge MT5");
+    open_page(&mut app, "Nguồn dữ liệu", "Nhật ký import");
     app.on_pick_paths(vec![file]).expect("answers the dialog");
     app.press("label:Kéo thả file CSV của Notion vào đây").expect("the drop zone opens the dialog");
     shows_text_containing(&mut app, "the preview", &format!("{rows} lệnh đọc được"));
@@ -505,7 +501,7 @@ fn a_notion_export_can_go_to_an_mt5_account() {
     let file = fixture_file("notion_en.csv");
     let rows = notion::read_file(&file).expect("the fixture reads").rows.len();
     let mut app = fixture.start();
-    open_page(&mut app, "Nguồn dữ liệu", "Bridge MT5");
+    open_page(&mut app, "Nguồn dữ liệu", "Nhật ký import");
     app.on_pick_paths(vec![file]).expect("answers the dialog");
     app.press("label:Kéo thả file CSV của Notion vào đây").expect("the drop zone opens the dialog");
     app.wait_for("Nhập vào tài khoản").expect("the account choice shows");
