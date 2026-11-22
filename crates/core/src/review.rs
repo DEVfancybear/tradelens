@@ -17,6 +17,34 @@ pub enum Period {
 }
 
 impl Period {
+    /// The name stored and referenced (`week`, `month`).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Week => "week",
+            Self::Month => "month",
+        }
+    }
+
+    /// The period of a stored [`Period::name`].
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "week" => Some(Self::Week),
+            "month" => Some(Self::Month),
+            _ => None,
+        }
+    }
+
+    /// `Tuần 47 · 16–22/11` or `Tháng 11/2026`: the period starting `start`, as titled to the trader.
+    pub fn title(self, start: NaiveDate) -> String {
+        let (first, last) = self.bounds(start);
+        match self {
+            Self::Week => {
+                format!("Tuần {} · {}–{}", first.iso_week().week(), first.format("%d"), last.format("%d/%m"))
+            }
+            Self::Month => format!("Tháng {}", first.format("%m/%Y")),
+        }
+    }
+
     /// The first and last day of the period holding `day`; weeks start on Monday.
     pub fn bounds(self, day: NaiveDate) -> (NaiveDate, NaiveDate) {
         match self {
@@ -158,6 +186,14 @@ mod tests {
         assert_eq!(Period::Week.bounds(day("2026-11-20")), (day("2026-11-16"), day("2026-11-22")));
         assert_eq!(Period::Month.bounds(day("2026-12-31")), (day("2026-12-01"), day("2026-12-31")));
         assert_eq!(Period::Month.bounds(day("2028-02-10")), (day("2028-02-01"), day("2028-02-29")));
+    }
+
+    #[test]
+    fn periods_are_named_for_the_trader_and_for_storage() {
+        assert_eq!(Period::Week.title(day("2026-11-18")), "Tuần 47 · 16–22/11");
+        assert_eq!(Period::Month.title(day("2026-11-18")), "Tháng 11/2026");
+        assert_eq!(Period::parse(Period::Week.name()), Some(Period::Week));
+        assert_eq!(Period::parse("year"), None);
     }
 
     #[test]

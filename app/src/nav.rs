@@ -166,3 +166,29 @@ pub(crate) fn open_manual_entry() {
 pub(crate) fn close_manual_entry() {
     global::<ManualEntry>().set(ManualEntry(false));
 }
+
+/// A day's note the search asked the day journal to show: the day and the account whose note it
+/// is (`None`: the note of all accounts).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct JournalDay(Option<(chrono::NaiveDate, Option<i64>)>);
+
+/// Shows the day journal on `day` (of `account_id`, `None` for all accounts).
+pub(crate) fn show_journal_day(day: chrono::NaiveDate, account_id: Option<i64>) {
+    batch(|| {
+        global::<JournalDay>().set(JournalDay(Some((day, account_id))));
+        go(Route::Journal);
+    });
+}
+
+/// The day the search asked the journal to show, until [`take_journal_day`] clears it (tracked
+/// where it is read).
+#[expect(dead_code, reason = "read by the day journal screen, which is built apart from the search")]
+pub(crate) fn requested_journal_day() -> Option<(chrono::NaiveDate, Option<i64>)> {
+    global::<JournalDay>().get().0
+}
+
+/// Clears the request once the journal has shown the day.
+#[expect(dead_code, reason = "called by the day journal screen, which is built apart from the search")]
+pub(crate) fn take_journal_day() {
+    global::<JournalDay>().set(JournalDay(None));
+}

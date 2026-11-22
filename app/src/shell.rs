@@ -5,17 +5,20 @@ use nsh_core::prelude::*;
 
 use crate::{
     nav::{self, Route, SECTIONS},
-    pages,
+    pages::{self, search},
     store::store,
     ui::{
         controls::sidebar_row,
         icons::{Icon, icon},
+        palette::search_trigger,
     },
 };
 
 const SIDEBAR_WIDTH: f32 = 236.0;
 
 pub(crate) fn shell() -> impl IntoElement {
+    // Ctrl+K (Cmd+K on a Mac) opens the search from any page, and closes it again.
+    on_key("mod+k", |_| search::toggle());
     view()
         .flex_1()
         .flex_row()
@@ -30,6 +33,7 @@ pub(crate) fn shell() -> impl IntoElement {
         })))
         // The plan prompt of a position the EA just reported: over every screen.
         .child(pages::entry_plan::host())
+        .child(search::overlay())
 }
 
 fn sidebar() -> impl IntoElement {
@@ -42,6 +46,7 @@ fn sidebar() -> impl IntoElement {
         .border_r_1()
         .border_color(move || theme().sidebar_border)
         .child(brand())
+        .child(search_trigger(search::open))
         .children(SECTIONS.iter().map(|section| {
             view()
                 .gap_1()

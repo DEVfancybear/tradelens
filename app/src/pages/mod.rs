@@ -19,6 +19,7 @@ pub(crate) mod manual_entry;
 mod missed;
 mod playbook;
 mod review;
+pub(crate) mod search;
 mod settings;
 mod trade_detail;
 mod trades;

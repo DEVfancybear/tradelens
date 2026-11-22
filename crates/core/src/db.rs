@@ -49,6 +49,19 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0009_day_note_custom.sql"),
 ];
 
+/// One line of the import log: what an import or a sync stored, and when.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportLogEntry {
+    /// Unix milliseconds (UTC).
+    pub at: i64,
+    /// Where the data came from: `ea`, `python`, `html`, `xlsx`, `notion`, …
+    pub source: String,
+    pub account_id: Option<i64>,
+    pub inserted: usize,
+    pub updated: usize,
+    pub message: String,
+}
+
 /// What an upsert of a batch did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct UpsertReport {
@@ -253,6 +266,29 @@ impl Db {
         }
         tx.commit()?;
         Ok(report)
+    }
+
+    /// The latest `limit` lines of the import log, newest first.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the query fails.
+    pub fn import_log(&self, limit: u32) -> Result<Vec<ImportLogEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT at, source, account_id, inserted, updated, message FROM import_log ORDER BY at DESC, id DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([limit], |r| {
+            let (inserted, updated): (i64, i64) = (r.get(3)?, r.get(4)?);
+            Ok(ImportLogEntry {
+                at: r.get(0)?,
+                source: r.get(1)?,
+                account_id: r.get(2)?,
+                inserted: usize::try_from(inserted).unwrap_or(0),
+                updated: usize::try_from(updated).unwrap_or(0),
+                message: r.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// The account's deals, or every account's when `None`, as (account id, deal),
@@ -649,7 +685,36 @@ impl Db {
         }
     }
 
+    /// Deletes a setup and its index entry. Trades whose journal named it keep the link, which
+    /// the statistics read as a deleted setup.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn delete_playbook(&mut self, id: i64) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM playbooks WHERE id = ?1", [id])?;
+        let kind = enum_name(&DocKind::Playbook)?;
+        tx.execute("DELETE FROM search_index WHERE kind = ?1 AND reference = ?2", [kind, id.to_string()])?;
+        tx.commit()?;
+        Ok(())
+    }
+
     // --- missed trades --------------------------------------------------------
+
+    /// Deletes a missed trade and its index entry.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn delete_missed_trade(&mut self, id: i64) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM missed_trades WHERE id = ?1", [id])?;
+        let kind = enum_name(&DocKind::Missed)?;
+        tx.execute("DELETE FROM search_index WHERE kind = ?1 AND reference = ?2", [kind, id.to_string()])?;
+        tx.commit()?;
+        Ok(())
+    }
 
     /// Missed trades seen between `from` and `to` (Unix milliseconds), newest first.
     ///
@@ -1305,6 +1370,48 @@ mod tests {
         };
         let id = db.save_playbook(&setup, 0).unwrap();
         assert_eq!(db.playbooks().unwrap(), vec![Playbook { id, ..setup }]);
+    }
+
+    #[test]
+    fn deleting_a_setup_or_a_missed_trade_removes_its_index_entry() {
+        use crate::{
+            missed::MissedTrade,
+            model::Side,
+            playbook::Playbook,
+            search::{missed_document, playbook_document},
+        };
+        let mut db = Db::in_memory().unwrap();
+        let mut setup = Playbook { name: "Pullback EMA20".into(), ..Playbook::default() };
+        setup.id = db.save_playbook(&setup, 0).unwrap();
+        db.index_document(&playbook_document(&setup)).unwrap();
+        let mut missed = MissedTrade {
+            id: 0,
+            account_id: None,
+            symbol: "EURUSD".into(),
+            side: Side::Short,
+            seen_at: 1_763_716_920_000,
+            playbook_id: None,
+            setup_grade: None,
+            reason: None,
+            entry: None,
+            stop_loss: None,
+            take_profit: None,
+            outcome_price: None,
+            notes: "không tin vào setup".into(),
+            screenshots: Vec::new(),
+            custom: std::collections::BTreeMap::default(),
+        };
+        missed.id = db.save_missed_trade(&missed).unwrap();
+        db.index_document(&missed_document(&missed)).unwrap();
+        assert_eq!(db.search("pullback", 10).unwrap().len(), 1);
+        assert_eq!(db.search("khong tin", 10).unwrap().len(), 1);
+
+        db.delete_playbook(setup.id).unwrap();
+        db.delete_missed_trade(missed.id).unwrap();
+        assert_eq!(db.playbooks().unwrap().len(), 0, "the setup is gone");
+        assert_eq!(db.missed_trades(0, i64::MAX).unwrap().len(), 0, "the missed trade is gone");
+        assert_eq!(db.search("pullback", 10).unwrap().len(), 0, "its index entry is gone");
+        assert_eq!(db.search("khong tin", 10).unwrap().len(), 0, "its index entry is gone");
     }
 
     #[test]

@@ -86,6 +86,24 @@ fn upserting_the_same_batch_twice_adds_nothing() {
 }
 
 #[test]
+fn the_import_log_lists_what_was_stored_newest_first() {
+    let mut db = Db::in_memory().unwrap();
+    assert_eq!(db.import_log(10).unwrap().len(), 0, "nothing imported yet");
+    db.upsert_batch(&batch(), "html").unwrap();
+    db.upsert_batch(&batch(), "html").unwrap();
+    let mut next = batch();
+    next.deals.push(deal(6, 300, "2026.11.21 08:00:00", DealKind::Buy, DealEntry::In, 2670.0, 0.0));
+    db.upsert_batch(&next, "xlsx").unwrap();
+
+    let log = db.import_log(10).unwrap();
+    assert_eq!(log.len(), 2, "a batch that stored nothing leaves no line");
+    assert_eq!((log[0].source.as_str(), log[0].inserted, log[0].updated), ("xlsx", 1, 0));
+    assert_eq!((log[1].source.as_str(), log[1].inserted), ("html", 5));
+    assert!(log[1].account_id.is_some());
+    assert_eq!(db.import_log(1).unwrap().len(), 1, "the limit applies");
+}
+
+#[test]
 fn a_changed_deal_is_updated_and_new_ones_inserted() {
     let mut db = Db::in_memory().unwrap();
     db.upsert_batch(&batch(), "ea").unwrap();

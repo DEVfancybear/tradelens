@@ -51,6 +51,10 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 | `property_list` + `PropertyList` + `PropertyEdits` (hàng thuộc tính, popover, thêm/ẩn/xoá, đổi kiểu) | `properties.rs` (`pub`) | có |
 | `plan_vs_actual(plan, on_write)`, `plan_rows(&EntryPlan, &Trade, currency)` (kế hoạch lúc vào đặt cạnh thực tế, từ `journal::review`) | `plan_vs_actual.rs` | có |
 | `tab_bar(group, options, label, value, on_change)` (hàng tab gạch chân, trên `tabs` / `tab`) | `tab_bar.rs` | có |
+| `line_list(label, add_label, lines, on_change)` + `filled` (danh sách dòng chữ thêm/xoá/sửa: luật vào lệnh, checklist, câu hỏi mẫu) | `lines.rs` (`pub`) | có |
+| `list_item`, `mini_table` + `Column` (thẻ chọn trong danh sách; bảng nhỏ vài dòng) | `list_item.rs` | có |
+| `queue_row(title, detail, action_label, on_press)` (dòng hàng chờ xem lại) | `queue.rs` | có |
+| `command_palette(rows, query, chips, hint, busy, on_select, on_cancel)` + `PaletteRow`, `palette_layer`, `search_trigger` (bảng tìm có nhóm kết quả, tô từ khoá) | `palette.rs` (`pub`) | có |
 | `chip`, `pnl_text`, `figure_text` | `chips.rs` | có |
 | `trades_table`, `recent_trades` | `table.rs` | có |
 | `equity_chart` | `chart.rs` | có |
