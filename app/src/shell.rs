@@ -9,9 +9,9 @@ use crate::{
     nav::{self, Route, SECTIONS},
     pages::{self, search},
     ui::{
-        confirm,
         controls::sidebar_row,
         icons::{Icon, icon},
+        modal,
         palette::search_trigger,
     },
 };
@@ -43,12 +43,9 @@ pub(crate) fn shell() -> impl IntoElement {
                 }),
             }
         })))
-        // The plan prompt of a position the EA just reported: over every screen.
-        .child(pages::entry_plan::host())
-        // The share dialog, opened from a trade's page and from the review.
-        .child(pages::share::host())
-        // The question asked before something is deleted or replaced.
-        .child(confirm::host())
+        // The modal that is on screen, one at a time: the plan prompt of a position the EA just
+        // reported, and the share dialog opened from a trade's page and from the review.
+        .child(modal::host())
         .child(search::overlay())
 }
 

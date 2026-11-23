@@ -3,14 +3,14 @@
 
 use std::rc::Rc;
 
-use nsh_base::{ButtonElement, SelectEntry, SelectItem, button, input, select, theme, toggle, toggle_group};
+use nsh_base::{
+    ButtonElement, SelectEntry, SelectItem, alert_dialog, button, input, select, theme, toggle, toggle_group,
+};
 use nsh_core::prelude::*;
 
-pub(crate) use super::confirm::confirm_then;
 use super::{
     icons::{Icon, icon},
     motion,
-    theme::destructive_foreground,
 };
 
 /// The size of the icon in a sidebar row.
@@ -25,8 +25,6 @@ pub(crate) enum Variant {
     Secondary,
     /// Actions in toolbars and rows.
     Ghost,
-    /// An action that deletes or throws something away.
-    Destructive,
 }
 
 /// Whether a button can be pressed, read again whenever it is asked.
@@ -120,6 +118,52 @@ pub(crate) fn icon_action(
         .child(icon(glyph, ICON_SIZE).text_color(ink))
 }
 
+/// Asks the trader to confirm something that destroys data, with the system's alert: `true`
+/// only when `confirm_label` is chosen; Cancel, Escape and a dismissed dialog answer `false`.
+/// Await it in a task, never block on it.
+///
+/// The alert is the platform's own, so its buttons wear the platform's colours and the app's theme
+/// cannot change them. An in-app `dialog()` was tried and dropped: on Windows its window layer did
+/// not paint, and the question was answered without the trader's input.
+pub(crate) async fn confirm(
+    title: impl Into<SharedString>,
+    description: impl Into<SharedString>,
+    confirm_label: impl Into<SharedString>,
+) -> bool {
+    let answer = alert_dialog()
+        .title(title)
+        .description(description)
+        .cancel("cancel", "Huỷ")
+        .destructive("confirm", confirm_label)
+        .show()
+        .await;
+    matches!(answer, Ok(result) if result.action.as_deref() == Some("confirm"))
+}
+
+/// Asks as [`confirm`] does and runs `then` when the trader confirms, as a task of `owner`, not of
+/// the element that asked.
+///
+/// A task started in a press handler belongs to the owner of the button: when the part of the page the
+/// button is in is built again (the cloud card is, at every change of the sign-in state), the task is
+/// cancelled and the question never appears. `owner` is one that lives as long as the page (the
+/// root's, [`root_owner`]); call this from the handler, take `owner` while building. `then` runs
+/// only when the trader chose `confirm_label`.
+pub(crate) fn confirm_then(
+    owner: Owner,
+    title: impl Into<SharedString> + 'static,
+    description: impl Into<SharedString> + 'static,
+    confirm_label: impl Into<SharedString> + 'static,
+    then: impl FnOnce() + 'static,
+) {
+    owner.run(move || {
+        spawn(async move {
+            if confirm(title, description, confirm_label).await {
+                then();
+            }
+        });
+    });
+}
+
 /// The owner of the whole app, which no rebuilt part of a page disposes; the one a question that must
 /// outlive its button is asked under ([`confirm_then`]). Call while building.
 pub(crate) fn root_owner() -> Owner {
@@ -145,7 +189,6 @@ impl Variant {
             Self::Primary => theme().primary_foreground,
             Self::Secondary => theme().secondary_foreground,
             Self::Ghost => theme().foreground,
-            Self::Destructive => destructive_foreground(),
         }
     }
 
@@ -160,7 +203,6 @@ impl Variant {
             Self::Primary => theme().primary,
             Self::Secondary => theme().secondary,
             Self::Ghost => AdaptiveColor::TRANSPARENT,
-            Self::Destructive => theme().destructive,
         }
     }
 }
@@ -186,7 +228,7 @@ fn button_shell(variant: Variant, enabled: Enabled, on_press: impl Fn() + 'stati
         // A button with no fill of its own shows the hover as a fill.
         .hover(move |s| match variant {
             Variant::Ghost => s.bg(move || theme().accent),
-            Variant::Primary | Variant::Secondary | Variant::Destructive => s.opacity(0.9),
+            Variant::Primary | Variant::Secondary => s.opacity(0.9),
         })
         .active(|s| s.scale(motion::PRESS_SCALE))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
@@ -194,7 +236,7 @@ fn button_shell(variant: Variant, enabled: Enabled, on_press: impl Fn() + 'stati
             let s = s.opacity(DISABLED_OPACITY).cursor(nsh_core::Cursor::Default);
             match variant {
                 Variant::Ghost => s.bg(AdaptiveColor::TRANSPARENT),
-                Variant::Primary | Variant::Secondary | Variant::Destructive => s.bg(move || theme().muted),
+                Variant::Primary | Variant::Secondary => s.bg(move || theme().muted),
             }
         })
 }
@@ -572,11 +614,12 @@ pub(crate) fn rating_of(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use nsh_engine::{EngineConfig, Root};
-    use nsh_testing::Headless;
+    use nsh_testing::{DialogAnswer, Headless};
 
     use super::*;
-    use crate::ui::confirm;
 
     #[component]
     fn Harness() -> impl IntoElement {
@@ -616,7 +659,6 @@ mod tests {
             .child(text(move || format!("pressed {}", pressed.get().join(","))))
             .child(text(move || format!("name {}", committed.get())))
             .child(text(move || confirmed.get()))
-            .child(confirm::host())
     }
 
     fn start() -> Headless {
@@ -677,58 +719,55 @@ mod tests {
         got == nsh_core::Color::from(token.light) || got == nsh_core::Color::from(token.dark)
     }
 
-    /// The question is the app's own dialog: its buttons are the app's, so it can be answered by
-    /// pressing them.
+    /// The question is the system's alert: tests answer it through the headless dialog API, never
+    /// by pressing a view.
     #[test]
     fn a_confirmation_runs_what_it_guards_only_for_its_destructive_button() {
         let mut app = start();
+        app.on_dialog(|_| DialogAnswer::Press("Huỷ".to_owned()));
         app.press("Hỏi").expect("asks");
-        app.wait_for("Không hoàn tác được.").expect("the question is on screen");
-        assert!(app.screen().shows("Huỷ") && app.screen().shows("Xoá hẳn"), "both answers are offered");
-        app.press("Huỷ").expect("cancels");
-        app.wait_for_gone("Không hoàn tác được.", std::time::Duration::from_secs(5)).expect("closed");
-        assert!(app.screen().shows("đã hỏi"), "cancelling confirms nothing");
+        app.wait_for("đã hỏi").expect("the handler ran");
+        app.wait(Duration::from_millis(400)).expect("the app runs");
+        assert!(!app.screen().shows("đã xác nhận"), "cancelling confirms nothing");
 
+        app.on_dialog(|dialog| {
+            assert_eq!(dialog.title.as_deref(), Some("Xoá?"));
+            DialogAnswer::Press("Xoá hẳn".to_owned())
+        });
         app.press("Hỏi").expect("asks again");
-        app.wait_for("Không hoàn tác được.").expect("on screen again");
-        app.press("Xoá hẳn").expect("confirms");
         app.wait_for("đã xác nhận").expect("the guarded action ran");
-        app.wait_for_gone("Không hoàn tác được.", std::time::Duration::from_secs(5)).expect("closed");
+    }
+
+    #[test]
+    fn a_confirmation_nobody_answers_runs_nothing() {
+        let mut app = start();
+        app.answer_dialogs_myself();
+        app.press("Hỏi").expect("asks");
+        app.wait(Duration::from_millis(800)).expect("the app runs");
+        assert!(app.pending_dialog().is_some(), "the question waits for an answer");
+        assert!(!app.screen().shows("đã xác nhận"), "an unanswered question confirms nothing");
     }
 
     #[test]
     fn a_question_outlives_the_button_that_asked_it() {
         let mut app = start();
+        app.answer_dialogs_myself();
         app.press("Hỏi rồi dựng lại").expect("asks, and the button is made again");
-        app.wait_for("Dữ liệu sẽ bị thay.").expect("the question is shown though its asker is gone");
-        // The page behind a question is covered: only the question's own buttons answer.
-        assert!(app.press("Hỏi").is_err(), "the page behind the question cannot be pressed");
-        app.press("Thay hẳn").expect("confirms");
+        app.wait(Duration::from_millis(400)).expect("the app runs");
+        assert!(app.pending_dialog().is_some(), "the question is open though its asker was rebuilt");
+        app.answer_dialog(DialogAnswer::Press("Thay hẳn".to_owned())).expect("answers");
         app.wait_for("đã thay").expect("the answer acts, though the button that asked is gone");
     }
 
     #[test]
-    fn escape_cancels_a_confirmation_and_enter_confirms_it() {
+    fn cancelling_a_question_whose_asker_was_rebuilt_runs_nothing() {
         let mut app = start();
-        app.press("Hỏi").expect("asks");
-        app.wait_for("Không hoàn tác được.").expect("on screen");
-        app.press_key("escape").expect("Escape");
-        app.wait_for_gone("Không hoàn tác được.", std::time::Duration::from_secs(5)).expect("Escape closes it");
-        assert!(!app.screen().shows("đã xác nhận"), "Escape confirms nothing");
-
-        app.press("Hỏi").expect("asks again");
-        app.wait_for("Không hoàn tác được.").expect("on screen again");
-        app.press_key("enter").expect("Enter");
-        app.wait_for("đã xác nhận").expect("Enter confirms: the destructive button has the focus");
-    }
-
-    #[test]
-    fn the_destructive_button_wears_the_destructive_token_and_cancel_does_not() {
-        let mut app = start();
-        app.press("Hỏi").expect("asks");
-        app.wait_for("Không hoàn tác được.").expect("on screen");
-        let ink = |label: &str| app.screen().span_style(&format!("text:{label}")).expect("on screen").color;
-        assert!(is_token("destructive-foreground", ink("Xoá hẳn")), "the destructive action");
-        assert!(is_token("secondary-foreground", ink("Huỷ")), "cancel is a secondary button");
+        app.answer_dialogs_myself();
+        app.press("Hỏi rồi dựng lại").expect("asks, and the button is made again");
+        app.wait(Duration::from_millis(400)).expect("the app runs");
+        assert!(app.pending_dialog().is_some(), "the question is open");
+        app.answer_dialog(DialogAnswer::Press("Huỷ".to_owned())).expect("answers");
+        app.wait(Duration::from_millis(400)).expect("the app runs");
+        assert!(!app.screen().shows("đã thay"), "cancelling acts on nothing");
     }
 }

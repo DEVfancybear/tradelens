@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::NaiveDate;
 use nsh_core::{Cursor, MountItem, NodeId};
-use nsh_testing::Headless;
+use nsh_testing::{DialogAnswer, Headless};
 use tradelens_core::{Db, Deal, DealBatch, DealEntry, DealKind, model::AccountInfo};
 
 mod support;
@@ -26,22 +26,60 @@ fn signed_in() -> Fixture {
 }
 
 #[test]
-fn a_question_covers_the_page_and_its_answer_still_signs_out() {
+fn a_question_asked_by_a_card_that_is_built_again_before_the_answer_still_acts_on_it() {
     let fixture = signed_in();
     let mut app = fixture.start(1280.0, 1100.0, |_| {});
     app.press("role:button[Đăng nhập & sync]").expect("the cloud row");
     app.wait_for(EMAIL).expect("signed in");
+    app.answer_dialogs_myself();
     app.press("role:button[Đăng xuất]").expect("the sign-out button");
-    app.wait_for("Đăng xuất khỏi Google Drive?").expect("the question is shown");
+    assert!(app.pending_dialog().is_some(), "the question is shown");
 
-    // The question covers the page: what is behind it cannot be pressed until it is answered.
-    assert!(app.press("label:Tự động sync").is_err(), "the page behind the question is covered");
+    // The state changes while the question is open: the card with the button is built again.
+    app.press("label:Tự động sync").expect("the switch");
     let db = fixture.db();
-    assert_ne!(db.setting("cloud.auto_sync").expect("reads").as_deref(), Some("1"), "the switch was not flipped");
+    wait_until("the switch being kept", || db.setting("cloud.auto_sync").is_ok_and(|v| v.as_deref() == Some("1")));
+    assert!(app.pending_dialog().is_some(), "the question is still open after the card was rebuilt");
 
-    app.press("label:Đăng xuất khỏi Google Drive? >> role:button[Đăng xuất]").expect("answers");
+    app.answer_dialog(DialogAnswer::Press("Đăng xuất".to_owned())).expect("answers");
     app.wait_for_gone(EMAIL, WAIT).expect("the answer signed out, though the card that asked is gone");
     wait_until("the session being forgotten", || db.setting("cloud.demo_user").is_ok_and(|v| v.as_deref() == Some("")));
+}
+
+#[test]
+fn a_cancelled_sign_out_question_whose_card_was_built_again_signs_nothing_out() {
+    let fixture = signed_in();
+    let mut app = fixture.start(1280.0, 1100.0, |_| {});
+    app.press("role:button[Đăng nhập & sync]").expect("the cloud row");
+    app.wait_for(EMAIL).expect("signed in");
+    app.answer_dialogs_myself();
+    app.press("role:button[Đăng xuất]").expect("the sign-out button");
+    assert!(app.pending_dialog().is_some(), "the question is shown");
+
+    app.press("label:Tự động sync").expect("the switch builds the card again");
+    let db = fixture.db();
+    wait_until("the switch being kept", || db.setting("cloud.auto_sync").is_ok_and(|v| v.as_deref() == Some("1")));
+    app.answer_dialog(DialogAnswer::Press("Huỷ".to_owned())).expect("cancels");
+    app.wait(std::time::Duration::from_millis(600)).expect("the app runs");
+    assert!(app.screen().shows(EMAIL), "cancelling keeps the account");
+    assert_eq!(db.setting("cloud.demo_user").expect("reads").as_deref(), Some("google"), "the session is kept");
+}
+
+#[test]
+fn a_sign_out_question_nobody_answers_signs_nothing_out() {
+    let fixture = signed_in();
+    let mut app = fixture.start(1280.0, 1100.0, |_| {});
+    app.press("role:button[Đăng nhập & sync]").expect("the cloud row");
+    app.wait_for(EMAIL).expect("signed in");
+    app.answer_dialogs_myself();
+    app.press("role:button[Đăng xuất]").expect("the sign-out button");
+    // Neither time nor key presses answer it: only a press on one of its own buttons does.
+    app.wait(std::time::Duration::from_secs(3)).expect("the app runs");
+    app.press_key("enter").expect("Enter");
+    app.wait(std::time::Duration::from_millis(600)).expect("the app runs");
+    assert!(app.pending_dialog().is_some(), "the question is still waiting");
+    assert!(app.screen().shows(EMAIL), "the account is still there");
+    assert_eq!(fixture.db().setting("cloud.demo_user").expect("reads").as_deref(), Some("google"));
 }
 
 /// The cursor of every view that got a style, by node.

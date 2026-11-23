@@ -4,7 +4,7 @@
 //! ("Sửa kế hoạch"); the MT5 connection of v0.4 is to open it for positions that just opened.
 //! Design: `docs/design/screens/entry-plan-prompt.html`.
 
-use nsh_base::{dialog, theme};
+use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
     ChecklistItem, Db, DbError, Side, Trade, TradeKey,
@@ -22,9 +22,10 @@ use crate::{
     store::{Reading, Writer, query, query_with, store, writer},
     ui::{
         chips::{Tone, chip},
-        controls::{Choice, Variant, action, action_icon, icon_action, select_value, textarea},
+        controls::{Choice, Variant, action, action_icon, select_value, textarea},
         forms::{NumberRange, checklist, number_field},
         icons::Icon,
+        modal::{self, Modal},
         parts::warning_banner,
         theme as tokens,
     },
@@ -32,8 +33,6 @@ use crate::{
 
 /// Width of the dialog's panel, in points.
 const PANEL_WIDTH: f32 = 560.0;
-/// How far the scrim darkens the screen behind the dialog.
-const SCRIM_OPACITY: f32 = 0.72;
 
 /// A plan to be written: the trade it is for and what the dialog starts with.
 #[derive(Debug, Clone, PartialEq)]
@@ -80,38 +79,43 @@ impl PlanRequest {
 #[derive(Debug, Clone, PartialEq, Default)]
 struct Queue(Vec<PlanRequest>);
 
-/// Puts a plan in line: it shows at once when none is on screen. A plan for a trade that is
-/// already in line is not added twice.
-pub(crate) fn enqueue(request: PlanRequest) {
-    global::<Queue>().update(|queue| {
-        if !queue.0.iter().any(|waiting| waiting.target == request.target) {
-            queue.0.push(request);
-        }
-    });
+/// Puts a plan in line: it shows at once when no modal is on screen, else after the one that
+/// is. A plan for a trade that is already in line is not added twice. `write` is the handle
+/// "Ghi sau" and Escape write with, made while building the screen that asks.
+pub(crate) fn enqueue(request: PlanRequest, write: Writer) {
+    let queue = global::<Queue>();
+    if queue.with_untracked(|queue| queue.0.iter().any(|waiting| waiting.target == request.target)) {
+        return;
+    }
+    queue.update(|queue| queue.0.push(request.clone()));
+    modal::open(modal_of(request, write));
 }
 
 /// Takes the plan for `target` out of line, so that a second press of the same button cannot
-/// take the next plan with it.
+/// take the next plan with it, and closes its modal: the next one shows.
 fn finish(target: &TradeKey) {
     global::<Queue>().update(|queue| queue.0.retain(|waiting| waiting.target != *target));
+    modal::close(&modal_id(target));
 }
 
-/// The dialog, mounted once over the whole window.
-pub(crate) fn host() -> impl IntoElement {
-    let (queue, write) = (global::<Queue>(), writer());
-    let head = computed(move || queue.with(|q| q.0.first().cloned()));
-    dynamic(move || {
-        head.get().map(|request| {
-            dialog()
-                .on_cancel(move || {
-                    if let Some(target) = head.with_untracked(|r| r.as_ref().map(|r| r.target.clone())) {
-                        later(write, &target);
-                    }
-                })
-                .flex_1()
-                .child(untracked(|| scrim(&request)))
-        })
-    })
+/// The name of the modal of the plan for `target`.
+fn modal_id(target: &TradeKey) -> String {
+    format!("entry-plan:{}:{}:{}", target.account_id, target.position_id, target.segment)
+}
+
+/// The modal of a plan. Escape and the close button both mean "Ghi sau"; a press on the scrim
+/// does nothing, since what was typed in the form is not saved.
+fn modal_of(request: PlanRequest, write: Writer) -> Modal {
+    let target = request.target.clone();
+    Modal::new(
+        modal_id(&request.target),
+        "Kế hoạch vào lệnh",
+        move || panel(&request).into_element(),
+        move || later(write, &target),
+    )
+    .width(PANEL_WIDTH)
+    .close_label("Đóng và ghi kế hoạch sau")
+    .keeps_open_on_scrim()
 }
 
 /// What "Ghi sau" and Escape do: flag the trade for review, then show the next plan. The
@@ -321,17 +325,6 @@ fn choices_of(items: &[CatalogItem], stores: Stores) -> Vec<Choice> {
     choices
 }
 
-/// The darkened screen with the panel in its middle.
-fn scrim(request: &PlanRequest) -> impl IntoElement {
-    view()
-        .flex_1()
-        .items_center()
-        .justify_center()
-        .p_6()
-        .bg(move || theme().background.opacity(SCRIM_OPACITY))
-        .child(panel(request))
-}
-
 /// The signals of the plan being written, one per field.
 #[derive(Clone, Copy)]
 struct Fields {
@@ -496,43 +489,30 @@ fn panel(request: &PlanRequest) -> impl IntoElement {
     let thesis = fields.thesis;
     let warnings = rule_warnings(request.clone(), fields.risk);
     view()
-        .w(px(PANEL_WIDTH))
-        .max_h(px(720.0))
-        .rounded(move || theme().radius)
-        .border_1()
-        .border_color(move || theme().border)
-        .bg(move || theme().card)
-        .shadow_lg()
-        .child(
-            scroll().flex_1().child(
-                view()
-                    .p_6()
-                    .gap_4()
-                    .child(header(request, waiting, skip.clone()))
-                    .child(dynamic(move || {
-                        let lines = warnings.get();
-                        untracked(|| view().gap_2().children(lines.into_iter().map(warning_banner)).into_element())
-                    }))
-                    .child(field(
-                        "Lý do vào lệnh (viết ngay, trước khi biết kết quả)",
-                        textarea(
-                            "Lý do vào lệnh",
-                            "Setup thấy gì, chờ xác nhận gì…",
-                            4,
-                            move || thesis.get(),
-                            move |t| thesis.set(t.to_owned()),
-                        ),
-                    ))
-                    .child(levels(fields.entry, fields.stop, fields.take, fields.risk))
-                    .child(setup_fields(fields, choices))
-                    .child(dynamic(move || failure.get().map(|error| text(error).text_sm().text_color(tokens::loss()))))
-                    .child(footer(busy, skip, save)),
+        .gap_4()
+        .child(header(request, waiting))
+        .child(dynamic(move || {
+            let lines = warnings.get();
+            untracked(|| view().gap_2().children(lines.into_iter().map(warning_banner)).into_element())
+        }))
+        .child(field(
+            "Lý do vào lệnh (viết ngay, trước khi biết kết quả)",
+            textarea(
+                "Lý do vào lệnh",
+                "Setup thấy gì, chờ xác nhận gì…",
+                4,
+                move || thesis.get(),
+                move |t| thesis.set(t.to_owned()),
             ),
-        )
+        ))
+        .child(levels(fields.entry, fields.stop, fields.take, fields.risk))
+        .child(setup_fields(fields, choices))
+        .child(dynamic(move || failure.get().map(|error| text(error).text_sm().text_color(tokens::loss()))))
+        .child(footer(busy, skip, save))
 }
 
 /// The title block: where the position came from, what it is, and how many wait behind it.
-fn header(request: &PlanRequest, waiting: Memo<usize>, skip: impl Fn() + 'static) -> impl IntoElement {
+fn header(request: &PlanRequest, waiting: Memo<usize>) -> impl IntoElement {
     let (side, tone) = (request.side, if request.side == Side::Long { Tone::Profit } else { Tone::Loss });
     let level = |label: &str, value: Option<f64>| value.map(|v| format!("{label} {}", format::price(v)));
     let seed = &request.seed;
@@ -546,44 +526,38 @@ fn header(request: &PlanRequest, waiting: Memo<usize>, skip: impl Fn() + 'static
     .flatten()
     .collect();
     let entry = seed.entry.map_or_else(String::new, |p| format!(" @ {}", format::price(p)));
-    view()
-        .flex_row()
-        .items_start()
-        .justify_between()
-        .gap_3()
-        .child(
-            view()
-                .gap_1()
-                .min_w(px(0.0))
-                .child(text(request.origin.clone()).text_xs().text_color(move || theme().primary))
-                .child(
-                    view()
-                        .flex_row()
-                        .flex_wrap()
-                        .items_center()
-                        .gap_2()
-                        .child(text(request.symbol.clone()).text_xl().font_weight(FontWeight::SEMIBOLD))
-                        .child(chip(side.label(), tone))
-                        .child(
-                            text(format!("{} lot{entry}", format::lots(request.volume)))
-                                .font_family(tokens::mono)
-                                .tabular_nums()
-                                .text_sm(),
-                        ),
-                )
-                .child(
-                    text(facts.join(" · "))
-                        .font_family(tokens::mono)
-                        .tabular_nums()
-                        .text_xs()
-                        .text_color(move || theme().muted_foreground),
-                )
-                .child(dynamic(move || {
-                    let more = waiting.get();
-                    (more > 0).then(|| chip(format!("còn {more} lệnh đang chờ ghi kế hoạch"), Tone::Neutral))
-                })),
-        )
-        .child(icon_action(Icon::Close, "Đóng và ghi kế hoạch sau", Variant::Ghost, skip))
+    view().flex_row().items_start().justify_between().gap_3().child(
+        view()
+            .gap_1()
+            .min_w(px(0.0))
+            .child(text(request.origin.clone()).text_xs().text_color(move || theme().primary))
+            .child(
+                view()
+                    .flex_row()
+                    .flex_wrap()
+                    .items_center()
+                    .gap_2()
+                    .child(text(request.symbol.clone()).text_xl().font_weight(FontWeight::SEMIBOLD))
+                    .child(chip(side.label(), tone))
+                    .child(
+                        text(format!("{} lot{entry}", format::lots(request.volume)))
+                            .font_family(tokens::mono)
+                            .tabular_nums()
+                            .text_sm(),
+                    ),
+            )
+            .child(
+                text(facts.join(" · "))
+                    .font_family(tokens::mono)
+                    .tabular_nums()
+                    .text_xs()
+                    .text_color(move || theme().muted_foreground),
+            )
+            .child(dynamic(move || {
+                let more = waiting.get();
+                (more > 0).then(|| chip(format!("còn {more} lệnh đang chờ ghi kế hoạch"), Tone::Neutral))
+            })),
+    )
 }
 
 /// A caption over a control.

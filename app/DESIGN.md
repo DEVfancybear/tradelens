@@ -19,7 +19,7 @@ chuẩn mà code trong `src/ui/` phải theo.
 | Nhấn | `primary` (teal) | hành động chính, mục đang chọn, đường equity |
 | Lãi / lỗ | `profit`, `loss` (+ `-soft` làm nền ô) | số P/L, ô lịch, thanh phân tích |
 | Cảnh báo | `warning` | quy tắc sắp chạm ngưỡng |
-| Phá huỷ | `destructive`, `destructive-foreground` | nút xoá / thay dữ liệu trong hộp xác nhận |
+| Phá huỷ | `destructive` | màu chữ báo lỗi / phá huỷ (hộp xác nhận là alert hệ thống nên không dùng token) |
 | Biểu đồ | `chart-1…5` | chuỗi dữ liệu không mang nghĩa lãi/lỗ |
 
 Không viết mã màu trong code; thiếu vai trò thì thêm token trước.
@@ -41,9 +41,10 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 |---|---|---|
 | `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `empty_state`, `warning_banner(message)` (một dòng cảnh báo quy tắc, `role` Alert) | `parts.rs` | có |
 | `parts::property_row(label, control)` (hàng nhãn + điều khiển đơn giản, khác `properties`) | `parts.rs` | có |
-| `action` / `action_when` (Primary / Secondary / Ghost / Destructive); nút tắt có một dáng chung (nền `muted`, chữ `muted-foreground`, mờ, không hover) | `controls.rs` | có |
+| `action` / `action_when` (Primary / Secondary / Ghost); nút tắt có một dáng chung (nền `muted`, chữ `muted-foreground`, mờ, không hover) | `controls.rs` | có |
 | `link(label, on_press)` (liên kết chữ `primary`, gạch chân khi rê chuột: "Xem tất cả", "Mở lịch"…) | `controls.rs` | có |
-| `confirm_then(owner, tiêu đề, mô tả, nhãn, then)` + `confirm::host()` (hộp xác nhận theme của app: Huỷ Secondary, nút Destructive, Escape huỷ, Enter xác nhận; gắn một lần trong `shell`) | `confirm.rs` | có |
+| `confirm_then(owner, tiêu đề, mô tả, nhãn, then)` (hỏi bằng `alert_dialog` hệ thống; `then` chạy dưới `owner`, chỉ khi bấm `nhãn`) | `controls.rs` | có |
+| `Modal`, `modal::open`, `modal::close`, `modal::host()` (một hộp thoại trong cửa sổ mỗi lúc: nền, panel, tiêu đề, ✕, Escape, giữ Tab; gắn một lần trong `shell`) | `modal.rs` | có |
 | `action_icon` / `action_icon_when` (icon trước nhãn), `icon_action` (chỉ icon, bắt buộc `accessibility_label`) | `controls.rs` | có |
 | `sidebar_row` (icon), `segmented`, `select_field`, `select_value`, `text_field`, `commit_field`, `textarea`, `tag_picker`, `rating` / `rating_of` | `controls.rs` | có |
 | `icon(Icon, size)`, `Icon` (bộ icon nét 1.75 của thiết kế) | `icons.rs` (`pub`) | có |
@@ -131,7 +132,7 @@ khác do `on_def` của màn xử lý (màn Tuỳ biến form).
 ### Chia sẻ kết quả và báo cáo PDF tháng
 
 - **Mở hộp thoại chia sẻ:** `pages::share::open(ShareTarget::Trade(key))` hoặc `ShareTarget::Period(Period::Week | Month, start)`;
-  `share::host()` (gắn một lần trong `shell`) hiện `dialog()` giống popup kế hoạch. Nút "Chia sẻ" có ở chi tiết lệnh (tắt khi lệnh còn mở)
+  hiện bằng `ui::modal` giống popup kế hoạch. Nút "Chia sẻ" có ở chi tiết lệnh (tắt khi lệnh còn mở)
   và ở header Tổng kết & xem lại.
 - **Ảnh dựng trong `core`, không phải trong NSH:** `core::report::render_png(&ShareCard)` dựng SVG rồi rasterize bằng `resvg` với font đóng gói
   (Inter, JetBrains Mono từ `app/assets/fonts/`, `include_bytes!` ở `core/src/report/fonts.rs`); ảnh luôn theo giao diện tối của thiết kế.
@@ -152,9 +153,19 @@ khác do `on_def` của màn xử lý (màn Tuỳ biến form).
 - **Đổi kiểu thuộc tính** chuyển giá trị của *mọi* nhật ký đã lưu: `Db::apply_field_def(&FieldDef)` (đổi kiểu bằng
   `form::convert`, đổi tên một lựa chọn theo vào giá trị, thêm lựa chọn từ giá trị mới) và `Db::kind_change_impact`
   (đếm giá trị sẽ mất, để hỏi `alert_dialog`). Màn dùng `property_list` gọi `apply_field_def` trong `on_def`.
-- **Popup ghi kế hoạch**: `pages::entry_plan::enqueue(PlanRequest)` xếp một yêu cầu vào hàng đợi (chi tiết lệnh dùng
-  cho "Viết / Sửa kế hoạch"; kết nối MT5 của v0.4 sẽ đưa lệnh vừa mở vào); `entry_plan::host()`
-  gắn một lần trong `shell`. Một việc chạy bằng `Writer::run` mà chủ của nó là hộp thoại phải xong *trước khi* đóng
+- **Hộp thoại trong cửa sổ: `ui::modal`** (`Modal::new(id, tiêu đề, body, on_dismiss)`, `modal::open`, `modal::close(id)`;
+  `modal::host()` gắn một lần trong `shell`). **Không dùng `nsh_base::dialog()`**: lớp cửa sổ native của nó không vẽ trên Windows
+  (cửa sổ tối đi, không có nội dung); `app/tests/no_native_dialog.rs` quét mã nguồn để chặn. Modal là một lớp `absolute` của root
+  như bảng tìm: nền `background` mờ 72% (bấm vào nền gọi `on_dismiss`, trừ khi `keeps_open_on_scrim` khi form có chữ chưa lưu),
+  panel `popover` ở giữa, tiêu đề + nút ✕, thân cuộn khi cao hơn cửa sổ; Escape và ✕ gọi `on_dismiss`, nó tự `modal::close`
+  khi xong việc. Mỗi lúc chỉ một modal hiện, modal sau xếp hàng. Escape gắn bằng `on_key` của chính lớp nên mất cùng lớp, và không
+  có phím Enter toàn cục. Focus chuyển vào panel khi mở; hai "lính canh" ở hai đầu lớp giữ Tab / Shift+Tab trong modal (test
+  `tab_does_not_leave_the_modal` chạy với `Os::Windows`). Chưa trả focus về nút đã mở modal vì NSH không cho đọc phần tử đang giữ focus.
+  Câu hỏi phá huỷ vẫn dùng `confirm_then` (alert hệ thống), không dùng modal. Trong test không đầu, bấm nền bằng
+  `press_at("label:Đóng hộp thoại", điểm góc)` vì `press` thường bỏ qua việc nền che trang.
+- **Popup ghi kế hoạch**: `pages::entry_plan::enqueue(PlanRequest, Writer)` xếp một yêu cầu vào hàng đợi (chi tiết lệnh dùng
+  cho "Viết / Sửa kế hoạch"; kết nối MT5 của v0.4 sẽ đưa lệnh vừa mở vào); mỗi yêu cầu là một `Modal` (`Writer` để "Ghi sau" và
+  Escape ghi cờ). Một việc chạy bằng `Writer::run` mà chủ của nó là hộp thoại phải xong *trước khi* đóng
   hộp thoại (đóng huỷ tác vụ), nên `finish` chỉ gọi trong `done`.
 - **Phím tắt**: Ctrl+N (từ Lệnh) mở nhập lệnh tay, Ctrl+Enter lưu ở đó.
 - Form nhật ký của lệnh dùng chung: `trade_detail::journal_form(fields, shots, suggestion, failure)` vẽ danh sách
@@ -208,14 +219,14 @@ Nhật ký ngày đọc `nav::requested_journal_day()` rồi gọi `nav::take_jo
 
 ### Câu hỏi xác nhận, con trỏ, lịch chọn ngày, dữ liệu không đủ
 
-- **Hỏi rồi mới làm: `controls::confirm_then(owner, tiêu đề, mô tả, nhãn, then)`** (định nghĩa ở `ui::confirm`). Hộp xác nhận là
-  `dialog()` trong app, theme được (alert hệ thống thì không: nút Huỷ ra màu xanh của hệ điều hành); `confirm::host()` gắn một lần ở
-  `shell`, test của một component có hỏi phải gắn nó trong harness. Trong test bấm nút của hộp bằng
-  `label:<tiêu đề> >> role:button[<nhãn>]` khi trang phía sau có nút trùng tên (hộp che trang nên không bấm được trang). `then` chạy
-  dưới `owner`, không phải owner của nút: thẻ chứa nút nằm trong `dynamic` bị dựng lại mỗi lần state đổi và huỷ việc của nó
-  (đăng xuất, khôi phục, xoá thuộc tính, xoá playbook / lệnh bỏ lỡ đều từng bị). `owner` lấy lúc
-  dựng bằng `controls::root_owner()` (Workspace gọi `provide_root_owner()`), hoặc `Cloud::confirm_sign_out` / `confirm_restore`.
-  Việc trong `then` chạm signal của phần có thể đã dựng lại thì dùng `try_set`.
+- **Hỏi rồi mới làm: `controls::confirm_then(owner, tiêu đề, mô tả, nhãn, then)`**, không `spawn(async { confirm(..).await })` trong
+  trình xử lý nút. Câu hỏi là `alert_dialog` của hệ điều hành (đã kiểm trên cửa sổ Windows thật; nút của nó theo màu nền tảng, không
+  theme được). Đừng thay bằng `dialog()` trong app cho câu hỏi phá huỷ: trên Windows lớp cửa sổ của `dialog()` không vẽ và câu hỏi
+  từng bị trả lời "xác nhận" mà không ai bấm. Tác vụ khởi từ nút thuộc owner của nút; thẻ chứa nút nằm trong `dynamic` bị dựng lại
+  mỗi lần state đổi và huỷ tác vụ trước khi hộp thoại hiện (đăng xuất, khôi phục, xoá thuộc tính, xoá playbook / lệnh bỏ lỡ đều
+  từng bị). `owner` lấy lúc dựng bằng `controls::root_owner()` (Workspace gọi `provide_root_owner()`), hoặc
+  `Cloud::confirm_sign_out` / `confirm_restore`. Việc trong `then` chạm signal của phần có thể đã dựng lại thì dùng `try_set`.
+  Trong test không đầu, trả lời bằng `on_dialog(|_| DialogAnswer::Press(..))` hoặc `answer_dialogs_myself()` + `answer_dialog`.
 - **Mỗi trang là một phần tử có `key`** (`shell`, `pages::trades`): trang dựng thay cho trang khác bắt đầu ở đầu trang. Không có
   `key`, NSH giữ vị trí cuộn của nút cuộn dựng lại tại chỗ.
 - **Font:** `root()` đăng ký bảy file font (`Root::font`) và token của `theme.json` (`Root::tokens`); `registry.assets(..)` một mình

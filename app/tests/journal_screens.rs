@@ -6,7 +6,7 @@ mod common;
 use std::time::Duration;
 
 use nsh_core::platform::Os;
-use nsh_testing::Headless;
+use nsh_testing::{DialogAnswer, Headless};
 use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, TradeKey,
     catalog::{FieldDef, FieldKind, FieldScope, FieldValue, Requirement},
@@ -277,11 +277,10 @@ fn changing_a_propertys_type_in_the_form_editor_converts_every_entry() {
     app.wait_for("Tuỳ biến form nhập liệu").expect("the editor opens over the page");
     app.wait_for("label:Sửa thuộc tính Khung vào lệnh").expect("the property is in the table");
 
+    app.on_dialog(|_| DialogAnswer::Press("Đổi kiểu".to_owned()));
     app.press("label:Sửa thuộc tính Khung vào lệnh").expect("picks the property");
     app.press("label:Kiểu").expect("the kind drop-down");
     app.press("text:# Số").expect("the number kind");
-    app.wait_for("Đổi kiểu sẽ mất giá trị đã ghi?").expect("the question is asked first");
-    app.press("label:Đổi kiểu sẽ mất giá trị đã ghi? >> role:button[Đổi kiểu]").expect("confirms");
     wait_until("the stored values following the new type", || {
         let value =
             |position| db.journal(&key_of(&db, position)).expect("reads").and_then(|e| e.custom.get("focus").cloned());
@@ -421,4 +420,45 @@ fn the_plan_prompt_saves_the_plan_or_flags_the_trade_for_later() {
     assert_eq!(plan.entry, Some(2648.2), "the levels start from the trade's");
     assert_eq!(plan.stop_loss, Some(2640.0));
     assert!(!entry.review_later, "a written plan leaves the review queue");
+}
+
+/// A point of the scrim that the plan's panel does not cover.
+fn scrim_corner() -> nsh_core::Point<nsh_core::Points> {
+    nsh_core::Point { x: nsh_core::Points(4.0), y: nsh_core::Points(4.0) }
+}
+
+#[test]
+fn the_plan_prompt_shows_its_form_and_escape_or_the_close_button_close_it_without_a_plan() {
+    let fixture = Fixture::new();
+    seed(&mut fixture.db());
+    let mut app = fixture.start();
+    open_trade(&mut app, "XAUUSD");
+    let db = fixture.db();
+    let no_plan = |db: &Db| {
+        [1, 2].into_iter().all(|p| db.journal(&key_of(db, p)).expect("reads").is_none_or(|e| e.plan.is_none()))
+    };
+
+    open_plan_prompt(&mut app);
+    for field in ["label:Lý do vào lệnh", "label:Giá vào", "label:Stop loss", "label:Take profit", "label:Risk"] {
+        app.wait_for(field).unwrap_or_else(|error| panic!("the form has {field}: {error}"));
+    }
+    app.type_text("label:Lý do vào lệnh", "chưa lưu").expect("the reason is typed");
+    // A press outside the panel must not throw the typing away.
+    app.press_at("label:Đóng hộp thoại", scrim_corner()).expect("a press on the scrim");
+    app.wait(Duration::from_millis(400)).expect("the app runs");
+    assert!(app.screen().shows("Lưu kế hoạch"), "the scrim leaves a form with edits open");
+
+    // Escape is "Ghi sau": the trade is flagged and no plan is written.
+    app.press_key("escape").expect("Escape");
+    app.wait_for_gone("Lưu kế hoạch", WAIT).expect("the dialog closes");
+    wait_until("the trade being flagged", || {
+        [1, 2].into_iter().any(|p| db.journal(&key_of(&db, p)).expect("reads").is_some_and(|e| e.review_later))
+    });
+    assert!(no_plan(&db), "Escape wrote no plan");
+
+    // The close button says the same.
+    open_plan_prompt(&mut app);
+    app.press("label:Đóng và ghi kế hoạch sau").expect("the close button");
+    app.wait_for_gone("Lưu kế hoạch", WAIT).expect("the dialog closes again");
+    assert!(no_plan(&db), "the close button wrote no plan");
 }

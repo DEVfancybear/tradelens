@@ -3,7 +3,10 @@
 
 mod common;
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
 
 use chrono::Local;
 use nsh_app_tradelens::ui::properties::kind_name;
@@ -195,9 +198,17 @@ fn a_playbook_is_created_edited_and_deleted() {
     });
 
     app.press("role:button[Sửa]").expect("the edit button again");
+    // Cancelled, or never answered: the setup stays.
+    app.on_dialog(|_| nsh_testing::DialogAnswer::Press("Huỷ".to_owned()));
     app.press("role:button[Xoá playbook]").expect("the delete button");
-    app.wait_for("Xoá playbook?").expect("the question is asked first");
-    app.press("label:Xoá playbook? >> role:button[Xoá hẳn]").expect("confirms");
+    app.wait(Duration::from_millis(500)).expect("the app runs");
+    assert_eq!(fixture.db().playbooks().expect("reads").len(), 1, "cancelling the question deletes nothing");
+    app.answer_dialogs_myself();
+    app.press("role:button[Xoá playbook]").expect("the delete button again");
+    app.wait(Duration::from_millis(500)).expect("the app runs");
+    assert!(app.pending_dialog().is_some(), "the question waits");
+    assert_eq!(fixture.db().playbooks().expect("reads").len(), 1, "an unanswered question deletes nothing");
+    app.answer_dialog(nsh_testing::DialogAnswer::Press("Xoá hẳn".to_owned())).expect("confirms");
     wait_until("the setup being deleted", || fixture.db().playbooks().is_ok_and(|p| p.is_empty()));
     app.wait_for("Chưa có playbook nào").expect("the list is empty again");
 }
