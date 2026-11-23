@@ -15,5 +15,10 @@ if ! clippy=$(cargo clippy --workspace --all-targets --quiet -- -D warnings 2>&1
     printf '%s\n' "$clippy" | tail -n 40 >&2
     fail "clippy reported errors"
 fi
-cargo test --workspace --quiet >/dev/null 2>&1 || fail "cargo test failed (run cargo test --workspace)"
+# --no-fail-fast runs every test binary, so one flaky screen test does not hide the others; on
+# failure the panics and the list of failed tests are printed (CI logs show nothing else).
+if ! tests=$(cargo test --workspace --no-fail-fast 2>&1); then
+    printf '%s\n' "$tests" | grep -E -A3 "panicked at|^failures:|FAILED|^error" | tail -n 80 >&2
+    fail "cargo test failed (run cargo test --workspace)"
+fi
 echo "quality gate: ok"

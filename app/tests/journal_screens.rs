@@ -3,9 +3,9 @@
 
 use std::time::{Duration, Instant};
 
-use nsh_core::{Size, platform::Os, prelude::px};
+use nsh_core::{Checked, Size, platform::Os, prelude::px};
 use nsh_engine::{EngineConfig, Root};
-use nsh_testing::{DialogAnswer, Headless};
+use nsh_testing::{DialogAnswer, Headless, Screen};
 use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, TradeKey,
     catalog::{FieldDef, FieldKind, FieldScope, FieldValue, Requirement},
@@ -135,6 +135,23 @@ fn open_trade(app: &mut Headless, symbol: &str) {
     app.wait_for(&format!("role:button[Mở nhật ký lệnh {symbol}]")).expect("the trades load");
     app.press(&format!("role:button[Mở nhật ký lệnh {symbol}] >> nth=0")).expect("a trade opens");
     app.wait_for("Nhật ký lệnh").expect("the journal card shows");
+}
+
+/// Turns the toggle `selector` names on, pressing again when a press is lost: the form draws its
+/// properties again once the trader's arrangement is read, and a press that lands then reaches a
+/// button that is being replaced. Never presses a toggle that is already on.
+fn toggle_on(app: &mut Headless, selector: &str) {
+    let on = |screen: &Screen| screen.accessibility_state(selector).is_ok_and(|s| s.pressed == Some(Checked::True));
+    for _ in 0..5 {
+        if on(app.screen()) {
+            return;
+        }
+        app.press(selector).expect("the toggle is a button");
+        if app.wait_until("the toggle being on", Duration::from_secs(2), on).is_ok() {
+            return;
+        }
+    }
+    panic!("`{selector}` did not turn on");
 }
 
 /// Presses "Viết kế hoạch" on the open trade until the plan prompt is up: a press that lands while
@@ -317,7 +334,7 @@ fn a_trade_typed_in_by_hand_is_stored_with_its_journal() {
     app.type_text("label:Lãi/lỗ", "264").expect("profit");
     app.type_text("label:Commission", "-5.6").expect("commission");
     app.wait_for("Tự tính: kết quả ròng +$258.40 · giữ 1g 35p").expect("the computed line follows");
-    app.press("role:button[Tag: Tin tức]").expect("the journal below is the trade journal");
+    toggle_on(&mut app, "role:button[Tag: Tin tức]");
     app.type_text("label:Ghi chú", "Vào sớm vì sợ lỡ").expect("notes");
     app.press("role:button[Lưu lệnh]").expect("saves");
 
