@@ -1,6 +1,8 @@
 //! The trades list, a trade's journal and the overview, headless on the real engine over a
 //! database in a temporary data directory.
 
+mod common;
+
 use std::{
     path::PathBuf,
     time::{Duration, Instant},
@@ -200,8 +202,8 @@ fn a_trades_journal_is_written_and_saved() {
     app.wait_for("Deal của lệnh").expect("the trade's deals show");
 
     app.type_text("label:Setup", "Breakout phiên Á").expect("the setup is typed");
-    app.press("role:button[Tag: Tin tức]").expect("a tag toggles");
-    app.press("role:button[Lỗi: Vào sớm]").expect("a mistake toggles");
+    common::toggle_on(&mut app, "role:button[Tag: Tin tức]");
+    common::toggle_on(&mut app, "role:button[Lỗi: Vào sớm]");
     app.press("role:button[Điểm thực thi: 4 sao]").expect("a grade is given");
     app.type_text("label:Ghi chú", "Vào sớm vì sợ lỡ").expect("notes are typed");
     app.wait_for("Có thay đổi chưa lưu").expect("the page notices the edits");
