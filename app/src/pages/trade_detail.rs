@@ -14,7 +14,10 @@ use tradelens_core::{
     time::format_duration,
 };
 
-use super::entry_plan;
+use super::{
+    entry_plan,
+    share::{self, ShareTarget},
+};
 use crate::{
     format::{self, Sign},
     journal_draft::{Draft, added, key_of_choice, key_or_empty, removed, suggested_exit, ticked, unticked, with_value},
@@ -23,9 +26,13 @@ use crate::{
     store::{Reading, Store, query, store, writer},
     ui::{
         chips::{Tone, chip, figure_text, pnl_text},
-        controls::{Choice, Variant, action, action_when, rating, select_value, tag_picker, text_field, textarea},
+        controls::{
+            Choice, Variant, action, action_icon_when, action_when, rating, select_value, tag_picker, text_field,
+            textarea,
+        },
         forms::{NumberRange, check_box, checklist, number_field},
         gallery::gallery,
+        icons::Icon,
         parts::{card, empty_state, page_with},
         plan_vs_actual::{PlanView, plan_vs_actual},
         properties::{PropertyEdits, PropertyList, property_list},
@@ -286,7 +293,12 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
             let (symbol, position) = from_row(row, |r| (r.trade.symbol.clone(), r.trade.key.position_id));
             format!("{symbol} · {position}")
         },
-        action_when("Lưu", Variant::Primary, move || dirty.get() && !busy.get(), editor.save()),
+        view().flex_row().items_center().gap_2().child(share_button(&key, row)).child(action_when(
+            "Lưu",
+            Variant::Primary,
+            move || dirty.get() && !busy.get(),
+            editor.save(),
+        )),
         view().gap_4().child(breadcrumb(row, editor.back())).child(
             view()
                 .flex_row()
@@ -310,6 +322,18 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
                     editor.step_button(&key, "Lệnh sau ›", -1),
                 ))),
         ),
+    )
+}
+
+/// "Chia sẻ": opens the share dialog on this trade; a trade still open has no result to share.
+fn share_button(key: &Rc<TradeKey>, row: Memo<Option<TradeRow>>) -> impl IntoElement {
+    let key = Rc::clone(key);
+    action_icon_when(
+        Icon::Share,
+        "Chia sẻ",
+        Variant::Secondary,
+        move || row.with(|r| r.as_ref().is_some_and(|r| r.trade.is_closed())),
+        move || share::open(ShareTarget::Trade((*key).clone())),
     )
 }
 

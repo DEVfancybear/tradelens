@@ -179,6 +179,10 @@ pub(crate) struct Snapshot {
     pub(crate) stats: Stats,
     /// The balance after each closed trade and cash movement in the range.
     pub(crate) curve: Vec<EquityPoint>,
+    /// The balance the chosen accounts had before their first trade and cash movement.
+    pub(crate) start_balance: f64,
+    /// Every deposit and withdrawal of the chosen accounts, oldest first: `(server time, amount)`.
+    pub(crate) cash: Vec<(i64, f64)>,
     /// `USD` and the like when every chosen account shares one, else empty.
     pub(crate) currency: String,
     pub(crate) symbols: Vec<String>,
@@ -265,6 +269,8 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
         catalogs,
         stats,
         curve,
+        start_balance: start_total,
+        cash,
         currency,
         symbols: symbols.into_iter().collect(),
         setups: setups.into_iter().collect(),

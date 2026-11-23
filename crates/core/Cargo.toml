@@ -20,7 +20,12 @@ rusqlite = { version = "0.43", features = ["bundled"] }
 calamine = { version = "0.38", features = ["dates"] }
 csv = "1"
 unicode-normalization = "0.1"
+krilla = "0.8"
+resvg = { version = "0.50", default-features = false, features = ["text", "raster-images"] }
+base64 = "0.23"
+ttf-parser = "0.25.1"
 
 [dev-dependencies]
 tempfile = "3"
 rust_xlsxwriter = "0.103"
+lopdf = "0.47"

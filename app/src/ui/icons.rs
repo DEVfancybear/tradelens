@@ -35,6 +35,8 @@ pub enum Icon {
     Download,
     Upload,
     Share,
+    /// Two overlapping pages, for "Sao chép".
+    Copy,
     Refresh,
     History,
     Filter,
@@ -53,7 +55,7 @@ pub enum Icon {
 
 impl Icon {
     /// Every glyph, in declaration order.
-    pub const ALL: [Self; 36] = [
+    pub const ALL: [Self; 37] = [
         Self::Dashboard,
         Self::Trades,
         Self::Calendar,
@@ -78,6 +80,7 @@ impl Icon {
         Self::Download,
         Self::Upload,
         Self::Share,
+        Self::Copy,
         Self::Refresh,
         Self::History,
         Self::Filter,
@@ -125,6 +128,7 @@ impl Icon {
             Self::Download => "M12 4v12M7 11l5 5 5-5M5 20h14",
             Self::Upload => "M12 16V4M7 9l5-5 5 5M4 16v4h16v-4",
             Self::Share => "M4 12v7h16v-7M12 3v12M8 7l4-4 4 4",
+            Self::Copy => "M8 8h12v12H8zM4 16V4h12",
             Self::Refresh => "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
             Self::History => "M3 12a9 9 0 1 0 3-6.7M3 4v5h5",
             Self::Filter => "M4 6h16M7 12h10M10 18h4",

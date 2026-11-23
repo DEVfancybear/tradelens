@@ -1,19 +1,23 @@
 //! Tổng kết & xem lại: câu hỏi tổng kết tuần/tháng, hàng chờ xem lại, mẫu ghi chú.
-//! Design: `docs/design/screens/review.html`. The AI summary is v0.3: a disabled card.
+//! Design: `docs/design/screens/review.html`. The AI summary is not built yet: a disabled card.
 
 use chrono::{Duration, NaiveDate};
 use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
     TradeKey,
+    report::Privacy,
     review::{self, Period, PeriodReview, QueueReason, ReviewTemplate},
     search,
 };
 
-use super::account_picker::account_picker;
+use super::{
+    account_picker::account_picker,
+    share::{self, PRIVACY_CHOICES, ShareTarget, privacy_label},
+};
 use crate::{
     format::{self, Sign},
-    insight, nav,
+    insight, month_report, nav,
     snapshot::Snapshot,
     store::{Reading, query, query_with, store, writer},
     ui::{
@@ -101,7 +105,8 @@ pub(crate) fn review() -> impl IntoElement {
             .gap_3()
             .child(account_picker())
             .child(segmented("Kỳ", &PERIODS, period_label, move || period.get(), move |next| period.set(next)))
-            .child(period_nav(period, anchor)),
+            .child(period_nav(period, anchor))
+            .child(share_button(period, anchor)),
         view().gap_6().child(figures_row(period, anchor)).child(
             view()
                 .flex_row()
@@ -116,7 +121,15 @@ pub(crate) fn review() -> impl IntoElement {
                         .child(questions_card(period, anchor))
                         .child(highlights_card(period, anchor)),
                 )
-                .child(view().w(px(400.0)).gap_6().child(queue_card()).child(ai_card()).child(templates_card())),
+                .child(
+                    view()
+                        .w(px(400.0))
+                        .gap_6()
+                        .child(queue_card())
+                        .child(report_card(period, anchor))
+                        .child(ai_card())
+                        .child(templates_card()),
+                ),
         ),
     )
 }
@@ -139,6 +152,74 @@ fn period_nav(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEle
         .child(icon_action(Icon::ChevronRight, "Kỳ sau", Variant::Ghost, move || {
             anchor.set(after(period.get_untracked(), anchor.get_untracked()));
         }))
+}
+
+/// "Chia sẻ": the share dialog on the period shown.
+fn share_button(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoElement {
+    action_icon(Icon::Share, "Chia sẻ", Variant::Secondary, move || {
+        let shown = period.get_untracked();
+        share::open(ShareTarget::Period(shown, shown.bounds(anchor.get_untracked()).0));
+    })
+}
+
+/// The month's PDF report: how much money it shows, and the button that saves it. Only on the month tab.
+fn report_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoElement {
+    let store = store();
+    let month = move || Period::Month.bounds(anchor.get()).0;
+    let extras = query_with(month, |db, account, start| month_report::load_extras(db, account, *start));
+    let privacy = signal(Privacy::ShowMoney);
+    let failure = signal(None::<String>);
+    let note = signal(None::<String>);
+    let export = move || {
+        let Some(extras) = extras.value() else {
+            return failure.set(Some(
+                extras.error().unwrap_or_else(|| "Đang đọc dữ liệu của tháng, thử lại sau giây lát.".to_owned()),
+            ));
+        };
+        let start = Period::Month.bounds(anchor.get_untracked()).0;
+        let report = month_report::build(&store.snapshot_now(), store.accounts.get_untracked().id(), start, &extras);
+        share::export_pdf(report, privacy.get_untracked(), move |result| match result {
+            Ok(line) => batch(|| {
+                failure.set(None);
+                note.set(Some(line));
+            }),
+            Err(line) => failure.set(Some(line)),
+        });
+    };
+    dynamic(move || {
+        (period.get() == Period::Month).then(|| {
+            untracked(|| {
+                card(
+                    "Báo cáo tháng",
+                    view()
+                        .gap_3()
+                        .child(
+                            text("PDF A4: tổng quan, đường balance, lịch, playbook, lỗi, lệnh bỏ lỡ và tổng kết của tháng.")
+                                .text_sm()
+                                .text_color(move || theme().muted_foreground),
+                        )
+                        .child(segmented(
+                            "Mức hiển thị của PDF",
+                            &PRIVACY_CHOICES,
+                            privacy_label,
+                            move || privacy.get(),
+                            move |next| privacy.set(next),
+                        ))
+                        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss()))))
+                        .child(dynamic(move || {
+                            note.get().map(|line| text(line).text_sm().text_color(move || theme().muted_foreground))
+                        }))
+                        .child(view().flex_row().child(action_icon(
+                            Icon::Download,
+                            "Xuất PDF tháng",
+                            Variant::Secondary,
+                            export,
+                        ))),
+                )
+                .into_element()
+            })
+        })
+    })
 }
 
 // --- the period's figures ----------------------------------------------------------------------
@@ -675,13 +756,13 @@ fn queue_card() -> impl IntoElement {
 
 // --- the AI summary and the templates ----------------------------------------------------------------
 
-/// The AI summary arrives in v0.3: shown, and off.
+/// The AI summary is not built yet: shown, and off.
 fn ai_card() -> impl IntoElement {
     card(
         "Tóm tắt kỳ bằng AI",
         view()
             .gap_3()
-            .child(chip("Sẽ có ở v0.3", Tone::Neutral))
+            .child(chip("Chưa làm", Tone::Neutral))
             .child(
                 text("Tắt mặc định. Khi có, chỉ gửi R, tag, lỗi và ghi chú — không gửi số tiền — để AI gợi ý điều cần tự kiểm tra.")
                     .text_sm()

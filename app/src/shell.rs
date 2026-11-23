@@ -32,6 +32,8 @@ pub(crate) fn shell() -> impl IntoElement {
         })))
         // The plan prompt of a position the EA just reported: over every screen.
         .child(pages::entry_plan::host())
+        // The share dialog, opened from a trade's page and from the review.
+        .child(pages::share::host())
         .child(search::overlay())
 }
 

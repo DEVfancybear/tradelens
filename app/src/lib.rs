@@ -8,6 +8,7 @@
 //! - `journal_draft` the journal fields the trade page edits
 //! - `zone`       the clock times are shown on (the `time_display` setting) and "today"
 //! - `format`     numbers and times as text
+//! - `month_report` the week or month a share card or the monthly PDF is made from
 //! - `insight`   the calendar, analytics and discipline figures read out of a snapshot
 //! - `ui`         the app's styled components and tokens; pages use only these
 //! - `pages`      one module per screen
@@ -15,6 +16,7 @@
 mod format;
 mod insight;
 mod journal_draft;
+mod month_report;
 mod nav;
 mod pages;
 mod shell;

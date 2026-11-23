@@ -21,6 +21,7 @@ mod playbook;
 mod review;
 pub(crate) mod search;
 mod settings;
+pub(crate) mod share;
 mod trade_detail;
 mod trades;
 

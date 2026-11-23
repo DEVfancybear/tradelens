@@ -107,6 +107,22 @@ cập nhật cái mà hàm đọc trả về, hàng sẽ theo. Thuộc tính có
 gạch). Đổi kiểu chuyển giá trị của **lệnh đang sửa** bằng `form::convert` (hỏi `alert_dialog` nếu mất dữ liệu); các lệnh
 khác do `on_def` của màn xử lý (màn Tuỳ biến form).
 
+### Chia sẻ kết quả và báo cáo PDF tháng
+
+- **Mở hộp thoại chia sẻ:** `pages::share::open(ShareTarget::Trade(key))` hoặc `ShareTarget::Period(Period::Week | Month, start)`;
+  `share::host()` (gắn một lần trong `shell`) hiện `dialog()` giống popup kế hoạch. Nút "Chia sẻ" có ở chi tiết lệnh (tắt khi lệnh còn mở)
+  và ở header Tổng kết & xem lại.
+- **Ảnh dựng trong `core`, không phải trong NSH:** `core::report::render_png(&ShareCard)` dựng SVG rồi rasterize bằng `resvg` với font đóng gói
+  (Inter, JetBrains Mono từ `app/assets/fonts/`, `include_bytes!` ở `core/src/report/fonts.rs`); ảnh luôn theo giao diện tối của thiết kế.
+  Hộp thoại dựng lại thẻ trên luồng `blocking` mỗi khi lựa chọn hoặc dữ liệu đổi, chỉ giữ bản mới nhất, ghi PNG ra file tạm để `image` hiện
+  (file tự xoá khi ảnh bị thay) và giữ byte trong bộ nhớ cho "Lưu ảnh" (`pick_save_path`) và "Sao chép ảnh" (`set_clipboard_image`).
+- **Quyền riêng tư:** `report::Privacy` (`ShowMoney` / `OnlyR` / `NoFigures`) quyết định số nào vào thẻ và PDF ngay trong `core`; UI chỉ chọn mức.
+- **Tuần / tháng đọc từ snapshot:** `month_report::period_figures` (thẻ) và `month_report::build` (PDF) là hàm thuần trên `Snapshot` (có thêm
+  `start_balance` và `cash`) cùng `month_report::Extras` đọc bằng `load_extras` (lệnh bỏ lỡ, tên lý do, tổng kết tháng).
+- **Xuất PDF:** `share::export_pdf(report, privacy, done)` hỏi nơi lưu rồi ghi bằng `report::write_pdf` trên luồng `blocking`; dùng ở hộp thoại
+  chia sẻ tháng và ở thẻ "Báo cáo tháng" của Tổng kết (tab Tháng).
+- Icon `Icon::Copy` thêm cho "Sao chép ảnh".
+
 ### Tuỳ biến form, popup kế hoạch, nhập lệnh tay
 
 - **Mở Tuỳ biến form từ màn khác** (Cài đặt, chi tiết lệnh): `nav::open_form_editor(FieldScope::Trade)` phủ trang
