@@ -128,6 +128,11 @@ pub(crate) fn short_stamp(at: NaiveDateTime) -> String {
     at.format("%d/%m %H:%M").to_string()
 }
 
+/// Day and month only, for a trade whose time of day is unknown: `20/11`.
+pub(crate) fn short_day(at: NaiveDateTime) -> String {
+    at.format("%d/%m").to_string()
+}
+
 /// Day, month, year and time with seconds: `20/11/2026 14:58:12`.
 pub(crate) fn full_stamp(at: NaiveDateTime) -> String {
     at.format("%d/%m/%Y %H:%M:%S").to_string()

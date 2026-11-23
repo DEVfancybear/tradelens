@@ -1,44 +1,36 @@
 //! The calendar, the analytics and the overview's discipline block, headless on the real engine
 //! over a database in a temporary data directory.
 
-use std::time::Duration;
-
 use chrono::Datelike;
-use nsh_core::{Size, prelude::px};
-use nsh_engine::{EngineConfig, Root};
 use nsh_testing::Headless;
 use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, Rules, TradeKey, model::AccountInfo, time::parse_mt5_time,
 };
 
+#[expect(dead_code, reason = "this file waits on the screen only, never on a background write")]
+mod support;
+use support::WAIT;
+
 const DAY_MS: i64 = 86_400_000;
 
-/// A data directory with a database in it, and the engine's view of it.
-struct Fixture {
-    dir: tempfile::TempDir,
+/// The shared fixture with this file's window.
+struct Fixture(support::Fixture);
+
+impl std::ops::Deref for Fixture {
+    type Target = support::Fixture;
+
+    fn deref(&self) -> &support::Fixture {
+        &self.0
+    }
 }
 
 impl Fixture {
     fn new() -> Self {
-        let dir = tempfile::tempdir().expect("a temp dir");
-        // The app opens the database the tests seed and read.
-        Db::open(dir.path().join("tradelens.db")).expect("the database opens");
-        Self { dir }
-    }
-
-    fn db(&self) -> Db {
-        Db::open(self.dir.path().join("tradelens.db")).expect("the database opens")
+        Self(support::Fixture::new())
     }
 
     fn start(&self) -> Headless {
-        let config = EngineConfig {
-            viewport: Size::new(px(1280.0), px(1000.0)),
-            data_dir: Some(self.dir.path().to_path_buf()),
-            ..EngineConfig::new(Root::of::<nsh_app_tradelens::Workspace>())
-        };
-        let mut app = Headless::start(config).expect("the app starts");
-        app.wait_for("Tổng quan").expect("the app opens");
-        app
+        self.0.start(1280.0, 1000.0, |_| {})
     }
 }
 
@@ -72,6 +64,8 @@ fn deal(ticket: i64, position: i64, symbol: &str, at_ms: i64, entry: DealEntry, 
         sl: 0.0,
         tp: 0.0,
         risk: None,
+        result_r: None,
+        gaps: tradelens_core::Gaps::NONE,
         reason: None,
     }
 }
@@ -122,9 +116,13 @@ fn the_calendar_shows_a_days_result_and_moves_between_months() {
     seed_march(&mut fixture.db());
     let mut app = fixture.start();
     app.press("role:button[Lịch P/L]").expect("the calendar row is a button");
+    // The current month has no trades: the calendar opens on the latest month that has some.
+    app.wait_for("Tháng 3, 2026").expect("it opens on March, the month of the latest trades");
+    app.wait_for("Thứ 4, 11/03").expect("with the latest day of trades picked");
+    // "Hôm nay" still goes to today's month, and back to March by the buttons.
     let now = chrono::Local::now();
-    app.wait_for(&format!("Tháng {}, {}", now.month(), now.year())).expect("it opens on the current month");
-
+    app.press("role:button[Hôm nay]").expect("the today button");
+    app.wait_for(&format!("Tháng {}, {}", now.month(), now.year())).expect("it jumps to the current month");
     let back = (now.year() - 2026) * 12 + i32::try_from(now.month()).expect("a month fits") - 3;
     for _ in 0..back {
         app.press("role:button[Tháng trước]").expect("the previous month button");
@@ -221,7 +219,7 @@ fn the_overview_shows_todays_discipline_the_month_and_the_symbols() {
 
     let mut app = fixture.start();
     app.wait_for("Kỷ luật hôm nay").expect("the discipline card shows");
-    app.wait_for_within("2 / 5", Duration::from_secs(5)).expect("two of five trades today");
+    app.wait_for_within("2 / 5", WAIT).expect("two of five trades today");
     app.wait_for("Số lệnh").expect("the trade count rule is named");
     app.wait_for("$20 / $300").expect("today lost 20 of the 300 allowed");
     app.wait_for("0 vi phạm").expect("nothing was broken");

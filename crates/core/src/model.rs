@@ -139,6 +139,53 @@ impl DealEntry {
     }
 }
 
+/// What a deal's source did not tell. A source that has no lot, no prices or no time of day (a
+/// journal kept in R, a Notion export dated by day) still has to fill those fields of the deal with
+/// something; the gaps record that what they hold is a placeholder, to be shown as a dash and left
+/// out of every figure that needs it. Set by the importer that knows, never guessed from the values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Gaps(u8);
+
+impl Gaps {
+    /// Nothing is missing.
+    pub const NONE: Self = Self(0);
+    /// The source gave a date only: the time of day (and so the hold time) is unknown.
+    pub const TIME: Self = Self(1);
+    /// The source gave no lot size.
+    pub const VOLUME: Self = Self(2);
+    /// The source gave no price.
+    pub const PRICE: Self = Self(4);
+
+    /// Every gap there can be.
+    const ALL_BITS: u8 = 7;
+
+    /// The gaps of both `self` and `other`.
+    #[must_use]
+    pub const fn with(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    /// Whether every gap of `other` is also one of `self`.
+    pub const fn has(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    pub const fn is_none(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The stored form.
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    /// The gaps stored as `bits`; bits that mean nothing are dropped.
+    pub const fn from_bits(bits: u8) -> Self {
+        Self(bits & Self::ALL_BITS)
+    }
+}
+
 /// One MT5 deal (`HistoryDealGet*`), the unit every source delivers.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Deal {
@@ -181,6 +228,18 @@ pub struct Deal {
     /// `ENUM_DEAL_REASON`, what triggered the deal (an exit's reason pre-fills the journal's).
     #[serde(default)]
     pub reason: Option<String>,
+    /// The result of the exit in R, for a trade whose money is not known (a journal kept in R,
+    /// imported from Notion): `profit` is then 0 and this is the result. `None` for a trade with money.
+    #[serde(default)]
+    pub result_r: Option<f64>,
+    /// What the source did not tell (the fields then hold placeholders).
+    #[serde(default, skip_serializing_if = "no_gaps")]
+    pub gaps: Gaps,
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "serde's `skip_serializing_if` passes a reference")]
+fn no_gaps(gaps: &Gaps) -> bool {
+    gaps.is_none()
 }
 
 fn entry_none() -> DealEntry {
@@ -260,6 +319,43 @@ impl Side {
     }
 }
 
+/// Where a trade came from, told by its entry deal's ticket: MetaTrader's tickets are positive,
+/// the app's own (hand-entered trades, imported journals) are negative, and an imported journal's
+/// start below [`JOURNAL_TICKET_BASE`] so that they never meet a hand-entered one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Origin {
+    Mt5,
+    Manual,
+    /// Imported from a Notion journal.
+    Notion,
+}
+
+impl Origin {
+    /// What the screens call it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Mt5 => "MT5",
+            Self::Manual => "Nhập tay",
+            Self::Notion => "Notion",
+        }
+    }
+
+    /// The origin of the position whose entry deal has `ticket`.
+    pub const fn of_ticket(ticket: i64) -> Self {
+        if ticket > 0 {
+            Self::Mt5
+        } else if ticket <= -JOURNAL_TICKET_BASE {
+            Self::Notion
+        } else {
+            Self::Manual
+        }
+    }
+}
+
+/// Tickets of imported journal trades are at most the negative of this, far from the small
+/// negative tickets that hand-entered trades count down from.
+pub const JOURNAL_TICKET_BASE: i64 = 1 << 40;
+
 /// Identifies a trade across rebuilds, and the journal entry kept on it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TradeKey {
@@ -307,7 +403,11 @@ pub struct Trade {
     pub risk: Option<f64>,
     pub magic: i64,
     pub comment: String,
+    /// The result in R of a trade whose money is not known (see [`Deal::result_r`]).
+    pub result_r: Option<f64>,
     pub manual: bool,
+    /// What the deals of the trade did not tell (see [`Gaps`]).
+    pub gaps: Gaps,
 }
 
 impl Trade {
@@ -324,9 +424,49 @@ impl Trade {
         self.close_time.map(|c| (c - self.open_time) / 1000)
     }
 
+    /// Whether the trade's money is known. A trade imported with only its result in R has no
+    /// money: statistics count it by its R, and money figures show a dash for it.
+    pub fn money_known(&self) -> bool {
+        self.result_r.is_none()
+    }
+
+    /// Where the trade came from.
+    pub fn origin(&self) -> Origin {
+        Origin::of_ticket(self.key.position_id)
+    }
+
+    /// Whether the lot size is the source's own (not a placeholder).
+    pub fn volume_known(&self) -> bool {
+        !self.gaps.has(Gaps::VOLUME)
+    }
+
+    /// Whether the entry and exit prices are the source's own. Without them the stop, the target
+    /// and the risk at the stop mean nothing either.
+    pub fn prices_known(&self) -> bool {
+        !self.gaps.has(Gaps::PRICE)
+    }
+
+    /// Whether the time of day of the open and the close is known (the source gave more than a date).
+    pub fn time_known(&self) -> bool {
+        !self.gaps.has(Gaps::TIME)
+    }
+
+    /// How long the position was held, when both ends are known times.
+    pub fn hold_secs(&self) -> Option<i64> {
+        if self.time_known() { self.duration_secs() } else { None }
+    }
+
+    /// What decides whether the trade won or lost: its money, or its R when it has no money.
+    pub fn score(&self) -> f64 {
+        self.result_r.unwrap_or_else(|| self.net())
+    }
+
     /// The trade's result in R: money over the money at risk when known, else the
     /// price move over the stop distance.
     pub fn r_multiple(&self, planned_risk: Option<f64>) -> Option<f64> {
+        if let Some(r) = self.result_r {
+            return Some(r);
+        }
         let risk = planned_risk.filter(|r| *r > 0.0).or(self.risk.filter(|r| *r > 0.0));
         if let Some(risk) = risk {
             return Some(self.net() / risk);

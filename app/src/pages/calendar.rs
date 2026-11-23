@@ -10,7 +10,7 @@ use super::account_picker::account_picker;
 use crate::{
     format::{self, Sign},
     insight, nav,
-    store::{query, query_with, store},
+    store::{Load, query, query_with, store},
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{Variant, action_icon, icon_action, segmented},
@@ -45,6 +45,26 @@ pub(crate) fn calendar() -> impl IntoElement {
     let selected = signal(Some(opened_on));
     let figure = signal(Figure::Net);
     let days = computed(move || insight::daily_results(&store.snapshot()));
+    // Once the data is read, a month with no trades gives way to the latest one that has some
+    // ("Hôm nay" still goes back to today).
+    let settled = stored(false);
+    effect(move || {
+        if store.load_state() != Load::Ready {
+            return;
+        }
+        let found = days.get();
+        untracked(|| {
+            if settled.get() {
+                return;
+            }
+            settled.replace(true);
+            let open = insight::opening_day(&found, today.get());
+            batch(|| {
+                month.set(month_of(open));
+                selected.set(Some(open));
+            });
+        });
+    });
 
     page_with(
         "Lịch P/L",
@@ -179,6 +199,24 @@ fn day_note_of(selected: Signal<Option<NaiveDate>>) -> crate::store::Reading<Day
     )
 }
 
+/// The big figure of a day and the line beside it. A day with no money shows its R where the amount
+/// would be, never an amount of zero.
+fn day_summary(stat: &metrics::DayStat, currency: &str) -> (String, String) {
+    let figure = if stat.unit() == metrics::Unit::R {
+        format::r_text(Some(stat.r))
+    } else {
+        format::money(stat.net, Sign::Always, currency)
+    };
+    let detail = if stat.trades == 0 {
+        "Không có lệnh đóng".to_owned()
+    } else if stat.unit() == metrics::Unit::R || stat.r_trades == 0 {
+        format!("{} lệnh", stat.trades)
+    } else {
+        format!("{} lệnh · {}", stat.trades, format::r_text(Some(stat.r)))
+    };
+    (figure, detail)
+}
+
 fn day_card(selected: Signal<Option<NaiveDate>>) -> impl IntoElement {
     let store = store();
     let note = day_note_of(selected);
@@ -204,22 +242,23 @@ fn day_card(selected: Signal<Option<NaiveDate>>) -> impl IntoElement {
                 );
                 let stat = stats.get(&day).copied().unwrap_or_default();
                 let title = format!("{}, {}", weekday_vi(day.weekday()), day.format("%d/%m"));
-                let figure = format::money(stat.net, Sign::Always, &currency);
-                let detail = if stat.trades == 0 {
-                    "Không có lệnh đóng".to_owned()
-                } else if stat.r_trades > 0 {
-                    format!("{} lệnh · {}", stat.trades, format::r_text(Some(stat.r)))
-                } else {
-                    format!("{} lệnh", stat.trades)
-                };
+                let (figure, detail) = day_summary(&stat, &currency);
                 let rows = trades.iter().map(|row| {
                     let key = row.key().clone();
                     let symbol = row.trade.symbol.clone();
-                    let net = format::money(row.trade.net(), Sign::Always, &row.currency);
+                    let net = if row.trade.money_known() {
+                        format::money(row.trade.net(), Sign::Always, &row.currency)
+                    } else {
+                        format::r_text(row.r)
+                    };
                     let side = row.trade.side.label().to_owned();
                     let tone = if side == "Buy" { Tone::Profit } else { Tone::Loss };
-                    let time = row.closed().map_or_else(String::new, |t| t.format("%H:%M").to_string());
+                    let time = match row.closed() {
+                        Some(t) if row.trade.time_known() => t.format("%H:%M").to_string(),
+                        _ => "—".to_owned(),
+                    };
                     nsh_base::button()
+                        .cursor_pointer()
                         .on_press(move || nav::show_trade(key.clone()))
                         .accessibility_label(format!("Mở nhật ký lệnh {symbol}"))
                         .flex_row()
@@ -310,11 +349,13 @@ fn month_totals(
         days.with(|d| metrics::month_summary(year, month, d))
     };
     let money = move |value: f64, sign: Sign| format::money(value, sign, &store.snapshot().currency);
+    // The month's figures are in money, or in R when none of its trades has money.
+    let shown = move |value: f64| match summary().unit {
+        metrics::Unit::Money => money(value, Sign::Always),
+        metrics::Unit::R => format::r_text(Some(value)),
+    };
     let day_of = move |best: Option<(NaiveDate, f64)>| {
-        best.map_or_else(
-            || "—".to_owned(),
-            |(date, net)| format!("{} · {}", money(net, Sign::Always), date.format("%d/%m")),
-        )
+        best.map_or_else(|| "—".to_owned(), |(date, result)| format!("{} · {}", shown(result), date.format("%d/%m")))
     };
     let violation_days = move || {
         let (year, month) = month.get();
@@ -329,7 +370,7 @@ fn month_totals(
         "Tháng này",
         view()
             .gap_2()
-            .child(property_row("Net tháng", pnl_text(move || money(summary().net, Sign::Always))))
+            .child(property_row("Kết quả tháng", pnl_text(move || shown(summary().result))))
             .child(property_row(
                 "Ngày lãi / lỗ",
                 text(move || {

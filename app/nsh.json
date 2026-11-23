@@ -7,5 +7,9 @@
   "appearance": "system",
   "theme": "theme.json",
   "rust": ".",
-  "root": "App"
+  "root": "App",
+  "window": {
+    "defaultSize": { "width": 1280, "height": 800 },
+    "minSize": { "width": 1024, "height": 680 }
+  }
 }

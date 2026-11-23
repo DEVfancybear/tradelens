@@ -2,8 +2,10 @@
 
 use nsh_base::theme;
 use nsh_core::prelude::*;
+use tradelens_cloud::Provider;
 
 use crate::{
+    cloud::{self, Phase, State},
     nav::{self, Route, SECTIONS},
     pages::{self, search},
     ui::{
@@ -32,6 +34,8 @@ pub(crate) fn shell() -> impl IntoElement {
         })))
         // The plan prompt of a position the EA just reported: over every screen.
         .child(pages::entry_plan::host())
+        // The share dialog, opened from a trade's page and from the review.
+        .child(pages::share::host())
         .child(search::overlay())
 }
 
@@ -85,7 +89,50 @@ fn route_row(route: Route) -> impl IntoElement {
     sidebar_row(route.icon(), route.label(), move || nav::current() == route, move || nav::go(route))
 }
 
-/// The data sources' state, at the sidebar's foot.
+/// The sync's state, at the sidebar's foot.
 fn status() -> impl IntoElement {
-    view().px_3().gap_1().child(text("Cloud: chưa đăng nhập").text_xs().text_color(move || theme().muted_foreground))
+    let state = cloud::cloud().state;
+    view().px_3().gap_1().child(
+        text(move || state.with(status_line)).text_xs().number_of_lines(1).text_color(move || theme().muted_foreground),
+    )
+}
+
+/// `Cloud: chưa đăng nhập`, or the account's drive and how the last sync went.
+fn status_line(state: &State) -> String {
+    let Some(provider) = state.active() else { return "Cloud: chưa đăng nhập".to_owned() };
+    let drive = match provider {
+        Provider::Google => "Google Drive",
+        Provider::Microsoft => "OneDrive",
+    };
+    let last = state.last.as_ref().map(|outcome| outcome.at).or(state.last_sync);
+    match (state.phase, &state.last, last) {
+        (Phase::Syncing, ..) => format!("{drive} · đang sync…"),
+        (Phase::Restoring, ..) => format!("{drive} · đang khôi phục…"),
+        (_, Some(cloud::Outcome { result: Err(_), .. }), _) => format!("{drive} · sync lỗi"),
+        (_, _, Some(at)) => {
+            let at = chrono::DateTime::from_timestamp_millis(at).map(|t| t.with_timezone(&chrono::Local));
+            at.map_or_else(|| drive.to_owned(), |t| format!("{drive} · đã sync {}", t.format("%H:%M")))
+        }
+        (_, _, None) => format!("{drive} · chưa sync"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tradelens_cloud::auth::Identity;
+
+    use super::*;
+
+    #[test]
+    fn the_sidebar_says_who_is_signed_in_and_how_the_sync_went() {
+        let mut state = State::default();
+        assert_eq!(status_line(&state), "Cloud: chưa đăng nhập");
+        state.accounts = vec![Identity { provider: Provider::Google, email: "a@b.c".into(), name: String::new() }];
+        assert_eq!(status_line(&state), "Google Drive · chưa sync");
+        state.phase = Phase::Syncing;
+        assert_eq!(status_line(&state), "Google Drive · đang sync…");
+        state.phase = Phase::Idle;
+        state.last = Some(cloud::Outcome { at: 0, result: Err("x".into()), restored: false });
+        assert_eq!(status_line(&state), "Google Drive · sync lỗi");
+    }
 }

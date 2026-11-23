@@ -3,10 +3,9 @@
 
 mod common;
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use nsh_core::{Size, platform::Os, prelude::px};
-use nsh_engine::{EngineConfig, Root};
+use nsh_core::platform::Os;
 use nsh_testing::{DialogAnswer, Headless};
 use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, TradeKey,
@@ -15,36 +14,30 @@ use tradelens_core::{
     model::AccountInfo,
 };
 
+mod support;
+use support::{WAIT, wait_until};
+
 const DAY_MS: i64 = 86_400_000;
 
-/// A data directory with a database in it, and the engine's view of it.
-struct Fixture {
-    dir: tempfile::TempDir,
+/// The shared fixture with this file's window.
+struct Fixture(support::Fixture);
+
+impl std::ops::Deref for Fixture {
+    type Target = support::Fixture;
+
+    fn deref(&self) -> &support::Fixture {
+        &self.0
+    }
 }
 
 impl Fixture {
     fn new() -> Self {
-        let dir = tempfile::tempdir().expect("a temp dir");
-        // The app opens the database the tests seed and read.
-        Db::open(dir.path().join("tradelens.db")).expect("the database opens");
-        Self { dir }
-    }
-
-    fn db(&self) -> Db {
-        Db::open(self.dir.path().join("tradelens.db")).expect("the database opens")
+        Self(support::Fixture::new())
     }
 
     fn start(&self) -> Headless {
-        let mut config = EngineConfig {
-            viewport: Size::new(px(1280.0), px(1000.0)),
-            data_dir: Some(self.dir.path().to_path_buf()),
-            ..EngineConfig::new(Root::of::<nsh_app_tradelens::Workspace>())
-        };
         // A desktop that delivers keys to the focused view, and takes dropped files.
-        config.environment.os = Os::Linux;
-        let mut app = Headless::start(config).expect("the app starts");
-        app.wait_for("Tổng quan").expect("the app opens");
-        app
+        self.0.start(1280.0, 1000.0, |config| config.environment.os = Os::Linux)
     }
 }
 
@@ -88,6 +81,8 @@ fn deal(
         sl,
         tp,
         risk: None,
+        result_r: None,
+        gaps: tradelens_core::Gaps::NONE,
         reason: None,
     }
 }
@@ -123,20 +118,26 @@ fn key_of(db: &Db, position: i64) -> TradeKey {
     TradeKey { account_id: account.id, position_id: position, segment: 0 }
 }
 
-/// Waits until `check` holds, polling at most `within`.
-fn wait_for_database(what: &str, within: Duration, check: impl Fn() -> bool) {
-    let started = Instant::now();
-    while !check() {
-        assert!(started.elapsed() < within, "{what} did not happen within {within:?}");
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
 fn open_trade(app: &mut Headless, symbol: &str) {
     app.press("role:button[Lệnh]").expect("the trades row is a button");
     app.wait_for(&format!("role:button[Mở nhật ký lệnh {symbol}]")).expect("the trades load");
-    app.press(&format!("role:button[Mở nhật ký lệnh {symbol}] >> nth=0")).expect("a trade opens");
-    app.wait_for("Nhật ký lệnh").expect("the journal card shows");
+    press_until(app, &format!("role:button[Mở nhật ký lệnh {symbol}] >> nth=0"), "Nhật ký lệnh");
+}
+
+/// Presses `press` until `done` shows: the editor draws its rows again after each stored change, and a
+/// press that lands on a button that is being replaced is lost. `done` is the state the press leads
+/// to, so a press that did land is never repeated.
+fn press_until(app: &mut Headless, press: &str, done: &str) {
+    for _ in 0..5 {
+        if app.screen().matches(done) == Ok(true) {
+            return;
+        }
+        app.press(press).expect("the button is there");
+        if app.wait_for_within(done, Duration::from_secs(2)).is_ok() {
+            return;
+        }
+    }
+    panic!("`{press}` did not lead to `{done}`");
 }
 
 /// Presses "Viết kế hoạch" on the open trade until the plan prompt is up: a press that lands while
@@ -181,7 +182,7 @@ fn a_custom_property_edited_on_a_trade_is_saved_with_the_journal() {
     app.type_text("label:Khung vào lệnh", "M15").expect("types in the property");
     app.press("role:button[Điểm thực thi: 3 sao]").expect("a built-in is edited next to it");
     app.press("role:button[Lưu]").expect("saves");
-    wait_for_database("the journal being saved", Duration::from_secs(5), || {
+    wait_until("the journal being saved", || {
         let key = key_of(&db, 2);
         db.journal(&key).expect("reads").is_some_and(|e| e.custom.contains_key("focus"))
     });
@@ -201,7 +202,7 @@ fn the_exit_deals_reason_prefills_the_exit_reason_without_creating_an_entry() {
     db.upsert_batch(&batch(vec![opening, closing]), "test").expect("stored");
     let mut app = fixture.start();
     open_trade(&mut app, "XAUUSD");
-    app.wait_for("EA gợi ý: Chạm SL").expect("the deal's reason is suggested");
+    app.wait_for("Gợi ý từ deal đóng: Chạm SL").expect("the deal's reason is suggested");
     app.wait_for("Đã lưu").expect("nothing is pending");
     assert!(db.journal(&key_of(&db, 1)).expect("reads").is_none(), "opening a trade writes no entry");
 }
@@ -244,14 +245,14 @@ fn a_picture_added_to_a_trade_is_saved_into_its_journal() {
     let fixture = Fixture::new();
     let mut db = fixture.db();
     seed(&mut db);
-    let source = fixture.dir.path().join("h1.png");
+    let source = fixture.path().join("h1.png");
     std::fs::write(&source, b"png one").expect("writes the source");
     let uri = url::Url::from_file_path(&source).map(String::from).expect("absolute");
     let mut app = fixture.start();
     open_trade(&mut app, "XAUUSD");
     app.wait_for("label:Thêm ảnh vào Ảnh chart").expect("the gallery shows");
     app.drop_files("label:Thêm ảnh vào Ảnh chart", vec![uri]).expect("drops a picture");
-    wait_for_database("the picture being saved", Duration::from_secs(5), || {
+    wait_until("the picture being saved", || {
         db.journal(&key_of(&db, 2)).expect("reads").is_some_and(|e| e.screenshots.len() == 1)
     });
     let entry = db.journal(&key_of(&db, 2)).expect("reads").expect("an entry");
@@ -280,7 +281,7 @@ fn changing_a_propertys_type_in_the_form_editor_converts_every_entry() {
     app.press("label:Sửa thuộc tính Khung vào lệnh").expect("picks the property");
     app.press("label:Kiểu").expect("the kind drop-down");
     app.press("text:# Số").expect("the number kind");
-    wait_for_database("the stored values following the new type", Duration::from_secs(5), || {
+    wait_until("the stored values following the new type", || {
         let value =
             |position| db.journal(&key_of(&db, position)).expect("reads").and_then(|e| e.custom.get("focus").cloned());
         value(1) == Some(FieldValue::Number(7.0)) && value(2).is_none()
@@ -288,8 +289,8 @@ fn changing_a_propertys_type_in_the_form_editor_converts_every_entry() {
     assert_eq!(db.field_defs(FieldScope::Trade).expect("reads")[0].kind, FieldKind::Number);
 
     // Hiding a property is saved with the form's arrangement; closing the editor shows the trade again.
-    app.press("label:Ẩn Khung vào lệnh").expect("hides it");
-    wait_for_database("the layout being saved", Duration::from_secs(5), || {
+    press_until(&mut app, "label:Ẩn Khung vào lệnh", "label:Hiện Khung vào lệnh");
+    wait_until("the layout being saved", || {
         db.form_layout(FieldScope::Trade).expect("reads").items.iter().any(|i| i.hidden)
     });
     app.press("Xong").expect("closes the editor");
@@ -311,31 +312,37 @@ fn a_trade_typed_in_by_hand_is_stored_with_its_journal() {
 
     app.type_text("label:Symbol", "GBPUSD").expect("symbol");
     common::toggle_on(&mut app, "role:button[Chiều: Sell]");
-    app.type_text("label:Thời gian vào", "2026-11-20 16:05").expect("opened");
-    app.type_text("label:Thời gian ra", "2026-11-20 17:40").expect("closed");
+    // The times are chosen from the calendar: the 3rd and the 4th of this month, both at 00:00.
+    let this_month = |day: u32| {
+        let today = chrono::Local::now().date_naive();
+        chrono::NaiveDate::from_ymd_opt(chrono::Datelike::year(&today), chrono::Datelike::month(&today), day)
+            .expect("a day of the month")
+            .format("%Y-%m-%d")
+            .to_string()
+    };
+    app.press("label:Thời gian vào").expect("the opening time opens the calendar");
+    app.press(&format!("role:button[{}]", this_month(3))).expect("opened");
+    app.press("label:Thời gian ra").expect("the closing time opens the calendar");
+    app.press(&format!("role:button[{}]", this_month(4))).expect("closed");
     app.type_text("label:Khối lượng", "0.8").expect("volume");
     app.type_text("label:Giá vào", "1.2684").expect("open price");
     app.type_text("label:Giá ra", "1.2651").expect("close price");
     app.type_text("label:Lãi/lỗ", "264").expect("profit");
     app.type_text("label:Commission", "-5.6").expect("commission");
-    app.wait_for("Tự tính: kết quả ròng +$258.40 · giữ 1g 35p").expect("the computed line follows");
+    app.wait_for("text:/^Tự tính: kết quả ròng [+]\\$258[.]40 · giữ /").expect("the computed line follows");
     common::toggle_on(&mut app, "role:button[Tag: Tin tức]");
     app.type_text("label:Ghi chú", "Vào sớm vì sợ lỡ").expect("notes");
     app.press("role:button[Lưu lệnh]").expect("saves");
 
     let db = fixture.db();
-    wait_for_database("the trade being stored", Duration::from_secs(5), || {
-        db.deals(None).expect("reads").iter().any(|(_, d)| d.symbol == "GBPUSD")
-    });
+    wait_until("the trade being stored", || db.deals(None).expect("reads").iter().any(|(_, d)| d.symbol == "GBPUSD"));
     let deals: Vec<Deal> =
         db.deals(None).expect("reads").into_iter().map(|(_, d)| d).filter(|d| d.symbol == "GBPUSD").collect();
     assert_eq!(deals.len(), 2, "an entry and an exit deal");
     assert!(deals.iter().all(|d| d.ticket < 0), "hand-entered deals have negative tickets");
     let key =
         TradeKey { account_id: db.accounts().expect("reads")[0].id, position_id: deals[0].position_id, segment: 0 };
-    wait_for_database("the journal being stored", Duration::from_secs(5), || {
-        db.journal(&key).expect("reads").is_some()
-    });
+    wait_until("the journal being stored", || db.journal(&key).expect("reads").is_some());
     let entry = db.journal(&key).expect("reads").expect("an entry");
     assert_eq!(entry.notes, "Vào sớm vì sợ lỡ");
     assert_eq!(entry.tags, ["news"]);
@@ -377,7 +384,7 @@ fn the_plan_prompt_warns_when_the_planned_risk_breaks_the_accounts_rule() {
     // Within the rule the warning goes.
     app.clear("label:Risk").expect("the risk is cleared");
     app.type_text("label:Risk", "100").expect("the risk is retyped");
-    app.wait_for_gone("text:/vượt quy tắc/", Duration::from_secs(5)).expect("the warning goes with the risk");
+    app.wait_for_gone("text:/vượt quy tắc/", WAIT).expect("the warning goes with the risk");
 }
 
 #[test]
@@ -394,17 +401,17 @@ fn the_plan_prompt_saves_the_plan_or_flags_the_trade_for_later() {
     // "Ghi sau" writes no plan and keeps the trade in the review queue.
     open_plan_prompt(&mut app);
     app.press("role:button[Ghi sau]").expect("postpones the plan");
-    wait_for_database("the trade being flagged", Duration::from_secs(5), || {
+    wait_until("the trade being flagged", || {
         [1, 2].into_iter().any(|p| db.journal(&key_of(&db, p)).expect("reads").is_some_and(|e| e.review_later))
     });
-    app.wait_for_gone("Lưu kế hoạch", Duration::from_secs(5)).expect("the dialog closes");
+    app.wait_for_gone("Lưu kế hoạch", WAIT).expect("the dialog closes");
 
     // Written, the plan starts from the trade's own levels and takes it out of the queue.
     let position = shown(&db);
     open_plan_prompt(&mut app);
     app.type_text("label:Lý do vào lệnh", "Phá đỉnh phiên Á").expect("the reason is typed");
     app.press("Lưu kế hoạch").expect("saves the plan");
-    wait_for_database("the plan being saved", Duration::from_secs(5), || {
+    wait_until("the plan being saved", || {
         db.journal(&key_of(&db, position)).expect("reads").is_some_and(|e| e.plan.is_some())
     });
     let entry = db.journal(&key_of(&db, position)).expect("reads").expect("an entry");

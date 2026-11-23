@@ -7,7 +7,7 @@
 //! timer compares with the last one seen; a change reloads the snapshot.
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicU64, Ordering},
@@ -16,7 +16,7 @@ use std::{
 };
 
 use nsh_core::prelude::*;
-use tradelens_core::{Db, DbError};
+use tradelens_core::{Db, DbError, legacy};
 
 use crate::{
     snapshot::{self, Query, Range, Snapshot},
@@ -167,11 +167,107 @@ impl Store {
         });
     }
 
+    /// Whether the database is open: what waits for it (`query`, [`Store::read`]) starts then (tracked).
+    pub(crate) fn is_ready(&self) -> bool {
+        self.ready.get()
+    }
+
+    /// The database file, `None` when the app has no data directory (it then keeps the data in
+    /// memory and nothing else can open it).
+    pub(crate) fn database_path() -> Option<PathBuf> {
+        data_dir().map(|dir| dir.join(DB_FILE))
+    }
+
+    /// Reads the database once on a blocking thread, and tells the UI thread the result (the
+    /// failure in Vietnamese). Unlike a [`Reading`] it does not follow the revision.
+    ///
+    /// # Panics
+    ///
+    /// On the reading thread, when another thread panicked while holding the database lock.
+    pub(crate) fn read<T: Send + 'static>(
+        self,
+        op: impl FnOnce(&Db) -> Result<T, DbError> + Send + 'static,
+        done: impl FnOnce(Result<T, String>) + 'static,
+    ) {
+        let Some(db) = self.db.get() else {
+            return done(Err("Chưa mở được cơ sở dữ liệu.".to_owned()));
+        };
+        spawn(async move {
+            let read = blocking(move || {
+                let db = db.lock().expect("database lock poisoned");
+                op(&db)
+            })
+            .await;
+            done(match read {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(error)) => Err(format!("Không đọc được dữ liệu: {error}")),
+                Err(error) => Err(format!("Luồng đọc dữ liệu bị dừng: {error}")),
+            });
+        });
+    }
+
+    /// Replaces the database file with another one, for restoring a backup. The open database is
+    /// first copied to `backup` (a file that must not exist yet), then closed: every other reader
+    /// and writer waits on the lock meanwhile. `replace` gets the file's path, which nothing has
+    /// open, and returns the database that now lives there, or fails; either way the file is
+    /// opened again afterwards, so the app goes on with a database. The pages read again when it
+    /// is done.
+    ///
+    /// # Panics
+    ///
+    /// On the working thread, when another thread panicked while holding the database lock.
+    pub(crate) fn replace_database<T: Send + 'static>(
+        self,
+        backup: PathBuf,
+        replace: impl FnOnce(&Path) -> Result<(Db, T), String> + Send + 'static,
+        done: impl FnOnce(Result<T, String>) + 'static,
+    ) {
+        let (Some(db), Some(path)) = (self.db.get(), Self::database_path()) else {
+            return done(Err("Chưa mở được tệp dữ liệu trên máy này.".to_owned()));
+        };
+        spawn(async move {
+            let worked = blocking(move || {
+                let mut guard = db.lock().expect("database lock poisoned");
+                guard.snapshot_to(&backup).map_err(|error| format!("Không sao lưu được dữ liệu hiện tại: {error}"))?;
+                let stand_in = Db::in_memory().map_err(|error| format!("Không đóng được dữ liệu hiện tại: {error}"))?;
+                // Closing the file: nothing may hold it while it is replaced.
+                drop(std::mem::replace(&mut *guard, stand_in));
+                match replace(&path) {
+                    Ok((fresh, value)) => {
+                        *guard = fresh;
+                        Ok(value)
+                    }
+                    Err(message) => {
+                        match Db::open(&path) {
+                            Ok(reopened) => *guard = reopened,
+                            Err(error) => log::error!("database: cannot be reopened after a restore: {error}"),
+                        }
+                        Err(message)
+                    }
+                }
+            })
+            .await;
+            let outcome = worked.unwrap_or_else(|error| Err(format!("Luồng khôi phục bị dừng: {error}")));
+            if outcome.is_ok() {
+                data_changed();
+                self.revision.set(revision().get());
+            }
+            done(outcome);
+        });
+    }
+
     /// Opens the database off the UI thread, then makes the first read.
     fn open(self) {
-        let path = data_dir().map(|dir| dir.join(DB_FILE));
+        let dir = data_dir();
+        let path = dir.as_ref().map(|dir| dir.join(DB_FILE));
         spawn(async move {
-            let opened = blocking(move || open_database(path)).await;
+            let opened = blocking(move || {
+                if let Some(dir) = &dir {
+                    adopt_earlier_data(dir)?;
+                }
+                open_database(path).map_err(|error| error.to_string())
+            })
+            .await;
             match opened {
                 Ok(Ok(db)) => {
                     self.db.replace(Some(db));
@@ -205,6 +301,34 @@ impl Store {
             }
         });
         self.open();
+    }
+}
+
+/// The folder NSH gave every app that had no id, which is where this app's data was until it got one.
+const SHARED_FOLDER: &str = "default";
+
+/// Copies the database and the images an earlier version kept in the folder shared by apps without
+/// an id (`default`, next to the app's own folder) into `dir`, when `dir` has no database yet. The
+/// old folder is not touched. Only the app's own folder qualifies: a data folder given by a test or
+/// a command line has no earlier data to take.
+fn adopt_earlier_data(dir: &Path) -> Result<(), String> {
+    let own = dir.file_name().is_some_and(|name| name == crate::APP_ID);
+    let Some(shared) = dir.parent().map(|parent| parent.join(SHARED_FOLDER)).filter(|_| own) else { return Ok(()) };
+    match legacy::adopt(dir, &shared) {
+        Ok(Some(adopted)) => {
+            log::info!(
+                "data: copied the database and {} images from {} to {}; the old folder is left as it was",
+                adopted.images,
+                adopted.from.display(),
+                dir.display()
+            );
+            Ok(())
+        }
+        Ok(None) => Ok(()),
+        Err(error) => {
+            log::error!("data: the earlier data could not be copied: {error}");
+            Err(format!("Không chép được dữ liệu từ thư mục cũ ({}): {error}", shared.display()))
+        }
     }
 }
 
@@ -429,6 +553,30 @@ mod tests {
     fn the_account_filter_names_an_id_or_none() {
         assert_eq!(AccountFilter::All.id(), None);
         assert_eq!(AccountFilter::One(3).id(), Some(3));
+    }
+
+    #[test]
+    fn the_apps_own_folder_takes_a_copy_of_the_data_the_shared_folder_had() {
+        let root = tempfile::tempdir().expect("a temp dir");
+        let shared = root.path().join(SHARED_FOLDER);
+        let mut old = Db::open(shared.join(DB_FILE)).expect("the old database opens");
+        old.set_setting("marker", "old data").expect("writes");
+        drop(old);
+        let own = root.path().join(crate::APP_ID);
+
+        adopt_earlier_data(&own).expect("copies");
+        let copy = Db::open(own.join(DB_FILE)).expect("the copy opens");
+        assert_eq!(copy.setting("marker").expect("reads").as_deref(), Some("old data"));
+        assert!(shared.join(DB_FILE).exists(), "the old database stays where it was");
+    }
+
+    #[test]
+    fn a_folder_that_is_not_the_apps_own_has_no_earlier_data_to_take() {
+        let root = tempfile::tempdir().expect("a temp dir");
+        Db::open(root.path().join(SHARED_FOLDER).join(DB_FILE)).expect("the old database opens");
+        let other = root.path().join("a test's folder");
+        adopt_earlier_data(&other).expect("nothing to do");
+        assert!(!other.exists(), "nothing was created");
     }
 
     #[test]

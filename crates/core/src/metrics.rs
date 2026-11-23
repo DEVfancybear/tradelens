@@ -21,6 +21,59 @@ impl Sample<'_> {
     pub fn net(&self) -> f64 {
         self.trade.net()
     }
+
+    /// What decides whether the trade won: its money, or its R when it has no money.
+    pub fn score(&self) -> f64 {
+        self.trade.score()
+    }
+}
+
+/// The unit the figures of a set of trades are shown in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Unit {
+    /// Money (the account's currency).
+    #[default]
+    Money,
+    /// R, for trades that have no money.
+    R,
+}
+
+/// Which of a set of trades have money and which have only their R. A trade has money unless it was
+/// imported with only its result in R ([`Trade::money_known`]); every money figure of a set (net,
+/// profit factor, drawdown, calendar cells, breakdowns) counts the money trades alone, so a screen
+/// shows R when there is no money, and says how many trades the money covers when there is a mix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Basis {
+    pub money_trades: usize,
+    pub r_only_trades: usize,
+}
+
+impl Basis {
+    /// The basis of `samples`.
+    pub fn of(samples: &[Sample<'_>]) -> Self {
+        let money_trades = samples.iter().filter(|x| x.trade.money_known()).count();
+        Self { money_trades, r_only_trades: samples.len() - money_trades }
+    }
+
+    /// R when the set has trades and none of them has money, else money.
+    pub fn unit(self) -> Unit {
+        if self.money_trades == 0 && self.r_only_trades > 0 { Unit::R } else { Unit::Money }
+    }
+
+    /// Some trades have money and some only R.
+    pub fn is_mixed(self) -> bool {
+        self.money_trades > 0 && self.r_only_trades > 0
+    }
+
+    /// What to say beside money figures that leave trades out; `None` when they cover every trade.
+    pub fn money_note(self) -> Option<String> {
+        self.is_mixed().then(|| {
+            format!(
+                "Tiền tính trên {} lệnh có tiền, {} lệnh chỉ có R không tính",
+                self.money_trades, self.r_only_trades
+            )
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -39,6 +92,10 @@ pub struct Stats {
     pub payoff: Option<f64>,
     pub expectancy: f64,
     pub avg_r: Option<f64>,
+    /// R won over R lost: the profit factor of a journal kept in R.
+    pub profit_factor_r: Option<f64>,
+    /// The deepest fall of the running total of R from its peak, a positive number.
+    pub max_drawdown_r: f64,
     pub total_r: f64,
     pub r_trades: usize,
     pub largest_win: f64,
@@ -75,6 +132,35 @@ fn real(n: usize) -> f64 {
     u32::try_from(n).map_or(f64::from(u32::MAX), f64::from)
 }
 
+/// The results in R of trades in the order they closed: what the curve of R and its profit factor are made of.
+#[derive(Debug, Default)]
+struct RRun {
+    total: f64,
+    peak: f64,
+    won: f64,
+    lost: f64,
+    /// The deepest fall of `total` from `peak`, a positive number.
+    max_drawdown: f64,
+}
+
+impl RRun {
+    fn add(&mut self, r: f64) {
+        self.total += r;
+        self.peak = self.peak.max(self.total);
+        self.max_drawdown = self.max_drawdown.max(self.peak - self.total);
+        if r > FLAT {
+            self.won += r;
+        } else if r < -FLAT {
+            self.lost -= r;
+        }
+    }
+
+    /// R won over R lost; `None` while nothing was lost.
+    fn profit_factor(&self) -> Option<f64> {
+        (self.lost > FLAT).then(|| self.won / self.lost)
+    }
+}
+
 /// The statistics of `samples` (closed trades, any order).
 pub fn stats(samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)], clock: Clock) -> Stats {
     let mut s = Stats { trades: samples.len(), start_balance, ..Stats::default() };
@@ -82,25 +168,43 @@ pub fn stats(samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)], cl
     ordered.sort_by_key(|x| x.trade.close_time.unwrap_or(x.trade.open_time));
 
     let (mut win_streak, mut loss_streak) = (0, 0);
-    let mut hold_total = 0_i64;
+    // Trades without money (imported in R) are won or lost by their R, but add nothing to money.
+    let (mut money_trades, mut money_wins, mut money_losses) = (0_usize, 0_usize, 0_usize);
+    let (mut hold_total, mut hold_trades) = (0_i64, 0_i64);
+    // The running total of R, for the drawdown in R and the profit factor of R.
+    let mut run = RRun::default();
     for x in &ordered {
         let t = x.trade;
         let net = x.net();
+        let score = x.score();
+        let money = t.money_known();
+        money_trades += usize::from(money);
         s.net += net;
         s.commission += t.commission + t.fee;
         s.swap += t.swap;
-        s.volume += t.volume;
-        hold_total += t.duration_secs().unwrap_or(0);
-        if net > FLAT {
+        if t.volume_known() {
+            s.volume += t.volume;
+        }
+        if let Some(held) = t.hold_secs() {
+            hold_total += held;
+            hold_trades += 1;
+        }
+        if score > FLAT {
             s.wins += 1;
-            s.gross_profit += net;
-            s.largest_win = s.largest_win.max(net);
+            if money {
+                money_wins += 1;
+                s.gross_profit += net;
+                s.largest_win = s.largest_win.max(net);
+            }
             win_streak += 1;
             loss_streak = 0;
-        } else if net < -FLAT {
+        } else if score < -FLAT {
             s.losses += 1;
-            s.gross_loss += net;
-            s.largest_loss = s.largest_loss.min(net);
+            if money {
+                money_losses += 1;
+                s.gross_loss += net;
+                s.largest_loss = s.largest_loss.min(net);
+            }
             loss_streak += 1;
             win_streak = 0;
         } else {
@@ -111,41 +215,60 @@ pub fn stats(samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)], cl
         if let Some(r) = x.r {
             s.total_r += r;
             s.r_trades += 1;
+            run.add(r);
         }
         match t.side {
             crate::model::Side::Long => {
                 s.long_trades += 1;
                 s.long_net += net;
-                s.long_wins += usize::from(net > FLAT);
+                s.long_wins += usize::from(score > FLAT);
             }
             crate::model::Side::Short => {
                 s.short_trades += 1;
                 s.short_net += net;
-                s.short_wins += usize::from(net > FLAT);
+                s.short_wins += usize::from(score > FLAT);
             }
         }
     }
     if s.trades > 0 {
         s.win_rate = real(s.wins) / real(s.trades);
-        s.expectancy = s.net / real(s.trades);
-        s.avg_hold_secs = hold_total / i64::try_from(s.trades).unwrap_or(i64::MAX);
+        s.expectancy = s.net / real(money_trades.max(1));
+        // Trades whose time of day is unknown (a date only) have no hold time to average.
+        s.avg_hold_secs = hold_total / hold_trades.max(1);
     }
-    if s.wins > 0 {
-        s.avg_win = s.gross_profit / real(s.wins);
+    s.max_drawdown_r = run.max_drawdown;
+    s.profit_factor_r = run.profit_factor();
+    if money_wins > 0 {
+        s.avg_win = s.gross_profit / real(money_wins);
     }
-    if s.losses > 0 {
-        s.avg_loss = s.gross_loss / real(s.losses);
+    if money_losses > 0 {
+        s.avg_loss = s.gross_loss / real(money_losses);
     }
     if s.gross_loss < -FLAT {
         s.profit_factor = Some(s.gross_profit / -s.gross_loss);
     }
-    if s.avg_loss < -FLAT && s.wins > 0 {
+    if s.avg_loss < -FLAT && money_wins > 0 {
         s.payoff = Some(s.avg_win / -s.avg_loss);
     }
     if s.r_trades > 0 {
         s.avg_r = Some(s.total_r / real(s.r_trades));
     }
 
+    add_balance_figures(&mut s, samples, start_balance, cash);
+
+    let days = daily(samples, clock);
+    s.trading_days = days.len();
+    s.green_days = days.values().filter(|d| d.net > FLAT).count();
+    s.best_day =
+        days.iter().filter(|(_, d)| d.net > FLAT).max_by(|a, b| a.1.net.total_cmp(&b.1.net)).map(|(k, d)| (*k, d.net));
+    s.worst_day =
+        days.iter().filter(|(_, d)| d.net < -FLAT).min_by(|a, b| a.1.net.total_cmp(&b.1.net)).map(|(k, d)| (*k, d.net));
+    s
+}
+
+/// The figures that come from the balance curve and the cash movements: drawdown, end balance,
+/// deposits and withdrawals, recovery factor.
+fn add_balance_figures(s: &mut Stats, samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)]) {
     let curve = equity_curve(samples, start_balance, cash);
     for p in &curve {
         if p.drawdown > s.max_drawdown {
@@ -164,15 +287,6 @@ pub fn stats(samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)], cl
     if s.max_drawdown > FLAT {
         s.recovery_factor = Some(s.net / s.max_drawdown);
     }
-
-    let days = daily(samples, clock);
-    s.trading_days = days.len();
-    s.green_days = days.values().filter(|d| d.net > FLAT).count();
-    s.best_day =
-        days.iter().filter(|(_, d)| d.net > FLAT).max_by(|a, b| a.1.net.total_cmp(&b.1.net)).map(|(k, d)| (*k, d.net));
-    s.worst_day =
-        days.iter().filter(|(_, d)| d.net < -FLAT).min_by(|a, b| a.1.net.total_cmp(&b.1.net)).map(|(k, d)| (*k, d.net));
-    s
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -223,6 +337,30 @@ pub struct DayStat {
     pub r: f64,
     /// How many of the day's trades have an R.
     pub r_trades: usize,
+    /// How many of the day's trades have money (the others have only their R, and add 0 to `net`).
+    pub money_trades: usize,
+}
+
+impl DayStat {
+    /// The day's result in the unit it has: money when any of its trades has money, else R.
+    pub fn result(&self) -> f64 {
+        if self.money_trades > 0 { self.net } else { self.r }
+    }
+
+    /// The unit [`DayStat::result`] is in.
+    pub fn unit(&self) -> Unit {
+        if self.money_trades == 0 && self.trades > 0 { Unit::R } else { Unit::Money }
+    }
+}
+
+/// The unit a month, a week or a whole calendar of days is shown in: R when no day has money.
+pub fn unit_of_days<'a>(days: impl IntoIterator<Item = &'a DayStat>) -> Unit {
+    let (mut money, mut any) = (false, false);
+    for day in days {
+        money |= day.money_trades > 0;
+        any |= day.trades > 0;
+    }
+    if any && !money { Unit::R } else { Unit::Money }
 }
 
 /// Net results by the local day the trades closed.
@@ -232,8 +370,9 @@ pub fn daily(samples: &[Sample<'_>], clock: Clock) -> BTreeMap<NaiveDate, DaySta
         let day = clock.day(x.trade.close_time.unwrap_or(x.trade.open_time));
         let d = days.entry(day).or_default();
         d.net += x.net();
+        d.money_trades += usize::from(x.trade.money_known());
         d.trades += 1;
-        d.wins += usize::from(x.net() > FLAT);
+        d.wins += usize::from(x.score() > FLAT);
         if let Some(r) = x.r {
             d.r += r;
             d.r_trades += 1;
@@ -256,10 +395,14 @@ pub struct CalendarDay {
 #[derive(Debug, Clone, PartialEq)]
 pub struct CalendarWeek {
     pub days: [CalendarDay; 7],
-    /// Net of the week's days that belong to the month.
+    /// Net money of the week's days that belong to the month (trades without money add nothing).
     pub net: f64,
+    /// R of the week's days that belong to the month.
+    pub r: f64,
     /// Trades of the week's days that belong to the month.
     pub trades: usize,
+    /// R when no day of the week has money, else money.
+    pub unit: Unit,
 }
 
 /// The weeks (Monday first) that cover `month` of `year`, each day with its result from `days`.
@@ -286,39 +429,57 @@ pub fn month_weeks(year: i32, month: u32, days: &BTreeMap<NaiveDate, DayStat>) -
         .0
         .iter()
         .map(|week| {
-            let inside = week.iter().filter(|d| d.in_month).filter_map(|d| d.stat);
-            let (net, trades) = inside.fold((0.0, 0), |(net, trades), s| (net + s.net, trades + s.trades));
-            CalendarWeek { days: *week, net, trades }
+            let inside: Vec<DayStat> = week.iter().filter(|d| d.in_month).filter_map(|d| d.stat).collect();
+            CalendarWeek {
+                days: *week,
+                net: inside.iter().map(|s| s.net).sum(),
+                r: inside.iter().map(|s| s.r).sum(),
+                trades: inside.iter().map(|s| s.trades).sum(),
+                unit: unit_of_days(&inside),
+            }
         })
         .collect()
 }
 
-/// What a month of daily results adds up to.
+/// What a month of daily results adds up to, in one [`Unit`]: money when any day has money (days
+/// with only R then count for their trades alone), else R.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct MonthSummary {
-    pub net: f64,
+    pub unit: Unit,
+    /// The month's result in `unit`.
+    pub result: f64,
     pub trades: usize,
     pub green_days: usize,
     pub red_days: usize,
+    /// The best and the worst day, with their results in `unit`.
     pub best_day: Option<(NaiveDate, f64)>,
     pub worst_day: Option<(NaiveDate, f64)>,
 }
 
 /// The totals of `month` of `year` over `days`.
 pub fn month_summary(year: i32, month: u32, days: &BTreeMap<NaiveDate, DayStat>) -> MonthSummary {
-    let mut summary = MonthSummary::default();
-    for (&date, stat) in days.iter().filter(|(d, _)| d.year() == year && d.month() == month) {
-        summary.net += stat.net;
+    let month_days: Vec<(NaiveDate, &DayStat)> =
+        days.iter().filter(|(d, _)| d.year() == year && d.month() == month).map(|(d, s)| (*d, s)).collect();
+    let unit = unit_of_days(month_days.iter().map(|(_, s)| *s));
+    let mut summary = MonthSummary { unit, ..MonthSummary::default() };
+    for (date, stat) in month_days {
         summary.trades += stat.trades;
-        if stat.net > FLAT {
+        // In money, a day that has only R has no result to add up.
+        let result = match unit {
+            Unit::Money if stat.money_trades == 0 => continue,
+            Unit::Money => stat.net,
+            Unit::R => stat.r,
+        };
+        summary.result += result;
+        if result > FLAT {
             summary.green_days += 1;
-            if summary.best_day.is_none_or(|(_, best)| stat.net > best) {
-                summary.best_day = Some((date, stat.net));
+            if summary.best_day.is_none_or(|(_, best)| result > best) {
+                summary.best_day = Some((date, result));
             }
-        } else if stat.net < -FLAT {
+        } else if result < -FLAT {
             summary.red_days += 1;
-            if summary.worst_day.is_none_or(|(_, worst)| stat.net < worst) {
-                summary.worst_day = Some((date, stat.net));
+            if summary.worst_day.is_none_or(|(_, worst)| result < worst) {
+                summary.worst_day = Some((date, result));
             }
         }
     }
@@ -386,11 +547,25 @@ pub struct Group {
     pub gross_loss: f64,
     pub total_r: f64,
     pub r_trades: usize,
+    /// R won and R lost (a negative sum) by the trades of the group: its profit factor in R.
+    pub r_profit: f64,
+    pub r_loss: f64,
 }
 
 impl Group {
     fn new(label: String) -> Self {
-        Self { label, trades: 0, wins: 0, net: 0.0, gross_profit: 0.0, gross_loss: 0.0, total_r: 0.0, r_trades: 0 }
+        Self {
+            label,
+            trades: 0,
+            wins: 0,
+            net: 0.0,
+            gross_profit: 0.0,
+            gross_loss: 0.0,
+            total_r: 0.0,
+            r_trades: 0,
+            r_profit: 0.0,
+            r_loss: 0.0,
+        }
     }
 
     pub fn win_rate(&self) -> f64 {
@@ -403,6 +578,11 @@ impl Group {
 
     pub fn avg_r(&self) -> Option<f64> {
         (self.r_trades > 0).then(|| self.total_r / real(self.r_trades))
+    }
+
+    /// R won over R lost, for a group of trades that have no money.
+    pub fn profit_factor_r(&self) -> Option<f64> {
+        (self.r_loss < -FLAT).then(|| self.r_profit / -self.r_loss)
     }
 
     pub fn expectancy(&self) -> f64 {
@@ -424,8 +604,10 @@ pub fn breakdown<K: Ord + Clone>(
             let net = x.net();
             g.trades += 1;
             g.net += net;
-            if net > FLAT {
+            if x.score() > FLAT {
                 g.wins += 1;
+            }
+            if net > FLAT {
                 g.gross_profit += net;
             } else if net < -FLAT {
                 g.gross_loss += net;
@@ -433,6 +615,11 @@ pub fn breakdown<K: Ord + Clone>(
             if let Some(r) = x.r {
                 g.total_r += r;
                 g.r_trades += 1;
+                if r > FLAT {
+                    g.r_profit += r;
+                } else if r < -FLAT {
+                    g.r_loss += r;
+                }
             }
         }
     }

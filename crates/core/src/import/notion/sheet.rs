@@ -85,6 +85,35 @@ pub(super) fn read(bytes: &[u8]) -> Result<Sheet, ImportError> {
     Ok(Sheet { headers, rows, locale: Locale { dates, comma } })
 }
 
+/// A sheet from a table already in memory, as the Notion API returns it: the header row and
+/// the data rows, cells flattened to text with `.` as the decimal point. The line of a row is
+/// its place in the table (the header is line 1).
+///
+/// # Errors
+///
+/// [`ImportError::Invalid`] when there is no header or no data row.
+pub(super) fn from_table(headers: &[String], rows: &[Vec<String>]) -> Result<Sheet, ImportError> {
+    if headers.is_empty() {
+        return Err(ImportError::Invalid("bảng Notion không có cột nào".into()));
+    }
+    let headers: Vec<String> = headers
+        .iter()
+        .enumerate()
+        .map(|(i, h)| if h.trim().is_empty() { format!("Cột {}", i + 1) } else { h.trim().to_owned() })
+        .collect();
+    let rows: Vec<Row> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, cells)| cells.iter().any(|c| !c.trim().is_empty()))
+        .map(|(i, cells)| Row { line: i + 2, cells: cells.clone() })
+        .collect();
+    if rows.is_empty() {
+        return Err(ImportError::Invalid("bảng Notion chưa có lệnh nào".into()));
+    }
+    let dates = detect_date_order(rows.iter().flat_map(|row| row.cells.iter().map(String::as_str)));
+    Ok(Sheet { headers, rows, locale: Locale { dates, comma: CommaRole::Thousands } })
+}
+
 /// The delimiter that splits the header line (outside quotes) into the most cells.
 fn delimiter_of(text: &str) -> u8 {
     let (mut commas, mut semicolons, mut tabs) = (0_usize, 0_usize, 0_usize);

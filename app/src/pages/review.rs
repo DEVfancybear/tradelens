@@ -1,19 +1,22 @@
 //! Tổng kết & xem lại: câu hỏi tổng kết tuần/tháng, hàng chờ xem lại, mẫu ghi chú.
-//! Design: `docs/design/screens/review.html`. The AI summary is v0.3: a disabled card.
+//! Design: `docs/design/screens/review.html`. The AI summary is not built yet: a disabled card.
 
 use chrono::{Duration, NaiveDate};
 use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
     TradeKey,
+    report::Privacy,
     review::{self, Period, PeriodReview, QueueReason, ReviewTemplate},
-    search,
 };
 
-use super::account_picker::account_picker;
+use super::{
+    account_picker::account_picker,
+    share::{self, PRIVACY_CHOICES, ShareTarget, privacy_label},
+};
 use crate::{
     format::{self, Sign},
-    insight, nav,
+    insight, month_report, nav,
     snapshot::Snapshot,
     store::{Reading, query, query_with, store, writer},
     ui::{
@@ -22,6 +25,7 @@ use crate::{
             Variant, action, action_icon, action_icon_when, action_when, commit_field, icon_action, rating, segmented,
             textarea,
         },
+        date_picker::{DatePick, date_pick, date_trigger},
         icons::Icon,
         lines::{filled, line_list},
         list_item::{Column, mini_table},
@@ -101,7 +105,8 @@ pub(crate) fn review() -> impl IntoElement {
             .gap_3()
             .child(account_picker())
             .child(segmented("Kỳ", &PERIODS, period_label, move || period.get(), move |next| period.set(next)))
-            .child(period_nav(period, anchor)),
+            .child(period_nav(period, anchor))
+            .child(share_button(period, anchor)),
         view().gap_6().child(figures_row(period, anchor)).child(
             view()
                 .flex_row()
@@ -116,7 +121,15 @@ pub(crate) fn review() -> impl IntoElement {
                         .child(questions_card(period, anchor))
                         .child(highlights_card(period, anchor)),
                 )
-                .child(view().w(px(400.0)).gap_6().child(queue_card()).child(ai_card()).child(templates_card())),
+                .child(
+                    view()
+                        .w(px(400.0))
+                        .gap_6()
+                        .child(queue_card())
+                        .child(report_card(period, anchor))
+                        .child(ai_card())
+                        .child(templates_card()),
+                ),
         ),
     )
 }
@@ -130,15 +143,87 @@ fn period_nav(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEle
         .child(icon_action(Icon::ChevronLeft, "Kỳ trước", Variant::Ghost, move || {
             anchor.set(before(period.get_untracked(), anchor.get_untracked()));
         }))
-        .child(
-            text(move || period.get().title(period.get().bounds(anchor.get()).0))
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .px_2(),
-        )
+        // Any day of the week or month picks it: the period holding that day is shown.
+        .child(date_pick(
+            DatePick::day(
+                "Chọn tuần hoặc tháng",
+                move || Some(anchor.get()),
+                || chrono::Local::now().date_naive(),
+                move |day| anchor.set(day),
+            ),
+            date_trigger(move || period.get().title(period.get().bounds(anchor.get()).0)),
+        ))
         .child(icon_action(Icon::ChevronRight, "Kỳ sau", Variant::Ghost, move || {
             anchor.set(after(period.get_untracked(), anchor.get_untracked()));
         }))
+}
+
+/// "Chia sẻ": the share dialog on the period shown.
+fn share_button(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoElement {
+    action_icon(Icon::Share, "Chia sẻ", Variant::Secondary, move || {
+        let shown = period.get_untracked();
+        share::open(ShareTarget::Period(shown, shown.bounds(anchor.get_untracked()).0));
+    })
+}
+
+/// The month's PDF report: how much money it shows, and the button that saves it. Only on the month tab.
+fn report_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoElement {
+    let store = store();
+    let month = move || Period::Month.bounds(anchor.get()).0;
+    let extras = query_with(month, |db, account, start| month_report::load_extras(db, account, *start));
+    let privacy = signal(Privacy::ShowMoney);
+    let failure = signal(None::<String>);
+    let note = signal(None::<String>);
+    let export = move || {
+        let Some(extras) = extras.value() else {
+            return failure.set(Some(
+                extras.error().unwrap_or_else(|| "Đang đọc dữ liệu của tháng, thử lại sau giây lát.".to_owned()),
+            ));
+        };
+        let start = Period::Month.bounds(anchor.get_untracked()).0;
+        let report = month_report::build(&store.snapshot_now(), store.accounts.get_untracked().id(), start, &extras);
+        share::export_pdf(report, privacy.get_untracked(), move |result| match result {
+            Ok(line) => batch(|| {
+                failure.set(None);
+                note.set(Some(line));
+            }),
+            Err(line) => failure.set(Some(line)),
+        });
+    };
+    dynamic(move || {
+        (period.get() == Period::Month).then(|| {
+            untracked(|| {
+                card(
+                    "Báo cáo tháng",
+                    view()
+                        .gap_3()
+                        .child(
+                            text("PDF A4: tổng quan, đường balance, lịch, playbook, lỗi, lệnh bỏ lỡ và tổng kết của tháng.")
+                                .text_sm()
+                                .text_color(move || theme().muted_foreground),
+                        )
+                        .child(segmented(
+                            "Mức hiển thị của PDF",
+                            &PRIVACY_CHOICES,
+                            privacy_label,
+                            move || privacy.get(),
+                            move |next| privacy.set(next),
+                        ))
+                        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss()))))
+                        .child(dynamic(move || {
+                            note.get().map(|line| text(line).text_sm().text_color(move || theme().muted_foreground))
+                        }))
+                        .child(view().flex_row().child(action_icon(
+                            Icon::Download,
+                            "Xuất PDF tháng",
+                            Variant::Secondary,
+                            export,
+                        ))),
+                )
+                .into_element()
+            })
+        })
+    })
 }
 
 // --- the period's figures ----------------------------------------------------------------------
@@ -153,10 +238,19 @@ struct Closed {
     /// The day it closed, on the trader's clock.
     day: NaiveDate,
     net: f64,
+    /// The money is known (a trade imported in R has none).
+    money: bool,
     r: Option<f64>,
     mistakes: bool,
     journalled: bool,
     followed_plan: Option<bool>,
+}
+
+impl Closed {
+    /// What decides whether the trade won or lost: its money, or its R when it has no money.
+    fn score(&self) -> f64 {
+        if self.money { self.net } else { self.r.unwrap_or(0.0) }
+    }
 }
 
 fn closed_trades(snapshot: &Snapshot) -> Vec<Closed> {
@@ -172,6 +266,7 @@ fn closed_trades(snapshot: &Snapshot) -> Vec<Closed> {
                 setup: if row.setup.is_empty() { "Không playbook".to_owned() } else { row.setup.clone() },
                 day: closed.date(),
                 net: row.trade.net(),
+                money: row.trade.money_known(),
                 r: row.r,
                 mistakes: journal.is_some_and(|j| !j.mistakes.is_empty()),
                 journalled: row.journaled,
@@ -200,20 +295,30 @@ struct Figures {
     mistake_net: f64,
     mistake_r: f64,
     mistake_trades: usize,
+    /// How many of the trades have money.
+    money_trades: usize,
+}
+
+impl Figures {
+    /// The period has trades and none of them has money: its results are in R.
+    fn in_r(&self) -> bool {
+        self.trades > 0 && self.money_trades == 0
+    }
 }
 
 fn figures(trades: &[&Closed]) -> Figures {
     let mut f = Figures { trades: trades.len(), ..Figures::default() };
     for t in trades {
         f.net += t.net;
-        f.wins += usize::from(t.net > 0.0);
+        f.wins += usize::from(t.score() > 0.0);
+        f.money_trades += usize::from(t.money);
         f.journalled += usize::from(t.journalled);
         if let Some(r) = t.r {
             f.total_r += r;
             f.r_trades += 1;
         }
-        if t.mistakes && t.net < 0.0 {
-            f.mistake_net += t.net;
+        if t.mistakes && t.score() < 0.0 {
+            f.mistake_net += if t.money { t.net } else { 0.0 };
             f.mistake_r += t.r.unwrap_or(0.0);
             f.mistake_trades += 1;
         }
@@ -249,10 +354,10 @@ impl Highlight {
 }
 
 fn highlights<'t>(trades: &[&'t Closed]) -> Vec<(Highlight, &'t Closed)> {
-    let by_net = |a: &&&Closed, b: &&&Closed| a.net.total_cmp(&b.net);
+    let by_net = |a: &&&Closed, b: &&&Closed| a.score().total_cmp(&b.score());
     let mut rows = Vec::new();
-    let best = trades.iter().max_by(by_net).filter(|t| t.net > 0.0);
-    let worst = trades.iter().min_by(by_net).filter(|t| t.net < 0.0);
+    let best = trades.iter().max_by(by_net).filter(|t| t.score() > 0.0);
+    let worst = trades.iter().min_by(by_net).filter(|t| t.score() < 0.0);
     if let Some(t) = best {
         rows.push((Highlight::Best, *t));
     }
@@ -261,7 +366,7 @@ fn highlights<'t>(trades: &[&'t Closed]) -> Vec<(Highlight, &'t Closed)> {
     }
     let right = trades
         .iter()
-        .filter(|t| t.followed_plan == Some(true) && t.net < 0.0 && worst.is_none_or(|w| w.key != t.key))
+        .filter(|t| t.followed_plan == Some(true) && t.score() < 0.0 && worst.is_none_or(|w| w.key != t.key))
         .min_by(by_net);
     if let Some(t) = right {
         rows.push((Highlight::RightAndLost, *t));
@@ -313,10 +418,24 @@ fn figures_row(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
         .child(stat_tile(
             "Net",
             move || {
+                // No trade of the period has money: the R tile has its result, and an amount of zero would lie.
+                if now.with(Figures::in_r) {
+                    return ("—".to_owned(), Tone::Neutral);
+                }
                 let net = now.with(|f| f.net);
                 (money(net), tone_of(net))
             },
-            move || format!("{} lệnh", now.with(|f| f.trades)),
+            move || {
+                now.with(|f| {
+                    if f.in_r() {
+                        format!("{} lệnh ghi theo R", f.trades)
+                    } else if f.money_trades < f.trades {
+                        format!("{} lệnh có tiền, {} lệnh chỉ có R", f.money_trades, f.trades - f.money_trades)
+                    } else {
+                        format!("{} lệnh", f.trades)
+                    }
+                })
+            },
         ))
         .child(stat_tile(
             "R",
@@ -339,10 +458,22 @@ fn figures_row(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
         .child(stat_tile(
             "Chi phí lỗi",
             move || {
+                if now.with(Figures::in_r) {
+                    let cost = now.with(|f| f.mistake_r);
+                    return (format::r_text(Some(cost)), if cost < 0.0 { Tone::Loss } else { Tone::Neutral });
+                }
                 let cost = now.with(|f| f.mistake_net);
                 (money(cost), if cost < 0.0 { Tone::Loss } else { Tone::Neutral })
             },
-            move || now.with(|f| format!("{} · {} lệnh", format::r_text(Some(f.mistake_r)), f.mistake_trades)),
+            move || {
+                now.with(|f| {
+                    if f.in_r() {
+                        format!("{} lệnh có lỗi", f.mistake_trades)
+                    } else {
+                        format!("{} · {} lệnh", format::r_text(Some(f.mistake_r)), f.mistake_trades)
+                    }
+                })
+            },
         ))
 }
 
@@ -462,11 +593,7 @@ fn answers_form(source: Source) -> impl IntoElement {
         failure.set(None);
         let stored = review.clone();
         write.run(
-            move |db| {
-                let id = db.save_review(&review)?;
-                db.index_document(&search::review_document(&review))?;
-                Ok(id)
-            },
+            move |db| db.save_review(&review),
             move |result| {
                 busy.set(false);
                 match result {
@@ -554,7 +681,8 @@ fn highlights_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl In
                         .map(|(kind, t)| {
                             let key = t.key.clone();
                             let r = format::r_text(t.r);
-                            let net = format::money(t.net, Sign::Always, &currency);
+                            let net =
+                                if t.money { format::money(t.net, Sign::Always, &currency) } else { "—".to_owned() };
                             vec![
                                 view()
                                     .flex_row()
@@ -675,13 +803,13 @@ fn queue_card() -> impl IntoElement {
 
 // --- the AI summary and the templates ----------------------------------------------------------------
 
-/// The AI summary arrives in v0.3: shown, and off.
+/// The AI summary is not built yet: shown, and off.
 fn ai_card() -> impl IntoElement {
     card(
         "Tóm tắt kỳ bằng AI",
         view()
             .gap_3()
-            .child(chip("Sẽ có ở v0.3", Tone::Neutral))
+            .child(chip("Chưa làm", Tone::Neutral))
             .child(
                 text("Tắt mặc định. Khi có, chỉ gửi R, tag, lỗi và ghi chú — không gửi số tiền — để AI gợi ý điều cần tự kiểm tra.")
                     .text_sm()
@@ -813,6 +941,7 @@ mod tests {
             setup: String::new(),
             day: day(on),
             net,
+            money: true,
             r,
             mistakes: false,
             journalled: false,

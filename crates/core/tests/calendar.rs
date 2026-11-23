@@ -31,6 +31,8 @@ fn trade(position: i64, closed: &str, profit: f64, risk: Option<f64>) -> Trade {
         fee: 0.0,
         profit,
         risk,
+        result_r: None,
+        gaps: tradelens_core::Gaps::NONE,
         magic: 0,
         comment: String::new(),
         manual: false,
@@ -38,7 +40,7 @@ fn trade(position: i64, closed: &str, profit: f64, risk: Option<f64>) -> Trade {
 }
 
 fn stat(net: f64, trades: usize) -> DayStat {
-    DayStat { net, trades, wins: usize::from(net > 0.0), ..DayStat::default() }
+    DayStat { net, trades, wins: usize::from(net > 0.0), money_trades: trades, ..DayStat::default() }
 }
 
 #[test]
@@ -89,7 +91,8 @@ fn a_month_summary_picks_the_best_and_worst_day() {
         (day(2026, 11, 5), stat(-10.0, 1)),
     ]);
     let s = metrics::month_summary(2026, 11, &days);
-    assert!((s.net - 70.0).abs() < 1e-9);
+    assert!((s.result - 70.0).abs() < 1e-9);
+    assert_eq!(s.unit, metrics::Unit::Money);
     assert_eq!((s.trades, s.green_days, s.red_days), (5, 2, 2));
     assert_eq!(s.best_day, Some((day(2026, 11, 2), 120.0)));
     assert_eq!(s.worst_day, Some((day(2026, 11, 3), -80.0)));

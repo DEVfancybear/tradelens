@@ -113,6 +113,7 @@ pub fn palette_layer(content: impl IntoElement, on_close: impl Fn() + 'static) -
         .items_center()
         .child(
             button()
+                .cursor_pointer()
                 .on_press(on_close)
                 .accessibility_label("Đóng tìm kiếm")
                 .absolute()
@@ -127,9 +128,11 @@ pub fn palette_layer(content: impl IntoElement, on_close: impl Fn() + 'static) -
 /// opens it when pressed.
 pub fn search_trigger(on_press: impl Fn() + 'static) -> impl IntoElement {
     button()
+        .cursor_pointer()
         .on_press(on_press)
         .accessibility_label("Mở tìm kiếm")
-        .h(px(34.0))
+        .h(px(32.0))
+        .w_full()
         .flex_row()
         .items_center()
         .gap_2()
@@ -141,12 +144,21 @@ pub fn search_trigger(on_press: impl Fn() + 'static) -> impl IntoElement {
         .hover(|s| s.bg(move || theme().accent))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
         .child(icon(Icon::Search, 16.0).text_color(move || theme().muted_foreground))
-        .child(text("Tìm trong nhật ký").flex_1().text_sm().text_color(move || theme().muted_foreground))
+        // One line that gives way to the key beside it: it ends with an ellipsis, it never wraps.
         .child(
-            view().px_1().rounded(px(4.0)).border_1().border_color(move || theme().border).child(
+            text("Tìm trong nhật ký")
+                .flex_1()
+                .min_w(px(0.0))
+                .text_sm()
+                .number_of_lines(1)
+                .text_color(move || theme().muted_foreground),
+        )
+        .child(
+            view().flex_shrink_0().px_1().rounded(px(4.0)).border_1().border_color(move || theme().border).child(
                 text(key_label("mod+k"))
                     .text_xs()
                     .font_family(super::theme::mono)
+                    .number_of_lines(1)
                     .text_color(move || theme().muted_foreground),
             ),
         )

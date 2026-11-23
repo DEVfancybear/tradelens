@@ -14,6 +14,7 @@ pub fn selectable_card(
     body: impl IntoElement,
 ) -> impl IntoElement {
     button()
+        .cursor_pointer()
         .on_press(on_press)
         .accessibility_label(label.into())
         .p_4()

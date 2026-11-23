@@ -1,7 +1,7 @@
 //! The running total of R over time (`nsh_base::plot`), the overview's R tab.
 
 use nsh_base::{
-    plot::{AppearKey, AxisPlacement, Scale, TickFormat, area, grid, line, plot, plot_axis},
+    plot::{AppearKey, AreaY0, AxisPlacement, Curve, Scale, TickFormat, area, grid, line, plot, plot_axis},
     theme,
 };
 use nsh_core::{
@@ -9,7 +9,10 @@ use nsh_core::{
     prelude::*,
 };
 
-use super::{motion, theme as tokens};
+use super::{
+    chart::{Baseline, nice_domain},
+    motion, theme as tokens,
+};
 use crate::format;
 
 /// Milliseconds in a minute: the x axis counts minutes, which stay small enough for `f32`.
@@ -69,6 +72,12 @@ pub(crate) fn r_curve_chart(
                 .data(rows)
                 .x(RowAccessor::key("minute"))
                 .y(RowAccessor::key("r"))
+                .y_scale(move || {
+                    let all = points();
+                    let low = all.iter().map(|p| p.total_r).fold(f64::INFINITY, f64::min);
+                    let high = all.iter().map(|p| p.total_r).fold(f64::NEG_INFINITY, f64::max);
+                    Scale::Linear { domain: Some(nice_domain(low, high, Baseline::Zero)), reverse: false }
+                })
                 .x_scale(Scale::Linear { domain: None, reverse: false })
                 .motion(motion)
                 .appear_generation(move || AppearKey::from(generation()))
@@ -79,8 +88,13 @@ pub(crate) fn r_curve_chart(
                 .cross_line_class("w-px h-full bg-border")
                 .dot_class("size-2.5 rounded-full border-2 border-background bg-chart-1")
                 .child(grid().stroke_color(move || theme().border))
-                .child(area().fill_color(move || theme().chart_1.opacity(0.14)))
-                .child(line().stroke_color(move || theme().chart_1).stroke_width(px(2.0)))
+                .child(
+                    area()
+                        .curve(Curve::Linear)
+                        .y0(AreaY0::Value(0.0))
+                        .fill_color(move || theme().chart_1.opacity(0.14)),
+                )
+                .child(line().curve(Curve::Linear).stroke_color(move || theme().chart_1).stroke_width(px(2.0)))
                 .child(
                     plot_axis()
                         .placement(AxisPlacement::Left)

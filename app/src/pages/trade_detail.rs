@@ -7,14 +7,17 @@ use std::{rc::Rc, sync::Arc};
 use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
-    ChecklistItem, Db, DbError, DealEntry, DealKind, Side, TradeKey,
+    ChecklistItem, Db, DbError, DealEntry, DealKind, Gaps, Origin, Side, TradeKey,
     attachments::{Attachment, Source},
     catalog::{CatalogItem, CatalogKind, CustomValues, FieldDef, FieldScope, missing_expected},
     form::{BuiltinField, FormLayout},
     time::format_duration,
 };
 
-use super::entry_plan;
+use super::{
+    entry_plan,
+    share::{self, ShareTarget},
+};
 use crate::{
     format::{self, Sign},
     journal_draft::{Draft, added, key_of_choice, key_or_empty, removed, suggested_exit, ticked, unticked, with_value},
@@ -23,9 +26,13 @@ use crate::{
     store::{Reading, Store, query, store, writer},
     ui::{
         chips::{Tone, chip, figure_text, pnl_text},
-        controls::{Choice, Variant, action, action_when, rating, select_value, tag_picker, text_field, textarea},
+        controls::{
+            Choice, Variant, action, action_icon_when, action_when, rating, select_value, tag_picker, text_field,
+            textarea,
+        },
         forms::{NumberRange, check_box, checklist, number_field},
         gallery::gallery,
+        icons::Icon,
         parts::{card, empty_state, page_with},
         plan_vs_actual::{PlanView, plan_vs_actual},
         properties::{PropertyEdits, PropertyList, property_list},
@@ -283,10 +290,21 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
     page_with(
         "Chi tiết lệnh",
         move || {
-            let (symbol, position) = from_row(row, |r| (r.trade.symbol.clone(), r.trade.key.position_id));
-            format!("{symbol} · {position}")
+            // The terminal's ticket for its trades; for the others, where they came from.
+            from_row(row, |r| {
+                let which = match r.trade.origin() {
+                    Origin::Mt5 => r.trade.key.position_id.to_string(),
+                    other => other.label().to_owned(),
+                };
+                format!("{} · {which}", r.trade.symbol)
+            })
         },
-        action_when("Lưu", Variant::Primary, move || dirty.get() && !busy.get(), editor.save()),
+        view().flex_row().items_center().gap_2().child(share_button(&key, row)).child(action_when(
+            "Lưu",
+            Variant::Primary,
+            move || dirty.get() && !busy.get(),
+            editor.save(),
+        )),
         view().gap_4().child(breadcrumb(row, editor.back())).child(
             view()
                 .flex_row()
@@ -301,7 +319,10 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
                         .child(facts_card(row))
                         .child(plan_card(&key))
                         .child(screenshots_card(&key, editor.failure))
-                        .child(deals_card(row)),
+                        .child(dynamic(move || {
+                            // The two deals the app wrote for an imported journal's trade hold nothing to list.
+                            from_row(row, |r| r.trade.origin() == Origin::Mt5).then(|| deals_card(row))
+                        })),
                 )
                 .child(view().w(px(520.0)).child(journal_card(
                     &editor,
@@ -310,6 +331,18 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
                     editor.step_button(&key, "Lệnh sau ›", -1),
                 ))),
         ),
+    )
+}
+
+/// "Chia sẻ": opens the share dialog on this trade; a trade still open has no result to share.
+fn share_button(key: &Rc<TradeKey>, row: Memo<Option<TradeRow>>) -> impl IntoElement {
+    let key = Rc::clone(key);
+    action_icon_when(
+        Icon::Share,
+        "Chia sẻ",
+        Variant::Secondary,
+        move || row.with(|r| r.as_ref().is_some_and(|r| r.trade.is_closed())),
+        move || share::open(ShareTarget::Trade((*key).clone())),
     )
 }
 
@@ -343,8 +376,13 @@ fn facts_card(row: Memo<Option<TradeRow>>) -> impl IntoElement {
         .child(
             text(move || {
                 from_row(row, |r| {
-                    let origin = if r.trade.manual { "nhập tay" } else { "EA / báo cáo" };
-                    format!("{} · nguồn: {origin} · gộp {} deal", r.account, r.deals.len())
+                    let origin = r.trade.origin();
+                    // Only a trade of the terminal is made of real deals; the others hold the two the app wrote.
+                    if origin == Origin::Mt5 {
+                        format!("{} · nguồn: {} · gộp {} deal", r.account, origin.label(), r.deals.len())
+                    } else {
+                        format!("{} · nguồn: {}", r.account, origin.label())
+                    }
                 })
             })
             .text_xs()
@@ -387,10 +425,10 @@ fn title_row(row: Memo<Option<TradeRow>>) -> impl IntoElement {
                 .gap_2()
                 .child(pnl_text(move || {
                     from_row(row, |r| {
-                        if r.trade.is_closed() {
+                        if r.trade.is_closed() && r.trade.money_known() {
                             format::money(r.trade.net(), Sign::Always, &r.currency)
                         } else {
-                            "—".to_owned()
+                            String::new()
                         }
                     })
                 }))
@@ -400,37 +438,80 @@ fn title_row(row: Memo<Option<TradeRow>>) -> impl IntoElement {
         )
 }
 
+/// The facts of a trade as the page words them: what its source did not tell is a dash, never the
+/// placeholder the deal holds (lot 1, price 0, midnight, $0.00).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct Facts {
+    opened: String,
+    closed: String,
+    hold: String,
+    volume: String,
+    open_price: String,
+    close_price: String,
+    stop_loss: String,
+    take_profit: String,
+    risk: String,
+    commission: String,
+    swap: String,
+    /// The terminal's ticket; `None` for a trade that has none (typed by hand, imported from a journal).
+    ticket: Option<String>,
+}
+
+const UNKNOWN: &str = "—";
+
+/// A moment, with its time of day only when the source gave one.
+fn moment(row: &TradeRow, at: chrono::NaiveDateTime) -> String {
+    if row.trade.time_known() { format::full_stamp(at) } else { at.format("%d/%m/%Y").to_string() }
+}
+
+fn facts_of(row: &TradeRow) -> Facts {
+    let trade = &row.trade;
+    let known = |shown: String, is_known: bool| if is_known { shown } else { UNKNOWN.to_owned() };
+    let money = |value: f64| known(format::money(value, Sign::OnlyNegative, &row.currency), trade.money_known());
+    let prices = trade.prices_known();
+    Facts {
+        opened: moment(row, row.opened()),
+        closed: row.closed().map_or_else(|| "Đang mở".to_owned(), |at| moment(row, at)),
+        hold: trade.hold_secs().map_or_else(|| UNKNOWN.to_owned(), format_duration),
+        volume: known(format!("{} lot", format::lots(trade.volume)), trade.volume_known()),
+        open_price: known(format::price(trade.open_price), prices),
+        close_price: known(trade.close_price.map_or_else(|| UNKNOWN.to_owned(), format::price), prices),
+        stop_loss: known(format::level(trade.sl), prices),
+        take_profit: known(format::level(trade.tp), prices),
+        risk: known(
+            trade
+                .risk
+                .map_or_else(|| UNKNOWN.to_owned(), |risk| format::money(risk, Sign::OnlyNegative, &row.currency)),
+            prices && trade.money_known(),
+        ),
+        commission: money(trade.commission + trade.fee),
+        swap: money(trade.swap),
+        ticket: (trade.origin() == Origin::Mt5).then(|| trade.key.position_id.to_string()),
+    }
+}
+
 fn facts_grid(row: Memo<Option<TradeRow>>) -> impl IntoElement {
-    let money = move |pick: fn(&TradeRow) -> f64| {
-        move || from_row(row, |r| format::money(pick(r), Sign::OnlyNegative, &r.currency))
-    };
+    let facts = computed(move || from_row(row, facts_of));
+    let pick = move |get: fn(&Facts) -> &str| move || facts.with(|f| get(f).to_owned());
     view()
         .flex_row()
         .flex_wrap()
         .gap_4()
-        .child(fact("Vào lệnh", move || from_row(row, |r| format::full_stamp(r.opened()))))
-        .child(fact("Đóng lệnh", move || {
-            from_row(row, |r| r.closed().map_or_else(|| "Đang mở".to_owned(), format::full_stamp))
-        }))
-        .child(fact("Thời gian giữ", move || {
-            from_row(row, |r| r.trade.duration_secs().map_or_else(|| "—".to_owned(), format_duration))
-        }))
-        .child(fact("Khối lượng", move || from_row(row, |r| format!("{} lot", format::lots(r.trade.volume)))))
-        .child(fact("Giá vào", move || from_row(row, |r| format::price(r.trade.open_price))))
-        .child(fact("Giá ra TB", move || {
-            from_row(row, |r| r.trade.close_price.map_or_else(|| "—".to_owned(), format::price))
-        }))
-        .child(fact("Stop loss", move || from_row(row, |r| format::level(r.trade.sl))))
-        .child(fact("Take profit", move || from_row(row, |r| format::level(r.trade.tp))))
-        .child(fact("Risk tại SL", move || {
-            from_row(row, |r| {
-                r.trade.risk.map_or_else(|| "—".to_owned(), |risk| format::money(risk, Sign::OnlyNegative, &r.currency))
-            })
-        }))
-        .child(fact("Commission", money(|r| r.trade.commission + r.trade.fee)))
-        .child(fact("Swap", money(|r| r.trade.swap)))
-        .child(fact("Ticket position", move || {
-            from_row(row, |r| if r.trade.manual { "nhập tay".to_owned() } else { r.trade.key.position_id.to_string() })
+        .child(fact("Vào lệnh", pick(|f| &f.opened)))
+        .child(fact("Đóng lệnh", pick(|f| &f.closed)))
+        .child(fact("Thời gian giữ", pick(|f| &f.hold)))
+        .child(fact("Khối lượng", pick(|f| &f.volume)))
+        .child(fact("Giá vào", pick(|f| &f.open_price)))
+        .child(fact("Giá ra TB", pick(|f| &f.close_price)))
+        .child(fact("Stop loss", pick(|f| &f.stop_loss)))
+        .child(fact("Take profit", pick(|f| &f.take_profit)))
+        .child(fact("Risk tại SL", pick(|f| &f.risk)))
+        .child(fact("Commission", pick(|f| &f.commission)))
+        .child(fact("Swap", pick(|f| &f.swap)))
+        .child(dynamic(move || {
+            let ticket = facts.with(|f| f.ticket.clone());
+            // A ticket is the terminal's: hand-typed and imported trades have none to show.
+            ticket.map(|ticket| fact("Ticket position", move || ticket.clone()))
         }))
 }
 
@@ -481,7 +562,7 @@ fn screenshots_card(key: &Rc<TradeKey>, failure: Signal<Option<String>>) -> impl
             .child(
                 text(move || {
                     let (all, ea) = (shots.with(Vec::len), ea_count());
-                    if all == 0 { String::new() } else { format!("{all} ảnh · {ea} từ EA") }
+                    if all == 0 { String::new() } else { format!("{all} ảnh · {ea} tự chụp") }
                 })
                 .text_xs()
                 .text_color(move || theme().muted_foreground),
@@ -531,12 +612,18 @@ fn deals_card(row: Memo<Option<TradeRow>>) -> impl IntoElement {
                 r.deals
                     .iter()
                     .map(|d| {
-                        let at = r.local(d.time_msc).format("%d/%m %H:%M:%S").to_string();
+                        let at = r
+                            .local(d.time_msc)
+                            .format(if d.gaps.has(Gaps::TIME) { "%d/%m" } else { "%d/%m %H:%M:%S" })
+                            .to_string();
                         let profit = match d.entry {
                             DealEntry::In => "—".to_owned(),
+                            _ if !r.trade.money_known() => "—".to_owned(),
                             _ => format::money(d.profit, Sign::Always, &r.currency),
                         };
-                        (at, entry_label(d.entry), d.kind, format::lots(d.volume), format::price(d.price), profit)
+                        let lots = if d.gaps.has(Gaps::VOLUME) { "—".to_owned() } else { format::lots(d.volume) };
+                        let price = if d.gaps.has(Gaps::PRICE) { "—".to_owned() } else { format::price(d.price) };
+                        (at, entry_label(d.entry), d.kind, lots, price, profit)
                     })
                     .collect::<Vec<_>>()
             });
@@ -774,7 +861,7 @@ fn exit_editor(ctx: &Context) -> impl IntoElement {
         .child(catalog_select("Lý do thoát lệnh", &ctx, |f| &f.exits, exit))
         .child(dynamic(move || {
             let hint = suggestion.and_then(|key| label_of(&ctx.data().exits, key))?;
-            Some(text(format!("EA gợi ý: {hint}")).text_xs().text_color(move || theme().muted_foreground))
+            Some(text(format!("Gợi ý từ deal đóng: {hint}")).text_xs().text_color(move || theme().muted_foreground))
         }))
 }
 

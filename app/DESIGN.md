@@ -38,7 +38,7 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 
 | Component | File | Trạng thái |
 |---|---|---|
-| `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `empty_state`, `planned`, `warning_banner(message)` (một dòng cảnh báo quy tắc, `role` Alert) | `parts.rs` | có |
+| `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `empty_state`, `warning_banner(message)` (một dòng cảnh báo quy tắc, `role` Alert) | `parts.rs` | có |
 | `parts::property_row(label, control)` (hàng nhãn + điều khiển đơn giản, khác `properties`) | `parts.rs` | có |
 | `action` / `action_when` (Primary / Secondary / Ghost) | `controls.rs` | có |
 | `action_icon` / `action_icon_when` (icon trước nhãn), `icon_action` (chỉ icon, bắt buộc `accessibility_label`) | `controls.rs` | có |
@@ -99,6 +99,24 @@ action("Lưu", Variant::Primary, move || {
 - Trong `dynamic(..)`, chỉ đọc cái quyết định hình dạng, còn lại bọc `untracked(|| ..)`; nếu không, đổi giao diện
   sáng/tối dựng lại vùng đó giữa lúc nút đang được tạo (panic "prop read after its owner was disposed").
 
+- `Store::read(op, done)` đọc DB một lần trên luồng `blocking` (không theo revision) cho việc không phải dữ liệu của trang;
+  `Store::replace_database(backup, replace, done)` chép DB đang mở sang `backup`, đóng nó, để `replace` ghi file mới (khôi phục
+  sang máy mới) rồi mở lại; `Store::database_path()` và `Store::is_ready()` cho code ngoài `store.rs`.
+
+### Đăng nhập & sync, Notion API (`src/cloud.rs`)
+
+- `cloud::provide()` (gọi một lần trong `Workspace`) tạo `Cloud`, một handle `Copy`: `state: Signal<State>` (cài đặt `cloud.*`,
+  ai đã đăng nhập, `Phase`, lần sync cuối, danh sách thiết bị), các hành động `sign_in`, `sign_out`, `sync(Why)`, `restore`,
+  `set_auto_sync(AutoSync)`, và hẹn giờ 15 phút + chặn nút đóng cửa sổ để sync trước khi đóng. Trang lấy nó bằng `cloud::cloud()`
+  lúc dựng, giống `store()`.
+- **Mọi `spawn` / `Writer::run` của `Cloud` chạy dưới owner của root** (`Owner::run`), không phải của nút đã bấm: nút nằm trong
+  `dynamic` bị dựng lại khi `state` đổi (đang đăng nhập, đang sync) và dựng lại thì huỷ tác vụ của nó, tức là một lần đăng nhập
+  hay sync đang chạy bị bỏ dở mà không báo lỗi.
+- Luồng nền (đăng nhập, sync, khôi phục, Notion) chỉ làm việc với dữ liệu `Send` (`Env` là ảnh chụp các cài đặt đã đọc sẵn) và
+  không chạm signal; kết quả quay về luồng giao diện qua `spawn(async { blocking(..).await; .. })`, sync xong gọi `data_changed()`.
+- `Env::load_secret / save_secret / clear_secret` giữ token Notion trong kho khoá của hệ điều hành, hoặc trong bộ nhớ ở chế độ
+  thử (`cloud.mode = memory`); `Env::notion_client(token)` theo `cloud.notion.base_url` khi có.
+
 ### Danh sách thuộc tính
 
 `property_list(PropertyList::new(layout, defs, values, PropertyEdits::new(on_layout, on_value, on_def)).builtin(|field| ..))`.
@@ -106,6 +124,22 @@ Cả ba hàm đọc (`layout`, `defs` gồm cả thuộc tính đã lưu trữ, 
 cập nhật cái mà hàm đọc trả về, hàng sẽ theo. Thuộc tính có sẵn do màn vẽ trong `.builtin(..)` (trả `None` thì hiện dấu
 gạch). Đổi kiểu chuyển giá trị của **lệnh đang sửa** bằng `form::convert` (hỏi `alert_dialog` nếu mất dữ liệu); các lệnh
 khác do `on_def` của màn xử lý (màn Tuỳ biến form).
+
+### Chia sẻ kết quả và báo cáo PDF tháng
+
+- **Mở hộp thoại chia sẻ:** `pages::share::open(ShareTarget::Trade(key))` hoặc `ShareTarget::Period(Period::Week | Month, start)`;
+  `share::host()` (gắn một lần trong `shell`) hiện `dialog()` giống popup kế hoạch. Nút "Chia sẻ" có ở chi tiết lệnh (tắt khi lệnh còn mở)
+  và ở header Tổng kết & xem lại.
+- **Ảnh dựng trong `core`, không phải trong NSH:** `core::report::render_png(&ShareCard)` dựng SVG rồi rasterize bằng `resvg` với font đóng gói
+  (Inter, JetBrains Mono từ `app/assets/fonts/`, `include_bytes!` ở `core/src/report/fonts.rs`); ảnh luôn theo giao diện tối của thiết kế.
+  Hộp thoại dựng lại thẻ trên luồng `blocking` mỗi khi lựa chọn hoặc dữ liệu đổi, chỉ giữ bản mới nhất, ghi PNG ra file tạm để `image` hiện
+  (file tự xoá khi ảnh bị thay) và giữ byte trong bộ nhớ cho "Lưu ảnh" (`pick_save_path`) và "Sao chép ảnh" (`set_clipboard_image`).
+- **Quyền riêng tư:** `report::Privacy` (`ShowMoney` / `OnlyR` / `NoFigures`) quyết định số nào vào thẻ và PDF ngay trong `core`; UI chỉ chọn mức.
+- **Tuần / tháng đọc từ snapshot:** `month_report::period_figures` (thẻ) và `month_report::build` (PDF) là hàm thuần trên `Snapshot` (có thêm
+  `start_balance` và `cash`) cùng `month_report::Extras` đọc bằng `load_extras` (lệnh bỏ lỡ, tên lý do, tổng kết tháng).
+- **Xuất PDF:** `share::export_pdf(report, privacy, done)` hỏi nơi lưu rồi ghi bằng `report::write_pdf` trên luồng `blocking`; dùng ở hộp thoại
+  chia sẻ tháng và ở thẻ "Báo cáo tháng" của Tổng kết (tab Tháng).
+- Icon `Icon::Copy` thêm cho "Sao chép ảnh".
 
 ### Tuỳ biến form, popup kế hoạch, nhập lệnh tay
 
@@ -156,3 +190,36 @@ làm nên `Zone`, nằm trong `Snapshot::zone` (đọc lại khi cài đặt đ�
 `Db` (`account_trades::load`) dùng `zone::time_display` và `AccountTrades::today(now_utc_ms)`.
 Mở Nhật ký ngày ở một ngày khác (kết quả tìm, nút "Mở nhật ký ngày" ở Lịch): `nav::show_journal_day(day, account_id)`; màn
 Nhật ký ngày đọc `nav::requested_journal_day()` rồi gọi `nav::take_journal_day()`.
+
+### Test không đầu (`app/tests/`)
+
+- Dùng chung `tests/support/mod.rs`: `Fixture` (thư mục dữ liệu tạm có DB, **tự dọn bằng `Drop` có thử lại** vì engine đóng DB sau
+  khi test bỏ `app`, và Windows không xoá được file đang mở), một hằng `WAIT` (30 giây, chỉ tốn khi điều kiện chưa đúng) và
+  `wait_until` để chờ thứ màn hình không cho thấy (DB, file). Không dùng `sleep` hay timeout 5 giây rải rác.
+- Chờ **trạng thái đích**, không chờ thời gian: trang tải dữ liệu rồi mới dựng form (Nhật ký ngày chờ `label:Kế hoạch ngày`, vì gõ
+  trước khi đọc xong thì chữ gõ bị ghi đè); bấm nút mà trang đang vẽ lại có thể mất lần bấm, nên bấm lại tới khi trạng thái đích
+  hiện (`press_until`, `toggle_on`), không bao giờ bấm lại công tắc đã bật.
+- Một ghi ở nền mà test đọc DB ngay phải xong **trong một transaction**: `save_playbook`, `save_missed_trade`, `save_review` ghi cả
+  chỉ mục tìm kiếm cùng lúc, nên thấy dòng là tìm được dòng.
+- Thứ tự drop trong test: DB mở trước thư mục chứa nó (`struct { db, dir }`, không phải `{ dir, db }`).
+
+### Câu hỏi xác nhận, con trỏ, lịch chọn ngày, dữ liệu không đủ
+
+- **Hỏi rồi mới làm: `controls::confirm_then(owner, tiêu đề, mô tả, nhãn, then)`**, không `spawn(async { confirm(..).await })` trong
+  trình xử lý nút. Tác vụ khởi từ nút thuộc owner của nút; thẻ chứa nút nằm trong `dynamic` bị dựng lại mỗi lần state đổi và
+  huỷ tác vụ trước khi hộp thoại hiện (đăng xuất, khôi phục, xoá thuộc tính, xoá playbook / lệnh bỏ lỡ đều từng bị). `owner` lấy lúc
+  dựng bằng `controls::root_owner()` (Workspace gọi `provide_root_owner()`), hoặc `Cloud::confirm_sign_out` / `confirm_restore`.
+  Việc trong `then` chạm signal của phần có thể đã dựng lại thì dùng `try_set`.
+- **Con trỏ:** mọi thứ bấm được có `.cursor_pointer()` trong component (`button_shell`, `sidebar_row`, `tab`, `toggle`, ô lịch, thẻ chọn,
+  chip chọn, tên thuộc tính, dropzone, ảnh); nút tắt đặt `Cursor::Default` trong `disabled_style`; tay nắm kéo là `Cursor::Grab`.
+  Component mới dùng `button()` / `toggle()` / `tab()` phải thêm `.cursor_pointer()`. Test không đầu đọc con trỏ qua `observe` các
+  `MountItem::ViewStyle` (xem `tests/interaction_fixes.rs`).
+- **Lịch chọn ngày: `ui::date_picker`** (`DatePick::day` / `DatePick::moment` + `date_pick(pick, trigger)` + `date_trigger`), bọc
+  `DatePicker` của `nsh_base`: tuần bắt đầu thứ 2, tên thứ tiếng Việt, tháng / năm, nút "Hôm nay", chấm ở ngày `marking(..)` đánh dấu.
+  Dùng ở Nhật ký ngày, Tổng kết, Lệnh bỏ lỡ, Nhập lệnh tay và thuộc tính kiểu Ngày. Nút ngày có nhãn truy cập là ngày ISO
+  (`role:button[2026-11-15]`). Phím mũi tên / Enter / Escape là của `DatePicker` (NSH có test riêng); test không đầu của app chưa điều khiển được.
+- **Dữ liệu không đủ:** deal mang `Gaps` (`TIME`, `VOLUME`, `PRICE`) do importer ghi; `Trade::money_known / volume_known / prices_known /
+  time_known / hold_secs / origin` là quy tắc duy nhất, màn không tự suy từ giá trị (lot 1, giá 0, 00:00). Số liệu nhiều lệnh đi qua
+  `metrics::Basis` (`unit()` là R khi không lệnh nào có tiền; `money_note()` khi trộn). Màn mới có số tiền phải chọn đơn vị bằng nó.
+- **Gốc ứng dụng:** `nsh_app_tradelens::root()` (id và `window` đọc từ `nsh.json`) là thứ `main.rs` chạy; `App` trả thẳng `Workspace`,
+  không bọc `window()` (sẽ mở cửa sổ thứ hai). Thư mục dữ liệu là `%APPDATA%\vn.dat.tradelens`; `store::adopt_earlier_data` chép bản cũ từ `default`.

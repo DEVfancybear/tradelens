@@ -95,6 +95,8 @@ mod tests {
             fee: 0.0,
             profit,
             risk: None,
+            result_r: None,
+            gaps: crate::model::Gaps::NONE,
             magic: 0,
             comment: String::new(),
             manual: false,
@@ -108,7 +110,7 @@ mod tests {
             Playbook { id: 3, name: "Pullback EMA".into(), ..Playbook::default() },
         ];
         let trades = [trade(1, 100.0), trade(2, -50.0), trade(3, 80.0), trade(4, -20.0)];
-        let samples: Vec<Sample<'_>> = trades.iter().map(|t| Sample { trade: t, r: None }).collect();
+        let samples: Vec<Sample<'_>> = trades.iter().map(|t| Sample { trade: t, r: t.result_r }).collect();
         let link = |x: &Sample<'_>| match x.trade.key.position_id {
             1 | 2 => Some(7),
             3 => Some(3),

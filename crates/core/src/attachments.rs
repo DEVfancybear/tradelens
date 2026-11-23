@@ -76,13 +76,33 @@ fn import_one(file: &Path, store: &Path, now_ms: i64) -> Result<Attachment, Atta
         return Err(AttachError::TooLarge { name });
     }
     let bytes = fs::read(file).map_err(io)?;
-    let relative = format!("{}/{:016x}.{extension}", "images", content_hash(&bytes));
+    import_bytes(&name, &bytes, store, now_ms)
+}
+
+/// Stores an image that is already in memory (one read out of an archive) under the name made from
+/// its content, as [`import`] does for a file. `name` gives the extension and names the image in
+/// errors.
+///
+/// # Errors
+///
+/// [`AttachError::NotAnImage`] for another extension, [`AttachError::TooLarge`] over
+/// [`MAX_IMAGE_BYTES`], [`AttachError::Io`] when the store cannot be written.
+pub fn import_bytes(name: &str, bytes: &[u8], store: &Path, now_ms: i64) -> Result<Attachment, AttachError> {
+    let io = |source| AttachError::Io { name: name.to_owned(), source };
+    let extension = Path::new(name).extension().map_or_default(|e| e.to_string_lossy().to_ascii_lowercase());
+    if !IMAGE_EXTENSIONS.contains(&extension.as_str()) {
+        return Err(AttachError::NotAnImage { name: name.to_owned() });
+    }
+    if u64::try_from(bytes.len()).is_ok_and(|size| size > MAX_IMAGE_BYTES) {
+        return Err(AttachError::TooLarge { name: name.to_owned() });
+    }
+    let relative = format!("{}/{:016x}.{extension}", "images", content_hash(bytes));
     let target = store.join(&relative);
     if !target.exists() {
         if let Some(dir) = target.parent() {
             fs::create_dir_all(dir).map_err(io)?;
         }
-        fs::write(&target, &bytes).map_err(io)?;
+        fs::write(&target, bytes).map_err(io)?;
     }
     Ok(Attachment { path: relative, caption: String::new(), timeframe: None, source: Source::Upload, added_at: now_ms })
 }

@@ -5,7 +5,7 @@
 use chrono::{Datelike, NaiveDate, Weekday};
 use nsh_base::{button, theme};
 use nsh_core::prelude::*;
-use tradelens_core::metrics::{CalendarDay, CalendarWeek, DayStat};
+use tradelens_core::metrics::{CalendarDay, CalendarWeek, DayStat, Unit};
 
 use super::{
     chips::Tone,
@@ -31,7 +31,7 @@ impl Figure {
 
     pub(crate) fn label(self) -> &'static str {
         match self {
-            Self::Net => "Net $",
+            Self::Net => "Kết quả",
             Self::R => "R",
             Self::Trades => "Số lệnh",
         }
@@ -63,7 +63,7 @@ fn tone_of(net: f64) -> Tone {
 }
 
 fn fill(day: &CalendarDay) -> AdaptiveColor {
-    match day.stat.map(|s| tone_of(s.net)) {
+    match day.stat.map(|s| tone_of(s.result())) {
         Some(Tone::Profit) => profit_soft(),
         Some(Tone::Loss) => loss_soft(),
         _ => theme().background,
@@ -71,16 +71,18 @@ fn fill(day: &CalendarDay) -> AdaptiveColor {
 }
 
 fn edge(day: &CalendarDay) -> AdaptiveColor {
-    match day.stat.map(|s| tone_of(s.net)) {
+    match day.stat.map(|s| tone_of(s.result())) {
         Some(Tone::Profit) => profit().opacity(0.45),
         Some(Tone::Loss) => loss().opacity(0.45),
         _ => theme().border,
     }
 }
 
-/// The big figure of a day and its tone.
+/// The big figure of a day and its tone. A day whose trades have no money shows its R where the
+/// money would be, never an amount of zero.
 fn figure_of(stat: &DayStat, figure: Figure, currency: &str) -> (String, Tone) {
     match figure {
+        Figure::Net if stat.unit() == Unit::R => figure_of(stat, Figure::R, currency),
         Figure::Net => (format::money_whole(stat.net, Sign::Always, currency), tone_of(stat.net)),
         Figure::R if stat.r_trades > 0 => (format::r_text(Some(stat.r)), tone_of(stat.r)),
         Figure::R => ("—".to_owned(), Tone::Neutral),
@@ -100,10 +102,26 @@ fn is_weekend(date: NaiveDate) -> bool {
     matches!(date.weekday(), Weekday::Sat | Weekday::Sun)
 }
 
+/// The weekly total as the cells show their days: money, R, or the number of trades, with its tone.
+/// A week whose trades have no money shows its R where the money would be.
+fn week_figure(week: &CalendarWeek, figure: Figure, currency: &str) -> (String, Tone) {
+    if week.trades == 0 {
+        return ("—".to_owned(), Tone::Neutral);
+    }
+    match figure {
+        Figure::Net if week.unit == Unit::R => (format::r_text(Some(week.r)), tone_of(week.r)),
+        Figure::Net => (format::money_whole(week.net, Sign::Always, currency), tone_of(week.net)),
+        Figure::R => (format::r_text(Some(week.r)), tone_of(week.r)),
+        Figure::Trades => (format!("{} lệnh", week.trades), Tone::Neutral),
+    }
+}
+
 /// The weekly total at the right of a full row.
-fn week_total(week: &CalendarWeek, currency: &str) -> impl IntoElement + use<> {
-    let net = if week.trades == 0 { "—".to_owned() } else { format::money_whole(week.net, Sign::Always, currency) };
-    let tone = if week.trades == 0 { Tone::Neutral } else { tone_of(week.net) };
+fn week_total(week: &CalendarWeek, figure: Signal<Figure>, currency: &str) -> impl IntoElement + use<> {
+    let (week_a, week_b, currency_a, currency_b) =
+        (week.clone(), week.clone(), currency.to_owned(), currency.to_owned());
+    let net = move || week_figure(&week_a, figure.get(), &currency_a).0;
+    let tone = move || week_figure(&week_b, figure.get(), &currency_b).1;
     view()
         .w(px(TOTAL_WIDTH))
         .h(px(CELL_HEIGHT))
@@ -121,7 +139,7 @@ fn week_total(week: &CalendarWeek, currency: &str) -> impl IntoElement + use<> {
                 .font_family(tokens::mono)
                 .tabular_nums()
                 .number_of_lines(1)
-                .text_color(move || ink(tone)),
+                .text_color(move || ink(tone())),
         )
         .child(text(format!("{} lệnh", week.trades)).text_xs().text_color(move || theme().muted_foreground))
 }
@@ -174,6 +192,7 @@ fn day_cell(
         None => body,
     };
     button()
+        .cursor_pointer()
         .on_press(move || on_pick(date))
         .accessibility_label(format!("Xem ngày {}", date.format("%d/%m")))
         .flex_1()
@@ -220,7 +239,7 @@ pub(crate) fn month_grid(
                     .flex_row()
                     .gap_2()
                     .children(week.days.iter().map(|&day| day_cell(day, figure, selected, &currency, today, on_pick)))
-                    .child(week_total(week, &currency))
+                    .child(week_total(week, figure, &currency))
             }))
         })
     }))
@@ -243,11 +262,12 @@ pub(crate) fn mini_month(weeks: impl Fn() -> Vec<CalendarWeek> + 'static, today:
             view().gap_1().children(weeks.iter().map(|week| {
                 view().flex_row().gap_1().children(week.days.iter().filter(|d| !is_weekend(d.date)).map(|&day| {
                     let label = match day.stat {
+                        Some(stat) if stat.unit() == Unit::R => format::r_text(Some(stat.r)),
                         Some(stat) => format::money_whole(stat.net, Sign::Always, "").replace('$', ""),
                         None if day.in_month => "·".to_owned(),
                         None => String::new(),
                     };
-                    let tone = day.stat.map_or(Tone::Neutral, |s| tone_of(s.net));
+                    let tone = day.stat.map_or(Tone::Neutral, |s| tone_of(s.result()));
                     view()
                         .flex_1()
                         .min_w(px(0.0))
@@ -288,7 +308,7 @@ mod tests {
     use super::*;
 
     fn stat(net: f64, trades: usize, wins: usize) -> DayStat {
-        DayStat { net, trades, wins, r: 1.6, r_trades: 2 }
+        DayStat { net, trades, wins, r: 1.6, r_trades: 2, money_trades: trades }
     }
 
     #[test]
@@ -300,6 +320,29 @@ mod tests {
         assert_eq!(note_of(&s, Figure::Net), "2/3 lệnh thắng");
         let no_r = DayStat { r_trades: 0, ..s };
         assert_eq!(figure_of(&no_r, Figure::R, "USD").0, "—");
+    }
+
+    #[test]
+    fn a_day_and_a_week_without_money_show_their_r_where_the_money_would_be() {
+        let r_day = DayStat { net: 0.0, trades: 2, wins: 1, r: 1.5, r_trades: 2, money_trades: 0 };
+        assert_eq!(figure_of(&r_day, Figure::Net, "USD"), ("+1.5R".to_owned(), Tone::Profit));
+        assert_eq!(figure_of(&r_day, Figure::Trades, "USD").0, "2 lệnh");
+        let week = CalendarWeek {
+            days: std::array::from_fn(|i| CalendarDay {
+                date: NaiveDate::from_ymd_opt(2026, 4, 13).expect("a date")
+                    + chrono::Days::new(u64::try_from(i).expect("a small index")),
+                in_month: true,
+                stat: None,
+            }),
+            net: 0.0,
+            r: -0.4,
+            trades: 3,
+            unit: Unit::R,
+        };
+        assert_eq!(week_figure(&week, Figure::Net, "USD"), ("−0.4R".to_owned(), Tone::Loss));
+        assert_eq!(week_figure(&week, Figure::Trades, "USD").0, "3 lệnh");
+        let money_week = CalendarWeek { unit: Unit::Money, net: 120.0, ..week };
+        assert_eq!(week_figure(&money_week, Figure::Net, "USD").0, "+$120");
     }
 
     #[test]

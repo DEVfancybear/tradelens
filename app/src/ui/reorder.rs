@@ -25,6 +25,7 @@ pub fn drag_handle(
         .role(AccessibilityRole::Button)
         .label(label)
         .focusable(true)
+        .cursor(nsh_core::Cursor::Grab)
         .on_press(|| {})
         .on_pan_end(move |event: &PanEvent| {
             if !event.cancelled {

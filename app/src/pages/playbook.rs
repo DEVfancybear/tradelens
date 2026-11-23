@@ -9,7 +9,6 @@ use tradelens_core::{
     catalog::{CatalogItem, CatalogKind},
     metrics::{self, Group, Sample},
     playbook::{self, Playbook},
-    search,
 };
 
 use crate::{
@@ -20,7 +19,9 @@ use crate::{
     trade_list::Filter,
     ui::{
         chips::{Tone, chip, pnl_text},
-        controls::{Variant, action, action_icon, action_icon_when, confirm, tag_picker, text_field, textarea},
+        controls::{
+            Variant, action, action_icon, action_icon_when, confirm_then, root_owner, tag_picker, text_field, textarea,
+        },
         forms::{NumberRange, number_field},
         gallery::gallery,
         icons::{Icon, icon},
@@ -327,11 +328,9 @@ fn set_examples(db: &mut Db, id: i64, examples: Vec<tradelens_core::attachments:
     Ok(())
 }
 
-/// Stores a setup at `position` and refreshes what the search knows of it.
+/// Stores a setup at `position`; the search index is refreshed by the same write.
 pub(super) fn save_indexed(db: &mut Db, setup: &Playbook, position: usize) -> Result<i64, DbError> {
-    let id = db.save_playbook(setup, i32::try_from(position).unwrap_or(i32::MAX))?;
-    db.index_document(&search::playbook_document(&Playbook { id, ..setup.clone() }))?;
-    Ok(id)
+    db.save_playbook(setup, i32::try_from(position).unwrap_or(i32::MAX))
 }
 
 fn title_row(
@@ -685,15 +684,15 @@ fn edit_form(base: Draft, editing: Signal<Option<Draft>>, timeframes: Reading<Ve
             },
         );
     };
+    // The question is the root's task: this form is built again when the data is read again.
+    let asker = root_owner();
     let remove = move || {
-        spawn(async move {
-            let sure = confirm(
-                "Xoá playbook?",
-                "Các lệnh đã gắn setup này sẽ thành “Setup đã xoá” trong thống kê. Không hoàn tác được.",
-                "Xoá hẳn",
-            )
-            .await;
-            if sure {
+        confirm_then(
+            asker,
+            "Xoá playbook?",
+            "Các lệnh đã gắn setup này sẽ thành “Setup đã xoá” trong thống kê. Không hoàn tác được.",
+            "Xoá hẳn",
+            move || {
                 write.run(
                     move |db| db.delete_playbook(id),
                     move |result| match result {
@@ -704,8 +703,8 @@ fn edit_form(base: Draft, editing: Signal<Option<Draft>>, timeframes: Reading<Ve
                         Err(message) => error.set(Some(message)),
                     },
                 );
-            }
-        });
+            },
+        );
     };
     view()
         .p_5()
@@ -875,6 +874,8 @@ mod tests {
             gross_loss: -2.0,
             total_r: 2.0,
             r_trades: 4,
+            r_profit: 2.0,
+            r_loss: 0.0,
         };
         assert_eq!(counts_line(Some(&group)), "4 lệnh · 75% thắng · Kỳ vọng +0.50R");
     }

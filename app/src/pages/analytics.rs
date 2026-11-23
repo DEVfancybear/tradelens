@@ -5,7 +5,10 @@ use std::sync::Arc;
 
 use nsh_base::theme;
 use nsh_core::prelude::*;
-use tradelens_core::metrics::Group;
+use tradelens_core::{
+    metrics::{Group, MistakeCost, Unit},
+    time::TimeDisplay,
+};
 
 use super::account_picker::account_picker;
 use crate::{
@@ -100,10 +103,7 @@ fn content(tab: Tab, cx: Cx) -> impl IntoElement {
         .into_element(),
         Tab::Time => columns(
             view().gap_6().child(heat_card(cx)).child(weekday_card(cx)),
-            view()
-                .gap_6()
-                .child(session_card(cx))
-                .child(table_card("Theo giờ vào lệnh", "Giờ", cx, |a| &a.by_hour)),
+            view().gap_6().child(session_card(cx)).child(hour_card(cx)),
         )
         .into_element(),
         Tab::Setup => columns(
@@ -135,21 +135,53 @@ impl Cx {
     fn money(self, value: f64, sign: Sign) -> String {
         format::money(value, sign, &self.currency())
     }
+
+    /// The unit every figure of the page is in: R when none of the trades has money.
+    fn unit(self) -> Unit {
+        self.a.with(|a| a.unit())
+    }
+
+    /// A result as the page's unit shows it: the money, or the R.
+    fn result(self, money: f64, r: f64) -> String {
+        match self.unit() {
+            Unit::Money => self.money(money, Sign::Always),
+            Unit::R => format::r_text(Some(r)),
+        }
+    }
+
+    /// The title of the column of results.
+    fn result_title(self) -> &'static str {
+        match self.unit() {
+            Unit::Money => "Net",
+            Unit::R => "Tổng R",
+        }
+    }
 }
 
-/// The rows of a breakdown table: every figure formatted for the screen.
-fn rows_of(groups: &[Group], currency: &str) -> Vec<BreakdownRow> {
+/// The rows of a breakdown table: every figure formatted for the screen, in `unit`.
+fn rows_of(groups: &[Group], currency: &str, unit: Unit) -> Vec<BreakdownRow> {
     groups
         .iter()
         .map(|g| BreakdownRow {
             name: g.label.clone(),
             trades: g.trades.to_string(),
             win_rate: format::percent(g.win_rate()),
-            net: format::money(g.net, Sign::Always, currency),
-            profit_factor: format::ratio(g.profit_factor()),
+            net: match unit {
+                Unit::Money => format::money(g.net, Sign::Always, currency),
+                Unit::R => format::r_text(Some(g.total_r)),
+            },
+            profit_factor: format::ratio(match unit {
+                Unit::Money => g.profit_factor(),
+                Unit::R => g.profit_factor_r(),
+            }),
             avg_r: format::r_average(g.avg_r()),
         })
         .collect()
+}
+
+/// What to say under the hour and session figures about the trades they leave out.
+fn time_note(a: &Analysis) -> Option<String> {
+    (a.time_unknown > 0).then(|| format!("{} lệnh không có giờ vào, không tính ở đây", a.time_unknown))
 }
 
 fn table_card(
@@ -162,14 +194,15 @@ fn table_card(
         title,
         breakdown_table(
             name_title,
-            move || cx.a.with(|a| rows_of(pick(a), &cx.currency())),
+            move || cx.result_title(),
+            move || cx.a.with(|a| rows_of(pick(a), &cx.currency(), a.unit())),
             "Chưa có lệnh nào trong khoảng này",
         ),
     )
 }
 
 /// The hour-by-weekday grid of net results by entry time.
-fn heat_grid_of(cells: &[HeatCell], currency: &str) -> HeatGrid {
+fn heat_grid_of(cells: &[HeatCell], currency: &str, unit: Unit) -> HeatGrid {
     let first = cells.iter().map(|c| c.hour).min().unwrap_or(HEAT_FIRST_HOUR).min(HEAT_FIRST_HOUR);
     let last = cells.iter().map(|c| c.hour).max().unwrap_or(HEAT_LAST_HOUR).max(HEAT_LAST_HOUR);
     let weekend = cells.iter().any(|c| c.weekday >= 5);
@@ -182,11 +215,14 @@ fn heat_grid_of(cells: &[HeatCell], currency: &str) -> HeatGrid {
                 .map(|hour| {
                     let cell = cells.iter().find(|c| usize::try_from(c.weekday) == Ok(weekday) && c.hour == hour)?;
                     Some(HeatValue {
-                        value: cell.net,
+                        value: cell.result(unit),
                         description: format!(
                             "{} {hour:02}:00: {} ({} lệnh)",
                             WEEKDAYS[weekday],
-                            format::money(cell.net, Sign::Always, currency),
+                            match unit {
+                                Unit::Money => format::money(cell.net, Sign::Always, currency),
+                                Unit::R => format::r_text(Some(cell.r)),
+                            },
                             cell.trades
                         ),
                     })
@@ -200,22 +236,64 @@ fn heat_grid_of(cells: &[HeatCell], currency: &str) -> HeatGrid {
 fn heat_card(cx: Cx) -> impl IntoElement {
     let hint = move || {
         cx.a.with(|a| {
-            let Some(((best, best_net), (worst, worst_net))) = insight::hour_extremes(a) else {
-                return "Đậm hơn = lãi/lỗ lớn hơn".to_owned();
+            let shown = |value: f64| cx.result(value, value);
+            let mut line = match insight::hour_extremes(a) {
+                Some(((best, best_result), (worst, worst_result))) => format!(
+                    "Đậm hơn = lãi/lỗ lớn hơn · Tốt nhất: {best:02}:00 ({}) · Tệ nhất: {worst:02}:00 ({})",
+                    shown(best_result),
+                    shown(worst_result)
+                ),
+                None => "Đậm hơn = lãi/lỗ lớn hơn".to_owned(),
             };
-            format!(
-                "Đậm hơn = lãi/lỗ lớn hơn · Tốt nhất: {best:02}:00 ({}) · Tệ nhất: {worst:02}:00 ({})",
-                cx.money(best_net, Sign::Always),
-                cx.money(worst_net, Sign::Always)
-            )
+            if let Some(note) = time_note(a) {
+                line.push_str(" · ");
+                line.push_str(&note);
+            }
+            line
         })
     };
+    let clock = move || match cx.store.snapshot().zone.display {
+        TimeDisplay::Local => "giờ của bạn",
+        TimeDisplay::Server => "giờ server",
+    };
     card(
-        "Giờ vào lệnh × thứ (giờ máy)",
+        "Giờ vào lệnh × thứ",
         view()
             .gap_3()
-            .child(heatmap(move || cx.a.with(|a| heat_grid_of(&a.heat, &cx.currency()))))
+            .child(
+                text(move || format!("Tính theo {}", clock())).text_xs().text_color(move || theme().muted_foreground),
+            )
+            .child(dynamic(move || {
+                // No trade has a time of day: a grid of one column of zeros would say nothing.
+                let none = cx.a.with(|a| a.heat.is_empty() && a.time_unknown > 0);
+                if none {
+                    let skipped = cx.a.with(|a| a.time_unknown);
+                    empty_state("Dữ liệu không có giờ vào lệnh", format!("{skipped} lệnh chỉ có ngày")).into_element()
+                } else {
+                    heatmap(move || cx.a.with(|a| heat_grid_of(&a.heat, &cx.currency(), a.unit()))).into_element()
+                }
+            }))
             .child(text(hint).text_xs().text_color(move || theme().muted_foreground)),
+    )
+}
+
+/// The table by hour of entry; trades dated by day only have no hour and are counted apart.
+fn hour_card(cx: Cx) -> impl IntoElement {
+    card(
+        "Theo giờ vào lệnh",
+        view()
+            .gap_3()
+            .child(breakdown_table(
+                "Giờ",
+                move || cx.result_title(),
+                move || cx.a.with(|a| rows_of(&a.by_hour, &cx.currency(), a.unit())),
+                "Dữ liệu không có giờ vào lệnh",
+            ))
+            .child(
+                text(move || cx.a.with(|a| time_note(a)).unwrap_or_default())
+                    .text_xs()
+                    .text_color(move || theme().muted_foreground),
+            ),
     )
 }
 
@@ -231,8 +309,8 @@ fn weekday_card(cx: Cx) -> impl IntoElement {
                             BarItem::signed(
                                 g.label.clone(),
                                 format!("{:.0}% thắng", g.win_rate() * 100.0),
-                                cx.money(g.net, Sign::Always),
-                                g.net,
+                                cx.result(g.net, g.total_r),
+                                a.result_of(g),
                             )
                         })
                         .collect()
@@ -247,31 +325,58 @@ fn weekday_card(cx: Cx) -> impl IntoElement {
 fn session_card(cx: Cx) -> impl IntoElement {
     card(
         "Theo phiên",
-        breakdown_table(
-            "Phiên",
-            move || cx.a.with(|a| rows_of(&a.by_session, &cx.currency())),
-            "Chưa có lệnh nào trong khoảng này",
-        ),
+        view()
+            .gap_3()
+            .child(breakdown_table(
+                "Phiên",
+                move || cx.result_title(),
+                move || cx.a.with(|a| rows_of(&a.by_session, &cx.currency(), a.unit())),
+                "Dữ liệu không có giờ vào lệnh",
+            ))
+            .child(
+                text(move || cx.a.with(|a| time_note(a)).unwrap_or_default())
+                    .text_xs()
+                    .text_color(move || theme().muted_foreground),
+            ),
     )
+}
+
+/// The mistakes' costs ordered and shared out in `unit`: in money as [`tradelens_core::metrics::mistake_cost`]
+/// made them, in R (trades without money) by the R each mistake cost.
+fn in_unit(mut costs: Vec<MistakeCost>, unit: Unit) -> Vec<MistakeCost> {
+    if unit == Unit::R {
+        costs.sort_by(|a, b| a.total_r.total_cmp(&b.total_r));
+        let lost: f64 = costs.iter().map(|c| (-c.total_r).max(0.0)).sum();
+        for cost in &mut costs {
+            cost.share_of_losses = if lost > 0.0 { (-cost.total_r).max(0.0) / lost } else { 0.0 };
+        }
+    }
+    costs
 }
 
 /// What the mistakes cost over the range, the costliest first.
 fn mistake_card(cx: Cx) -> impl IntoElement {
     let store = store();
     let range = store.range;
-    let total = pnl_text(move || cx.a.with(|a| cx.money(a.mistakes.net, Sign::Always)));
+    let total = pnl_text(move || cx.a.with(|a| cx.result(a.mistakes.net, a.mistakes.total_r)));
     let summary = move || {
-        cx.a.with(|a| {
-            format!(
+        cx.a.with(|a| match a.unit() {
+            Unit::Money => format!(
                 "= {} · {} lệnh có gắn lỗi trong {}",
                 format::r_text(Some(a.mistakes.total_r.abs())),
                 a.mistakes.trades,
                 range.get().describe().to_lowercase()
-            )
+            ),
+            Unit::R => {
+                format!("{} lệnh có gắn lỗi trong {}", a.mistakes.trades, range.get().describe().to_lowercase())
+            }
         })
     };
     let note = move || {
         cx.a.with(|a| {
+            if a.unit() == Unit::R {
+                return None;
+            }
             let top = a.mistakes.costs.first().filter(|c| c.net < 0.0)?;
             (a.net > 0.0).then(|| {
                 format!(
@@ -303,7 +408,8 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
                     .child(action("Xem lệnh", Variant::Ghost, move || nav::go(Route::Trades))),
             )
             .child(dynamic(move || {
-                let costs = cx.a.with(|a| a.mistakes.costs.clone());
+                let (costs, unit) = cx.a.with(|a| (a.mistakes.costs.clone(), a.unit()));
+                let costs = in_unit(costs, unit);
                 untracked(|| {
                     if costs.is_empty() {
                         return empty_state(
@@ -313,14 +419,21 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
                         .into_element();
                     }
                     view()
-                        .children(costs.iter().map(|c| {
-                            mistake_cost_bar(
+                        .children(costs.iter().map(|c| match unit {
+                            Unit::Money => mistake_cost_bar(
                                 &c.label,
                                 c.trades,
                                 cx.money(c.net, Sign::Always),
                                 format::r_text(Some(c.total_r)),
                                 c.share_of_losses,
-                            )
+                            ),
+                            Unit::R => mistake_cost_bar(
+                                &c.label,
+                                c.trades,
+                                format::r_text(Some(c.total_r)),
+                                String::new(),
+                                c.share_of_losses,
+                            ),
                         }))
                         .into_element()
                 })
@@ -370,12 +483,12 @@ mod tests {
     use super::*;
 
     fn cell(weekday: u32, hour: u32, net: f64) -> HeatCell {
-        HeatCell { weekday, hour, net, trades: 1 }
+        HeatCell { weekday, hour, net, r: 0.0, trades: 1 }
     }
 
     #[test]
     fn the_heat_grid_covers_the_working_week_and_the_usual_hours() {
-        let grid = heat_grid_of(&[cell(0, 8, 100.0)], "USD");
+        let grid = heat_grid_of(&[cell(0, 8, 100.0)], "USD", Unit::Money);
         assert_eq!(grid.row_labels, ["T2", "T3", "T4", "T5", "T6"]);
         assert_eq!(grid.column_labels.first().map(String::as_str), Some("7"));
         assert_eq!(grid.column_labels.last().map(String::as_str), Some("23"));
@@ -385,7 +498,7 @@ mod tests {
 
     #[test]
     fn the_heat_grid_grows_for_weekends_and_odd_hours() {
-        let grid = heat_grid_of(&[cell(6, 3, -5.0)], "USD");
+        let grid = heat_grid_of(&[cell(6, 3, -5.0)], "USD", Unit::Money);
         assert_eq!(grid.row_labels.len(), 7);
         assert_eq!(grid.column_labels.first().map(String::as_str), Some("3"));
         let sunday = &grid.cells[6];

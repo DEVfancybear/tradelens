@@ -196,7 +196,7 @@ pub(crate) fn accounts() -> impl IntoElement {
     let notice = signal(None::<String>);
     let summary = move || {
         data.value().map_or_else(
-            || SharedString::from("Các tài khoản MT5, quy tắc rủi ro và checklist trước lệnh"),
+            || SharedString::from("Các tài khoản giao dịch, quy tắc rủi ro và checklist trước lệnh"),
             |d| SharedString::from(format!("{} tài khoản · quy tắc rủi ro và checklist trước lệnh", d.accounts.len())),
         )
     };
@@ -214,7 +214,7 @@ pub(crate) fn accounts() -> impl IntoElement {
                     if none {
                         empty_state(
                             "Chưa có tài khoản nào",
-                            "Tài khoản xuất hiện khi EA gửi deal đầu tiên hoặc khi bạn import báo cáo MT5.",
+                            "Tài khoản xuất hiện khi bạn import báo cáo MT5, file Notion hoặc thêm lệnh tay.",
                         )
                         .into_element()
                     } else {
@@ -406,7 +406,7 @@ fn rules_card(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signa
             ))
             .child(rule_row(
                 "Risk tối đa mỗi lệnh",
-                "Theo balance trước lệnh; cần lệnh có SL để EA tính risk",
+                "Theo balance trước lệnh; cần lệnh có SL hoặc risk dự định để tính risk",
                 Some("%"),
                 NumberRange::between(0.1, 100.0).stepping(0.1),
                 DEFAULT_RISK_PCT,
@@ -797,6 +797,8 @@ mod tests {
             sl: 0.0,
             tp: 0.0,
             risk: None,
+            result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
             reason: None,
         }
     }

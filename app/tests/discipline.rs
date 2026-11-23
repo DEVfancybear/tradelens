@@ -3,11 +3,10 @@
 
 mod common;
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use chrono::{Datelike, Local, NaiveDate};
-use nsh_core::{Checked, Size, prelude::px};
-use nsh_engine::{EngineConfig, Root};
+use nsh_core::Checked;
 use nsh_testing::{Headless, Screen};
 use tradelens_core::{
     ChecklistItem, DayNote, Db, Deal, DealBatch, DealEntry, DealKind,
@@ -15,33 +14,28 @@ use tradelens_core::{
     model::AccountInfo,
 };
 
+mod support;
+use support::{WAIT, wait_until};
+
 const HOUR_MS: i64 = 3_600_000;
 
-struct Fixture {
-    dir: tempfile::TempDir,
+struct Fixture(support::Fixture);
+
+impl std::ops::Deref for Fixture {
+    type Target = support::Fixture;
+
+    fn deref(&self) -> &support::Fixture {
+        &self.0
+    }
 }
 
 impl Fixture {
     fn new() -> Self {
-        let dir = tempfile::tempdir().expect("a temp dir");
-        // The app opens the database the tests seed and read.
-        Db::open(dir.path().join("tradelens.db")).expect("the database opens");
-        Self { dir }
+        Self(support::Fixture::new())
     }
 
-    fn db(&self) -> Db {
-        Db::open(self.dir.path().join("tradelens.db")).expect("the database opens")
-    }
-
-    fn start(&self, first_text: &str) -> Headless {
-        let config = EngineConfig {
-            viewport: Size::new(px(1280.0), px(1100.0)),
-            data_dir: Some(self.dir.path().to_path_buf()),
-            ..EngineConfig::new(Root::of::<nsh_app_tradelens::Workspace>())
-        };
-        let mut app = Headless::start(config).expect("the app starts");
-        app.wait_for(first_text).expect("the app opens");
-        app
+    fn start(&self) -> Headless {
+        self.0.start(1280.0, 1100.0, |_| {})
     }
 }
 
@@ -75,6 +69,8 @@ fn deal(ticket: i64, position: i64, at_ms: i64, kind: DealKind, entry: DealEntry
         sl: 0.0,
         tp: 0.0,
         risk: None,
+        result_r: None,
+        gaps: tradelens_core::Gaps::NONE,
         reason: None,
     }
 }
@@ -104,14 +100,6 @@ fn seed_today(db: &mut Db, profit: f64) -> i64 {
     account.id
 }
 
-fn wait_for_database(what: &str, within: Duration, check: impl Fn() -> bool) {
-    let started = Instant::now();
-    while !check() {
-        assert!(started.elapsed() < within, "{what} did not happen within {within:?}");
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}
-
 fn open_accounts(app: &mut Headless) {
     app.press("role:button[Tài khoản & kỷ luật]").expect("the accounts row is a button");
     app.wait_for("Quy tắc kỷ luật").expect("the page opens");
@@ -121,16 +109,14 @@ fn open_accounts(app: &mut Headless) {
 fn saving_the_rules_updates_the_status_of_today() {
     let fixture = Fixture::new();
     let account = seed_today(&mut fixture.db(), -40.0);
-    let mut app = fixture.start("Tổng quan");
+    let mut app = fixture.start();
     open_accounts(&mut app);
     app.wait_for("Chưa bật quy tắc nào: bật ở khối Quy tắc kỷ luật.").expect("no rule is on yet");
 
     app.press("label:Lỗ tối đa trong ngày").expect("the loss rule has a switch");
     app.press("role:button[Lưu quy tắc]").expect("the save button works");
     let db = fixture.db();
-    wait_for_database("the rules being saved", Duration::from_secs(5), || {
-        db.rules(account).expect("rules read").max_daily_loss.is_some()
-    });
+    wait_until("the rules being saved", || db.rules(account).expect("rules read").max_daily_loss.is_some());
     assert_eq!(db.rules(account).expect("rules read").max_daily_loss, Some(300.0));
 
     app.wait_for("Lỗ trong ngày").expect("the status shows the rule that is on now");
@@ -146,7 +132,7 @@ fn a_rule_that_is_broken_is_listed_with_its_day() {
         .db()
         .save_rules(account, &tradelens_core::Rules { max_daily_loss: Some(300.0), ..Default::default() })
         .expect("rules are stored");
-    let mut app = fixture.start("Tổng quan");
+    let mut app = fixture.start();
     open_accounts(&mut app);
     app.wait_for("Lỗ trong ngày 400.00 vượt giới hạn 300.00").expect("the violation is listed");
     app.wait_for("vi phạm · tuân thủ 0.0% số ngày").expect("the day traded was broken");
@@ -167,7 +153,7 @@ fn editing_the_checklist_keeps_the_ids_of_the_items() {
     )
     .expect("the checklist is stored");
     let before = db.checklist(None).expect("reads");
-    let mut app = fixture.start("Tổng quan");
+    let mut app = fixture.start();
     open_accounts(&mut app);
     app.wait_for("Cùng chiều trend H4").expect("the items show");
 
@@ -176,9 +162,7 @@ fn editing_the_checklist_keeps_the_ids_of_the_items() {
     app.type_text("label:Checklist dùng chung: mục mới", "Risk 1.5%").expect("types a new item");
     app.press("role:button[Thêm vào Checklist dùng chung]").expect("adds it");
 
-    wait_for_database("the checklist being saved", Duration::from_secs(5), || {
-        db.checklist(None).expect("reads").len() == 3
-    });
+    wait_until("the checklist being saved", || db.checklist(None).expect("reads").len() == 3);
     let after = db.checklist(None).expect("reads");
     assert_eq!(after[0].id, before[0].id, "the renamed item keeps its id");
     assert_eq!(after[0].text, "Cùng chiều trend H4 (đã sửa)");
@@ -191,13 +175,13 @@ fn editing_the_checklist_keeps_the_ids_of_the_items() {
 fn account_details_are_saved() {
     let fixture = Fixture::new();
     let account = seed_today(&mut fixture.db(), 5.0);
-    let mut app = fixture.start("Tổng quan");
+    let mut app = fixture.start();
     open_accounts(&mut app);
     app.wait_for("Thông tin tài khoản").expect("the details card shows");
     app.type_text("label:Tên hiển thị", "IC Markets").expect("types a name");
     app.press("role:button[Lưu thông tin]").expect("saves");
     let db = fixture.db();
-    wait_for_database("the account being renamed", Duration::from_secs(5), || {
+    wait_until("the account being renamed", || {
         db.accounts().expect("reads").iter().any(|a| a.id == account && a.name == "IC Markets")
     });
     assert_eq!(db.accounts().expect("reads")[0].server_offset_min, Some(0), "the server offset is kept as it was");
@@ -207,6 +191,8 @@ fn account_details_are_saved() {
 fn open_journal(app: &mut Headless) {
     app.press("role:button[Nhật ký ngày]").expect("the journal row is a button");
     app.wait_for("Kế hoạch và tổng kết").expect("the page opens");
+    // The form appears once the day is read; typing before would be overwritten by what was read.
+    app.wait_for("label:Kế hoạch ngày").expect("the day is read and the form is there");
 }
 
 #[test]
@@ -215,25 +201,21 @@ fn a_daily_note_is_saved_and_comes_back_on_the_next_run() {
     seed_today(&mut fixture.db(), 25.0);
     let today = Local::now().date_naive();
     {
-        let mut app = fixture.start("Tổng quan");
+        let mut app = fixture.start();
         open_journal(&mut app);
         app.wait_for("Lệnh trong ngày").expect("the day's trades card shows");
         app.wait_for("+$25.00").expect("the day's result shows");
         app.type_text("label:Kế hoạch ngày", "Chờ tin 19:30, không vào lệnh trước đó").expect("types the plan");
         app.press("role:button[Lưu nhật ký]").expect("saves");
         let db = fixture.db();
-        wait_for_database("the note being saved", Duration::from_secs(5), || {
-            db.day_note(0, today).expect("reads").plan.starts_with("Chờ tin")
-        });
-        app.wait_until("the saved note", Duration::from_secs(5), |screen| {
-            screen.texts().iter().any(|t| t.starts_with("Đã lưu lúc"))
-        })
-        .expect("the page says when");
+        wait_until("the note being saved", || db.day_note(0, today).expect("reads").plan.starts_with("Chờ tin"));
+        app.wait_until("the saved note", WAIT, |screen| screen.texts().iter().any(|t| t.starts_with("Đã lưu lúc")))
+            .expect("the page says when");
     }
-    let mut again = fixture.start("Tổng quan");
+    let mut again = fixture.start();
     open_journal(&mut again);
     again
-        .wait_until("the plan back in its box", Duration::from_secs(5), |screen| {
+        .wait_until("the plan back in its box", WAIT, |screen| {
             screen.input_text("label:Kế hoạch ngày") == Ok(Some("Chờ tin 19:30, không vào lệnh trước đó"))
         })
         .expect("the plan is there again");
@@ -259,16 +241,14 @@ fn the_form_of_the_day_shows_the_traders_own_properties() {
             archived: false,
         })
         .expect("a day property is defined");
-    let mut app = fixture.start("Tổng quan");
+    let mut app = fixture.start();
     open_journal(&mut app);
     app.wait_for("Giấc ngủ").expect("the property is in the form");
     app.type_text("label:Giấc ngủ", "7 tiếng").expect("types a value");
     app.press("role:button[Lưu nhật ký]").expect("saves");
     let db = fixture.db();
     let today = Local::now().date_naive();
-    wait_for_database("the value being saved", Duration::from_secs(5), || {
-        !db.day_values(0, today).expect("reads").is_empty()
-    });
+    wait_until("the value being saved", || !db.day_values(0, today).expect("reads").is_empty());
     assert_eq!(
         db.day_values(0, today).expect("reads").get("sleep"),
         Some(&tradelens_core::catalog::FieldValue::Text("7 tiếng".into()))
@@ -280,27 +260,25 @@ fn going_to_another_day_saves_the_edits_of_this_one() {
     let fixture = Fixture::new();
     seed_today(&mut fixture.db(), 5.0);
     let today = Local::now().date_naive();
-    let mut app = fixture.start("Tổng quan");
+    let mut app = fixture.start();
     open_journal(&mut app);
     app.type_text("label:Tổng kết cuối ngày", "Giữ kỷ luật").expect("types the review");
     app.press("role:button[Ngày trước]").expect("goes to yesterday");
     let db = fixture.db();
-    wait_for_database("the review being saved on leaving", Duration::from_secs(5), || {
-        db.day_note(0, today).expect("reads").review == "Giữ kỷ luật"
-    });
+    wait_until("the review being saved on leaving", || db.day_note(0, today).expect("reads").review == "Giữ kỷ luật");
 }
 
 #[test]
 fn settings_are_kept_in_the_database() {
     let fixture = Fixture::new();
-    let mut app = fixture.start("Tổng quan");
+    let mut app = fixture.start();
     app.press("role:button[Cài đặt]").expect("the settings row is a button");
     app.wait_for("Chế độ màu").expect("the page opens");
 
     common::toggle_on(&mut app, "role:button[Chế độ màu: Sáng]");
     common::toggle_on(&mut app, "role:button[Giờ hiển thị: Giờ server]");
     let db = fixture.db();
-    wait_for_database("the settings being saved", Duration::from_secs(5), || {
+    wait_until("the settings being saved", || {
         db.setting("appearance").expect("reads").as_deref() == Some("light")
             && db.setting("time_display").expect("reads").as_deref() == Some("server")
     });
@@ -314,7 +292,7 @@ fn opening_a_day_of_the_calendar_shows_that_days_journal() {
     let day = first_of_month.pred_opt().expect("a day before").with_day(15).expect("every month has a 15th");
     let note = DayNote { plan: "Ghi chú của ngày cũ".into(), ..DayNote::default() };
     fixture.db().save_day_note(0, day, &note).expect("the note is stored");
-    let mut app = fixture.start("Tổng quan");
+    let mut app = fixture.start();
 
     app.press("role:button[Lịch P/L]").expect("the calendar row is a button");
     app.wait_for("Tháng này").expect("the page opens");
@@ -333,7 +311,7 @@ fn opening_a_day_of_the_calendar_shows_that_days_journal() {
     app.press("role:button[Mở nhật ký ngày]").expect("opens its journal");
 
     app.wait_for("Kế hoạch và tổng kết").expect("the day journal opens");
-    app.wait_until("the day's note", Duration::from_secs(5), |screen| {
+    app.wait_until("the day's note", WAIT, |screen| {
         screen.input_text("label:Kế hoạch ngày") == Ok(Some("Ghi chú của ngày cũ"))
     })
     .expect("the note of the day asked for is there, not today's");
@@ -371,7 +349,7 @@ fn the_time_display_setting_changes_the_times_the_pages_show() {
     let on_machine = (closed_on_server - chrono::Duration::minutes(180)).format("%d/%m %H:%M").to_string();
     assert_ne!(on_server, on_machine);
 
-    let mut app = fixture.start("Tổng quan");
+    let mut app = fixture.start();
     app.press("role:button[Lệnh]").expect("the trades row is a button");
     app.wait_for(&on_machine).expect("the trade's time is on the trader's clock");
 
@@ -380,7 +358,7 @@ fn the_time_display_setting_changes_the_times_the_pages_show() {
     common::toggle_on(&mut app, "role:button[Giờ hiển thị: Giờ server]");
     app.press("role:button[Lệnh]").expect("back to the trades");
     app.wait_for(&on_server).expect("the same trade now shows the time MT5 reports");
-    app.wait_for_gone(&on_machine, Duration::from_secs(5)).expect("and no longer the machine's");
+    app.wait_for_gone(&on_machine, WAIT).expect("and no longer the machine's");
 
     app.press("role:button[Cài đặt]").expect("the settings row is a button");
     // Until the stored choice is read the switch shows the default, the trader's clock, and

@@ -59,6 +59,8 @@ fn price_gap(gap: f64) -> String {
 pub(crate) fn plan_rows(plan: &EntryPlan, trade: &Trade, currency: &str) -> Vec<PlanRow> {
     let review = journal::review(plan, trade);
     let row = |label, planned: String, actual: String, gap: String, tone| PlanRow { label, planned, actual, gap, tone };
+    // A trade whose source gave no prices has nothing to set the plan against.
+    let known = |shown: String| if trade.prices_known() { shown } else { NONE.to_owned() };
 
     let (entry_gap, entry_tone) = match review.entry_slippage {
         Some(slip) if slip.abs() > f64::EPSILON => {
@@ -87,9 +89,9 @@ pub(crate) fn plan_rows(plan: &EntryPlan, trade: &Trade, currency: &str) -> Vec<
         _ => (NONE.to_owned(), Tone::Neutral),
     };
     vec![
-        row("Giá vào", planned_price(plan.entry), format::price(trade.open_price), entry_gap, entry_tone),
-        row("Stop loss", planned_price(plan.stop_loss), format::level(trade.sl), stop_gap, stop_tone),
-        row("Take profit", planned_price(plan.take_profit), format::level(trade.tp), target_gap, Tone::Neutral),
+        row("Giá vào", planned_price(plan.entry), known(format::price(trade.open_price)), entry_gap, entry_tone),
+        row("Stop loss", planned_price(plan.stop_loss), known(format::level(trade.sl)), stop_gap, stop_tone),
+        row("Take profit", planned_price(plan.take_profit), known(format::level(trade.tp)), target_gap, Tone::Neutral),
         row("R:R", planned_rr, format::r_text(review.realised_r), NONE.to_owned(), Tone::Neutral),
         row(
             "Risk",
@@ -249,6 +251,8 @@ mod tests {
             fee: 0.0,
             profit: 0.0,
             risk: Some(195.0),
+            result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
             magic: 0,
             comment: String::new(),
             manual: false,

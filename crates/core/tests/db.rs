@@ -48,6 +48,8 @@ fn deal(ticket: i64, position: i64, at: &str, kind: DealKind, entry: DealEntry, 
         sl: 0.0,
         tp: 0.0,
         risk: None,
+        result_r: None,
+        gaps: tradelens_core::Gaps::NONE,
         reason: None,
     }
 }
@@ -397,23 +399,39 @@ fn a_journal_entry_round_trips_every_field_and_is_logged_for_sync() {
     db.save_journal(&key, &entry).unwrap();
     assert_eq!(db.journal(&key).unwrap(), Some(entry.clone()));
 
+    // The import logged the account and its deals, then the journal followed: under a portable
+    // key (login, server, position, segment), as the fields that were written.
     let log = changes(&path);
-    assert_eq!(log.len(), 1);
-    let (device, seq, entity, logged_key, value) = &log[0];
+    let journal: Vec<_> = log.iter().filter(|c| c.2 == "journal").collect();
+    assert_eq!(journal.len(), 1);
+    let (device, seq, entity, logged_key, value) = journal[0];
     assert_eq!(device.len(), 32, "a 128-bit hex id");
-    assert_eq!((*seq, entity.as_str(), logged_key.as_str()), (1, "journal", key.id().as_str()));
-    let logged: JournalEntry = serde_json::from_str(value.as_deref().expect("a save is not a delete")).unwrap();
-    assert_eq!(logged, entry);
+    assert_eq!((entity.as_str(), logged_key.as_str()), ("journal", "5012345|Broker-Live|100|0"));
+    assert_eq!(*seq, i64::try_from(log.len()).unwrap(), "the journal is the last write, numbered after the rest");
+    let ops: Vec<tradelens_core::sync::FieldOp> =
+        serde_json::from_str(value.as_deref().expect("a save is not a delete")).unwrap();
+    let written: Vec<&str> = ops.iter().map(|op| op.field.as_str()).collect();
+    for field in
+        ["notes", "rating", "tags#london", "tags#tin", "mistakes#dời SL", "custom.focus", "plan", "followed_plan"]
+    {
+        assert!(written.contains(&field), "{field} in {written:?}");
+    }
+    assert!(!written.contains(&"playbook"), "a link to a setup this database does not have is not synced");
+    assert!(written.contains(&"screenshots#ab/cd.png") && written.contains(&"screenshots.order"));
+    assert_eq!(log.iter().filter(|c| c.2 == "account").count(), 1);
+    assert_eq!(log.iter().filter(|c| c.2 == "deal").count(), 5);
 
-    // Saving the same thing again changes nothing; saving a change adds the next number.
+    // Saving the same thing again changes nothing; saving a change logs only what changed.
     db.save_journal(&key, &entry).unwrap();
-    assert_eq!(changes(&path).len(), 1);
+    assert_eq!(changes(&path).len(), log.len());
     let edited = JournalEntry { rating: 2, ..entry };
     db.save_journal(&key, &edited).unwrap();
     assert_eq!(db.journal(&key).unwrap(), Some(edited));
     let log = changes(&path);
-    assert_eq!(log.iter().map(|c| c.1).collect::<Vec<_>>(), [1, 2]);
-    assert_eq!(log[0].0, log[1].0, "one device id");
+    let last = log.last().expect("a change was logged");
+    assert_eq!(last.1, *seq + 1, "numbered after the previous one");
+    assert_eq!(last.0, *device, "one device id");
+    assert_eq!(last.4.as_deref(), Some(r#"[{"f":"rating","v":2}]"#), "only the rating changed");
 }
 
 #[test]

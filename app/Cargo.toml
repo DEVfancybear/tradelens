@@ -21,6 +21,7 @@ env_logger = "0.11"
 base64 = "0.23"
 url = "2"
 thiserror.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nsh-platform-linux = { version = "=0.6.1", default-features = false, features = ["plot", "svg", "net"] }
@@ -35,3 +36,4 @@ nsh-platform-windows = { version = "=0.6.1", default-features = false, features 
 nsh-engine = "=0.6.1"
 nsh-testing = { version = "=0.6.1", features = ["live"] }
 tempfile = "3"
+tiny_http = "0.12"

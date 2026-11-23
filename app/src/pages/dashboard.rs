@@ -8,7 +8,7 @@ use chrono::Datelike;
 use nsh_core::prelude::*;
 use tradelens_core::{
     DbError, Rules,
-    metrics::{RuleKind, RuleUsage},
+    metrics::{RuleKind, RuleUsage, Unit},
 };
 
 use super::account_picker::account_picker;
@@ -27,7 +27,7 @@ use crate::{
         icons::Icon,
         layout::{columns, titled_card},
         month_grid::mini_month,
-        parts::{empty_state, page_with, stat_tile, warning_banner},
+        parts::{empty_state, page_with, stat_tile, stat_tile_with, warning_banner},
         r_chart::{RPoint, r_curve_chart},
         table::recent_trades,
     },
@@ -73,7 +73,7 @@ pub(crate) fn dashboard() -> impl IntoElement {
         "Tổng quan",
         move || {
             let accounts = store.snapshot().accounts.len();
-            format!("{} · {accounts} tài khoản MT5", range.get().describe())
+            format!("{} · {accounts} tài khoản", range.get().describe())
         },
         view().flex_row().flex_wrap().items_center().gap_3().child(account_picker()).child(segmented(
             "Khoảng thời gian",
@@ -93,25 +93,55 @@ fn money(snapshot: &Snapshot, value: f64, sign: Sign) -> String {
     format::money(value, sign, &snapshot.currency)
 }
 
-/// The headline numbers of the chosen accounts and range.
+/// The deepest fall of the range, in money or (without money) in R, red when there was one.
+fn drawdown_figure(s: &Snapshot) -> (String, Tone) {
+    let (text, fell) = match s.unit() {
+        Unit::Money => (money(s, -s.stats.max_drawdown, Sign::OnlyNegative), s.stats.max_drawdown > 0.0),
+        Unit::R => (format::r_text(Some(-s.stats.max_drawdown_r)), s.stats.max_drawdown_r > 0.0),
+    };
+    (text, if fell { Tone::Loss } else { Tone::Neutral })
+}
+
+/// The line under the drawdown: how far from the peak, or what the R figure is.
+fn drawdown_note(s: &Snapshot) -> String {
+    match s.unit() {
+        Unit::R => "sụt giảm sâu nhất của R tích luỹ".to_owned(),
+        Unit::Money => s
+            .stats
+            .max_drawdown_pct
+            .map_or_else(|| "chưa có đợt sụt giảm".to_owned(), |p| format!("−{} từ đỉnh", format::percent(p))),
+    }
+}
+
+/// The headline numbers of the chosen accounts and range: in money, or in R when none of the
+/// trades in view has money (a journal kept in R), so that no tile ever says `$0.00`. With a mix,
+/// the money figures cover the trades that have money and say so.
 fn stat_row() -> impl IntoElement {
     let store = store();
+    let unit = move || store.snapshot().unit();
     let figure = move |pick: fn(&Snapshot) -> (String, Tone)| move || pick(&store.snapshot());
     let note = move |pick: fn(&Snapshot) -> String| move || pick(&store.snapshot());
     view()
         .flex_row()
         .flex_wrap()
         .gap_4()
-        .child(stat_tile(
-            "Net P/L",
+        .child(stat_tile_with(
+            move || if unit() == Unit::R { "Net R" } else { "Net P/L" },
             figure(|s| {
-                let text = money(s, s.stats.net, Sign::Always);
+                let text = match s.unit() {
+                    Unit::Money => money(s, s.stats.net, Sign::Always),
+                    Unit::R => format::r_text(Some(s.stats.total_r)),
+                };
                 let tone = Tone::of_amount(&text);
                 (text, tone)
             }),
             note(|s| {
                 let st = &s.stats;
-                if st.start_balance > 0.0 {
+                if let Some(mixed) = s.basis.money_note() {
+                    mixed
+                } else if s.unit() == Unit::R {
+                    format!("{} lệnh đã đóng, tính theo R", st.trades)
+                } else if st.start_balance > 0.0 {
                     format!("{} so với số dư đầu kỳ", format::percent(st.net / st.start_balance))
                 } else {
                     format!("{} lệnh đã đóng", st.trades)
@@ -127,57 +157,87 @@ fn stat_row() -> impl IntoElement {
         ))
         .child(stat_tile(
             "Profit Factor",
-            figure(|s| (format::ratio(s.stats.profit_factor), Tone::Neutral)),
-            note(|s| {
-                format!(
+            figure(|s| {
+                let factor = match s.unit() {
+                    Unit::Money => s.stats.profit_factor,
+                    Unit::R => s.stats.profit_factor_r,
+                };
+                (format::ratio(factor), Tone::Neutral)
+            }),
+            note(|s| match s.unit() {
+                Unit::Money => format!(
                     "Lãi gộp {} / lỗ {}",
                     money(s, s.stats.gross_profit, Sign::OnlyNegative),
                     money(s, -s.stats.gross_loss, Sign::OnlyNegative)
-                )
+                ),
+                Unit::R => "tổng R thắng / tổng R thua".to_owned(),
             }),
         ))
         .child(stat_tile(
             "Expectancy",
             figure(|s| {
-                let text = money(s, s.stats.expectancy, Sign::Always);
+                let text = match s.unit() {
+                    Unit::Money => money(s, s.stats.expectancy, Sign::Always),
+                    Unit::R => format::r_average(s.stats.avg_r),
+                };
                 let tone = Tone::of_amount(&text);
                 (text, tone)
             }),
-            note(|_| "trung bình mỗi lệnh".to_owned()),
-        ))
-        .child(stat_tile(
-            "Max drawdown",
-            figure(|s| {
-                let text = money(s, -s.stats.max_drawdown, Sign::OnlyNegative);
-                let tone = if s.stats.max_drawdown > 0.0 { Tone::Loss } else { Tone::Neutral };
-                (text, tone)
-            }),
-            note(|s| {
-                s.stats
-                    .max_drawdown_pct
-                    .map_or_else(|| "chưa có đợt sụt giảm".to_owned(), |p| format!("−{} từ đỉnh", format::percent(p)))
+            note(|s| match s.unit() {
+                Unit::Money => "trung bình mỗi lệnh".to_owned(),
+                Unit::R => "R trung bình mỗi lệnh".to_owned(),
             }),
         ))
-        .child(stat_tile(
-            "R trung bình",
-            figure(|s| {
-                let text = format::r_average(s.stats.avg_r);
-                let tone = Tone::of_amount(&text);
-                (text, tone)
+        .child(stat_tile("Max drawdown", figure(drawdown_figure), note(drawdown_note)))
+        .child(stat_tile_with(
+            move || if unit() == Unit::R { "Lệnh đã đóng" } else { "R trung bình" },
+            figure(|s| match s.unit() {
+                Unit::R => (s.stats.trades.to_string(), Tone::Neutral),
+                Unit::Money => {
+                    let text = format::r_average(s.stats.avg_r);
+                    let tone = Tone::of_amount(&text);
+                    (text, tone)
+                }
             }),
-            note(|s| format!("{} lệnh có SL", s.stats.r_trades)),
+            note(|s| match s.unit() {
+                Unit::R => format!("{} lệnh có R", s.stats.r_trades),
+                Unit::Money => format!("{} lệnh có SL", s.stats.r_trades),
+            }),
         ))
 }
 
 /// The big chart: the balance with its drawdown, or the running total of R.
 fn curve_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
+    let store = store();
     let curve = signal(Curve::Balance);
+    // The chart opens on the R tab when the trades in view have no money, until the trader picks a tab.
+    let chosen = stored(false);
+    effect(move || {
+        if store.load_state() != Load::Ready {
+            return;
+        }
+        let unit = store.snapshot().unit();
+        untracked(|| {
+            if !chosen.get() {
+                curve.set(if unit == Unit::R { Curve::R } else { Curve::Balance });
+            }
+        });
+    });
     titled_card(
         move || match curve.get() {
             Curve::Balance => "Balance & drawdown".to_owned(),
             Curve::R => "R tích luỹ".to_owned(),
         },
-        segmented("Biểu đồ", &Curve::ALL, Curve::label, move || curve.get(), move |next| curve.set(next)),
+        segmented(
+            "Biểu đồ",
+            &Curve::ALL,
+            Curve::label,
+            move || curve.get(),
+            move |next| {
+                chosen.replace(true);
+                curve.set(next);
+            },
+        ),
         view().child(dynamic(move || match curve.get() {
             Curve::Balance => untracked(|| balance_body().into_element()),
             Curve::R => untracked(|| r_body(today).into_element()),
@@ -190,9 +250,17 @@ fn balance_body() -> impl IntoElement {
     let range = store.range;
     // A memo, so the chart is made once and follows the data instead of being drawn in again
     // at every reload.
-    let drawable = computed(move || store.snapshot().curve.len() > 1);
+    let drawable = computed(move || {
+        let snapshot = store.snapshot();
+        snapshot.unit() == Unit::Money && snapshot.curve.len() > 1
+    });
+    let in_r = computed(move || store.snapshot().unit() == Unit::R);
     view().child(dynamic(move || {
-        if drawable.get() {
+        if in_r.get() {
+            // A balance line of zeros says nothing: the journal is kept in R.
+            empty_state("Nhật ký này ghi kết quả theo R — xem tab R", "Chưa có số tiền để vẽ đường số dư.")
+                .into_element()
+        } else if drawable.get() {
             equity_chart(
                 move || store.snapshot().curve.clone(),
                 move || store.snapshot().currency.clone(),
@@ -204,7 +272,7 @@ fn balance_body() -> impl IntoElement {
                 Load::Loading => ("Đang tải dữ liệu…".to_owned(), String::new()),
                 _ => (
                     "Chưa có đủ lệnh đóng để vẽ đường số dư".to_owned(),
-                    "Chọn khoảng thời gian dài hơn hoặc kết nối EA ở Nguồn dữ liệu.".to_owned(),
+                    "Chọn khoảng thời gian dài hơn hoặc import thêm lệnh ở Nguồn dữ liệu.".to_owned(),
                 ),
             };
             empty_state(title, hint).into_element()
@@ -235,14 +303,15 @@ fn recent_card() -> impl IntoElement {
     let store = store();
     let rows = move || {
         let snapshot = store.snapshot();
-        snapshot.rows.iter().take(RECENT).map(cells_of).collect()
+        snapshot.rows_in_range().take(RECENT).map(cells_of).collect()
     };
     let open = move |at: usize| {
-        if let Some(row) = store.snapshot_now().rows.get(at) {
+        if let Some(row) = store.snapshot_now().rows_in_range().nth(at) {
             nav::show_trade(row.key().clone());
         }
     };
-    let empty = || ("Chưa có lệnh nào".to_owned(), "Lệnh đóng gần đây sẽ hiện ở đây.".to_owned());
+    let empty =
+        || ("Chưa có lệnh nào trong khoảng này".to_owned(), "Chọn khoảng thời gian dài hơn để thấy thêm.".to_owned());
     titled_card(
         "Lệnh gần đây",
         action("Xem tất cả", Variant::Ghost, || nav::go(Route::Trades)),
@@ -350,16 +419,22 @@ fn month_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
 
 /// The symbols that made or lost the most, best first.
 fn symbol_items(analysis: &Analysis, currency: &str) -> Vec<DivergingItem> {
+    // In R when none of the trades has money, so the bars are never a row of $0.00.
+    let unit = analysis.unit();
+    let result = |g: &&tradelens_core::metrics::Group| analysis.result_of(g);
     let mut groups: Vec<&tradelens_core::metrics::Group> = analysis.by_symbol.iter().collect();
-    groups.sort_by(|a, b| b.net.abs().total_cmp(&a.net.abs()));
+    groups.sort_by(|a, b| result(b).abs().total_cmp(&result(a).abs()));
     groups.truncate(SYMBOLS_SHOWN);
-    groups.sort_by(|a, b| b.net.total_cmp(&a.net));
+    groups.sort_by(|a, b| result(b).total_cmp(&result(a)));
     groups
         .into_iter()
         .map(|g| DivergingItem {
             label: g.label.clone(),
-            shown: format::money(g.net, Sign::Always, currency),
-            value: g.net,
+            shown: match unit {
+                Unit::Money => format::money(g.net, Sign::Always, currency),
+                Unit::R => format::r_text(Some(g.total_r)),
+            },
+            value: analysis.result_of(g),
         })
         .collect()
 }
@@ -389,6 +464,8 @@ mod tests {
             gross_loss: net.min(0.0),
             total_r: 0.0,
             r_trades: 0,
+            r_profit: 0.0,
+            r_loss: 0.0,
         }
     }
 

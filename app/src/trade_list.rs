@@ -42,14 +42,14 @@ impl Filter {
 
     pub(crate) fn matches(&self, row: &TradeRow) -> bool {
         let needle = self.text.trim().to_lowercase();
-        let net = row.trade.net();
+        let score = row.trade.score();
         (needle.is_empty() || row.contains(&needle))
             && self.symbol.as_deref().is_none_or(|s| s == row.trade.symbol)
             && self.setup.as_deref().is_none_or(|s| s == row.setup)
             && match self.outcome {
                 Outcome::All => true,
-                Outcome::Win => row.trade.is_closed() && net > 0.0,
-                Outcome::Loss => row.trade.is_closed() && net < 0.0,
+                Outcome::Win => row.trade.is_closed() && score > 0.0,
+                Outcome::Loss => row.trade.is_closed() && score < 0.0,
             }
             && match self.direction {
                 Direction::All => true,
@@ -154,6 +154,8 @@ mod tests {
             sl: 0.0,
             tp: 0.0,
             risk: None,
+            result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
             reason: None,
         }
     }

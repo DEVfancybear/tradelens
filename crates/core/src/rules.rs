@@ -241,6 +241,8 @@ mod tests {
             fee: 0.0,
             profit: net,
             risk,
+            result_r: None,
+            gaps: crate::model::Gaps::NONE,
             magic: 0,
             comment: String::new(),
             manual: false,
@@ -248,7 +250,7 @@ mod tests {
     }
 
     fn samples(trades: &[Trade]) -> Vec<Sample<'_>> {
-        trades.iter().map(|trade| Sample { trade, r: None }).collect()
+        trades.iter().map(|trade| Sample { trade, r: trade.result_r }).collect()
     }
 
     fn clock() -> Clock {

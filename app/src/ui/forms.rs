@@ -138,6 +138,7 @@ pub fn switch_control(
         .on_change(move |next: &bool| on_change(*next))
         .accessibility_label(label)
         .hit_slop(EdgeInsets::all(px(6.0)))
+        .cursor_pointer()
         .rounded_full()
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
         .track_style(|s| {
@@ -204,6 +205,7 @@ pub fn check_box(
     let label: SharedString = label.into();
     checkbox()
         .checked(checked)
+        .cursor_pointer()
         .on_change(move |next: &bool| on_change(*next))
         .accessibility_label(label)
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
@@ -371,7 +373,7 @@ mod tests {
                 },
             ))
             .child(text(move || format!("risk {:?}", amount.get())))
-            .child(switch_row("Nhắc ghi kế hoạch", Some("Khi EA báo lệnh mới"), move || on.get(), move |v| on.set(v)))
+            .child(switch_row("Nhắc ghi kế hoạch", Some("Khi có lệnh mới"), move || on.get(), move |v| on.set(v)))
             .child(text(move || format!("switch {}", on.get())))
             .child(progress_rule("Lỗ tối đa trong ngày", || "−$80 / −$100".to_owned(), || 0.8))
     }

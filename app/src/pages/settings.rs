@@ -284,7 +284,7 @@ fn about_card() -> impl IntoElement {
             .gap_1()
             .child(text(format!("TradeLens {}", env!("CARGO_PKG_VERSION"))).text_sm().font_weight(FontWeight::MEDIUM))
             .child(
-                text("Nhật ký giao dịch MT5, dữ liệu nằm trên máy của bạn.")
+                text("Nhật ký giao dịch, dữ liệu nằm trên máy của bạn.")
                     .text_xs()
                     .text_color(move || theme().muted_foreground),
             ),

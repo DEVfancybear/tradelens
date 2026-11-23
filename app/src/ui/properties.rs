@@ -20,9 +20,10 @@ use tradelens_core::form::{
 use super::{
     chips::{Tone, chip},
     controls::{
-        Choice, Variant, action_icon, commit_field, confirm, icon_action, rating_of, select_value, tag_picker,
-        text_field, textarea,
+        Choice, Variant, action_icon, commit_field, confirm_then, icon_action, rating_of, root_owner, select_value,
+        tag_picker, text_field, textarea,
     },
+    date_picker::{DatePick, date_pick, date_trigger},
     forms::{NumberRange, check_box, number_field, switch_row},
     icons::Icon,
     reorder::{Step, drag_handle, list_drop_index, stepped},
@@ -77,9 +78,9 @@ pub fn kind_glyph(kind: FieldKind) -> &'static str {
         FieldKind::Text => "Aa",
         FieldKind::LongText => "¶",
         FieldKind::Number => "#",
-        FieldKind::Select => "◉",
+        FieldKind::Select => "▾",
         FieldKind::MultiSelect => "≡",
-        FieldKind::Checkbox => "☑",
+        FieldKind::Checkbox => "□",
         FieldKind::Scale => "☆",
         FieldKind::Date => "▦",
         FieldKind::Url => "↗",
@@ -99,10 +100,10 @@ pub fn builtin_glyph(field: BuiltinField) -> &'static str {
         | B::DayMood
         | B::PlanTimeframe
         | B::MissedReason
-        | B::MissedSide => "◉",
+        | B::MissedSide => "▾",
         B::ExecutionRating => "☆",
         B::Tags | B::Mistakes | B::Checklist => "≡",
-        B::FollowedPlan | B::ReviewLater => "☑",
+        B::FollowedPlan | B::ReviewLater => "□",
         B::Notes | B::PlanThesis | B::DayPlan | B::DayReview | B::MissedNotes => "¶",
         B::PlannedRisk
         | B::PlanEntry
@@ -320,6 +321,9 @@ pub struct PropertyList {
     values: Rc<dyn Fn() -> CustomValues>,
     builtin: BuiltinEditor,
     edits: PropertyEdits,
+    /// The owner that outlives the rows: a question asked from a row (delete, change the kind) is a task of
+    /// it, so that a row built again does not cancel it.
+    owner: Owner,
 }
 
 impl std::fmt::Debug for PropertyList {
@@ -343,6 +347,7 @@ impl PropertyList {
             defs: Rc::new(defs),
             values: Rc::new(values),
             builtin: Rc::new(|_| None),
+            owner: root_owner(),
             edits,
         }
     }
@@ -362,6 +367,11 @@ impl PropertyList {
 struct Handle(Stored<PropertyList>);
 
 impl Handle {
+    /// The owner questions are asked under ([`PropertyList`]'s).
+    fn owner(self) -> Owner {
+        self.0.with(|c| c.owner)
+    }
+
     fn layout(self) -> FormLayout {
         let read = self.0.with(|c| Rc::clone(&c.layout));
         read()
@@ -487,20 +497,13 @@ impl Handle {
             self.emit_value(&key, change.value.clone());
         };
         if change.lost {
-            spawn(async move {
-                let go = confirm(
-                    "Đổi kiểu sẽ mất giá trị đã ghi?",
-                    format!(
-                        "Giá trị đã ghi ở lệnh này không chuyển được sang kiểu “{}” và sẽ bị bỏ trống.",
-                        kind_name(to)
-                    ),
-                    "Đổi kiểu",
-                )
-                .await;
-                if go {
-                    apply();
-                }
-            });
+            confirm_then(
+                self.owner(),
+                "Đổi kiểu sẽ mất giá trị đã ghi?",
+                format!("Giá trị đã ghi ở lệnh này không chuyển được sang kiểu “{}” và sẽ bị bỏ trống.", kind_name(to)),
+                "Đổi kiểu",
+                apply,
+            );
         } else {
             apply();
         }
@@ -702,7 +705,9 @@ fn property_row(
                         .text_sm()
                         .text_color(move || theme().muted_foreground),
                 )
-                .child(property_popover(list, row)),
+                // The name may be longer than the column: it wraps there, and the "riêng" chip with it,
+                // instead of running into the editor beside.
+                .child(view().flex_1().min_w(px(0.0)).child(property_popover(list, row))),
         )
         .child(view().flex_1().min_w(px(0.0)).child(dynamic(move || {
             let property = row.get();
@@ -847,29 +852,27 @@ fn scale_point(n: f64) -> Option<u8> {
     })
 }
 
-/// A date typed as `YYYY-MM-DD`: kept as a draft until it reads as a date.
+/// A date chosen from the calendar (a popup under the field), shown as `20/11/2026`; the clear button
+/// empties it. The value is stored as `YYYY-MM-DD`.
 fn date_editor(slot: Slot, label: String) -> impl IntoElement {
-    let draft = signal(slot.date());
+    let chosen = move || chrono::NaiveDate::parse_from_str(&slot.date(), "%Y-%m-%d").ok();
     view()
-        .gap_1()
-        .child(text_field(
-            label,
-            None,
-            "YYYY-MM-DD",
-            move || draft.get(),
-            move |typed| {
-                draft.set(typed.to_owned());
-                if typed.trim().is_empty() {
-                    slot.set(None);
-                } else if let Some(date) = parse_date(typed) {
-                    slot.set(Some(FieldValue::Date(date)));
-                }
-            },
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(date_pick(
+            DatePick::day(
+                label,
+                chosen,
+                || chrono::Local::now().date_naive(),
+                move |day| slot.set(Some(FieldValue::Date(day.format("%Y-%m-%d").to_string()))),
+            ),
+            date_trigger(move || {
+                chosen().map_or_else(|| "Chọn ngày".to_owned(), |day| day.format("%d/%m/%Y").to_string())
+            }),
         ))
         .child(dynamic(move || {
-            let typed = draft.get();
-            (!typed.trim().is_empty() && parse_date(&typed).is_none())
-                .then(|| text("Nhập ngày dạng 2026-11-20").text_xs().text_color(super::theme::loss()))
+            chosen().map(|_| icon_action(Icon::Close, "Xoá ngày", Variant::Ghost, move || slot.set(None)))
         }))
 }
 
@@ -906,6 +909,7 @@ fn name_button(row: ReadSignal<Property>) -> impl IntoElement {
         .role(AccessibilityRole::Button)
         .label(move || format!("Sửa thuộc tính {}", row.with(|p| p.label.clone())))
         .focusable(true)
+        .cursor_pointer()
         .on_press(|| {})
         .flex_row()
         .flex_wrap()
@@ -913,7 +917,12 @@ fn name_button(row: ReadSignal<Property>) -> impl IntoElement {
         .gap_2()
         .min_h(px(34.0))
         .py_2()
-        .child(text(move || row.with(|p| p.label.clone())).text_sm().text_color(move || theme().muted_foreground))
+        .child(
+            text(move || row.with(|p| p.label.clone()))
+                .min_w(px(0.0))
+                .text_sm()
+                .text_color(move || theme().muted_foreground),
+        )
         .child(dynamic(move || {
             row.with(|p| matches!(p.field, FieldRef::Custom(_))).then(|| chip("riêng", Tone::Primary))
         }))
@@ -1031,18 +1040,17 @@ fn custom_panel(list: Handle, key: String, row: ReadSignal<Property>, open: Sign
         .child(action_icon(Icon::Trash, "Xoá thuộc tính", Variant::Ghost, move || {
             let field = delete_field.clone();
             let name = row.with_untracked(|p| p.label.clone());
-            spawn(async move {
-                let go = confirm(
-                    format!("Xoá thuộc tính “{name}”?"),
-                    "Giá trị đã ghi ở các lệnh cũ được giữ lại; thuộc tính chỉ biến khỏi form và khôi phục được ở Tuỳ biến form.",
-                    "Xoá thuộc tính",
-                )
-                .await;
-                if go {
-                    open.set(false);
+            confirm_then(
+                list.owner(),
+                format!("Xoá thuộc tính “{name}”?"),
+                "Giá trị đã ghi ở các lệnh cũ được giữ lại; thuộc tính chỉ biến khỏi form và khôi phục được ở Tuỳ biến form.",
+                "Xoá thuộc tính",
+                move || {
+                    // The popover may have been built again while the question was open.
+                    open.try_set(false);
                     list.delete(&field);
-                }
-            });
+                },
+            );
         }))
 }
 
@@ -1132,6 +1140,7 @@ fn hidden_properties(list: Handle, hidden: Memo<Vec<Property>>) -> impl IntoElem
                         .role(AccessibilityRole::Button)
                         .label(format!("{} thuộc tính ẩn", all.len()))
                         .focusable(true)
+                        .cursor_pointer()
                         .on_press(move || open.update(|o| *o = !*o))
                         .py_2()
                         .child(
@@ -1181,6 +1190,7 @@ fn add_property(list: Handle) -> impl IntoElement {
                         .role(AccessibilityRole::Button)
                         .label(format!("Thêm thuộc tính kiểu {}", kind_name(kind)))
                         .focusable(true)
+                        .cursor_pointer()
                         .on_press(move || {
                             open.set(false);
                             list.add(kind);

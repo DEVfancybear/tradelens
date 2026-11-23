@@ -10,8 +10,8 @@ use crate::catalog::{CatalogItem, CatalogKind, CustomValues, FieldDef, FieldScop
 use crate::form::FormLayout;
 use crate::missed::MissedTrade;
 use crate::model::{
-    Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, DealEntry, DealKind, JournalEntry, ManualTrade,
-    PositionLevels, Rules, Side, TradeKey,
+    Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, DealEntry, DealKind, Gaps, JournalEntry,
+    ManualTrade, PositionLevels, Rules, Side, TradeKey,
 };
 use crate::playbook::Playbook;
 use crate::review::{Period, PeriodReview, ReviewTemplate};
@@ -21,6 +21,11 @@ use crate::trades::build_trades;
 mod fields;
 pub use fields::{FieldApplied, KindImpact};
 mod notion;
+mod sync;
+pub use sync::{ApplyReport, PortableState, SyncState};
+mod views;
+
+use crate::sync::{entity, join_key};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DbError {
@@ -47,6 +52,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0007_reviews.sql"),
     include_str!("../migrations/0008_search.sql"),
     include_str!("../migrations/0009_day_note_custom.sql"),
+    include_str!("../migrations/0010_sync_uids.sql"),
+    include_str!("../migrations/0011_result_r.sql"),
+    include_str!("../migrations/0012_deal_gaps.sql"),
 ];
 
 /// One line of the import log: what an import or a sync stored, and when.
@@ -169,7 +177,10 @@ impl Db {
     ///
     /// [`DbError::Invalid`] when `info` has no login; [`DbError::Sqlite`] when the database fails.
     pub fn upsert_account(&mut self, info: &AccountInfo) -> Result<i64> {
-        upsert_account_on(&self.conn, info)
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let id = upsert_account_on(&tx, info)?;
+        tx.commit()?;
+        Ok(id)
     }
 
     /// Every account, in the order they were first seen.
@@ -191,21 +202,31 @@ impl Db {
     ///
     /// [`DbError::Invalid`] when the account does not exist; [`DbError::Sqlite`] when the write fails.
     pub fn update_account(&mut self, account: &Account) -> Result<()> {
-        let changed = self.conn.execute(
-            "UPDATE accounts SET broker = ?2, name = ?3, currency = ?4, initial_balance = ?5, server_offset_min = ?6
-             WHERE id = ?1",
-            rusqlite::params![
-                account.id,
-                account.broker,
-                account.name,
-                account.currency,
-                account.initial_balance,
-                account.server_offset_min
-            ],
-        )?;
-        if changed == 0 {
-            return Err(DbError::Invalid(format!("không có tài khoản số {}", account.id)));
-        }
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let key = match views::account_key(&tx, account.id) {
+            Ok(key) => key,
+            Err(DbError::Sqlite(rusqlite::Error::QueryReturnedNoRows)) => {
+                return Err(DbError::Invalid(format!("không có tài khoản số {}", account.id)));
+            }
+            Err(other) => return Err(other),
+        };
+        sync::logged(&tx, entity::ACCOUNT, Some(&key), || {
+            tx.execute(
+                "UPDATE accounts SET broker = ?2, name = ?3, currency = ?4, initial_balance = ?5,
+                                     server_offset_min = ?6
+                 WHERE id = ?1",
+                rusqlite::params![
+                    account.id,
+                    account.broker,
+                    account.name,
+                    account.currency,
+                    account.initial_balance,
+                    account.server_offset_min
+                ],
+            )?;
+            Ok((key.clone(), ()))
+        })?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -357,6 +378,8 @@ impl Db {
             sl: trade.sl,
             tp: trade.tp,
             risk: None,
+            result_r: None,
+            gaps: Gaps::NONE,
             reason: None,
         };
         let entry = deal(entry_ticket, entry_kind, DealEntry::In, trade.open_time, trade.open_price);
@@ -423,24 +446,7 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the query fails.
     pub fn rules(&self, account_id: i64) -> Result<Rules> {
-        let rules = self
-            .conn
-            .query_row(
-                "SELECT max_daily_loss, max_daily_trades, max_risk_pct, max_consecutive_losses, daily_target
-                 FROM rules WHERE account_id = ?1",
-                [account_id],
-                |r| {
-                    Ok(Rules {
-                        max_daily_loss: r.get(0)?,
-                        max_daily_trades: r.get(1)?,
-                        max_risk_pct: r.get(2)?,
-                        max_consecutive_losses: r.get(3)?,
-                        daily_target: r.get(4)?,
-                    })
-                },
-            )
-            .optional()?;
-        Ok(rules.unwrap_or_default())
+        rules_on(&self.conn, account_id)
     }
 
     /// Replaces the account's rules.
@@ -449,25 +455,13 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the write fails, for instance because the account does not exist.
     pub fn save_rules(&mut self, account_id: i64, rules: &Rules) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO rules (account_id, max_daily_loss, max_daily_trades, max_risk_pct, max_consecutive_losses,
-                                daily_target)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(account_id) DO UPDATE SET
-                 max_daily_loss = excluded.max_daily_loss,
-                 max_daily_trades = excluded.max_daily_trades,
-                 max_risk_pct = excluded.max_risk_pct,
-                 max_consecutive_losses = excluded.max_consecutive_losses,
-                 daily_target = excluded.daily_target",
-            rusqlite::params![
-                account_id,
-                rules.max_daily_loss,
-                rules.max_daily_trades,
-                rules.max_risk_pct,
-                rules.max_consecutive_losses,
-                rules.daily_target
-            ],
-        )?;
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let key = views::account_key(&tx, account_id)?;
+        sync::logged(&tx, entity::RULES, Some(&key), || {
+            save_rules_raw(&tx, account_id, rules)?;
+            Ok((key.clone(), ()))
+        })?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -480,7 +474,7 @@ impl Db {
     pub fn checklist(&self, account_id: Option<i64>) -> Result<Vec<ChecklistItem>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, text FROM checklist WHERE account_id IS NULL OR account_id = ?1
-             ORDER BY account_id IS NOT NULL, position, id",
+             ORDER BY account_id IS NOT NULL, position, uid",
         )?;
         let rows = stmt.query_map([account_id], |r| Ok(ChecklistItem { id: r.get(0)?, text: r.get(1)? }))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
@@ -498,26 +492,41 @@ impl Db {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut kept = Vec::with_capacity(items.len());
         for (position, item) in (0_i64..).zip(items) {
-            let changed = tx.execute(
-                "UPDATE checklist SET text = ?2, position = ?3 WHERE id = ?1 AND account_id IS ?4",
-                rusqlite::params![item.id, item.text, position, account_id],
-            )?;
-            if changed > 0 {
-                kept.push(item.id);
-            } else {
-                tx.execute(
-                    "INSERT INTO checklist (account_id, text, position) VALUES (?1, ?2, ?3)",
-                    rusqlite::params![account_id, item.text, position],
-                )?;
-                kept.push(tx.last_insert_rowid());
-            }
+            let known: Option<String> = tx
+                .query_row(
+                    "SELECT uid FROM checklist WHERE id = ?1 AND account_id IS ?2",
+                    rusqlite::params![item.id, account_id],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let id = sync::logged(&tx, entity::CHECKLIST, known.as_deref(), || {
+                let id = if known.is_some() {
+                    tx.execute(
+                        "UPDATE checklist SET text = ?2, position = ?3 WHERE id = ?1",
+                        rusqlite::params![item.id, item.text, position],
+                    )?;
+                    item.id
+                } else {
+                    tx.execute(
+                        "INSERT INTO checklist (account_id, text, position) VALUES (?1, ?2, ?3)",
+                        rusqlite::params![account_id, item.text, position],
+                    )?;
+                    tx.last_insert_rowid()
+                };
+                let uid: String = tx.query_row("SELECT uid FROM checklist WHERE id = ?1", [id], |r| r.get(0))?;
+                Ok((uid, id))
+            })?;
+            kept.push(id);
         }
-        let stale: Vec<i64> = {
-            let mut stmt = tx.prepare("SELECT id FROM checklist WHERE account_id IS ?1")?;
-            stmt.query_map([account_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        let stale: Vec<(i64, String)> = {
+            let mut stmt = tx.prepare("SELECT id, uid FROM checklist WHERE account_id IS ?1")?;
+            stmt.query_map([account_id], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
         };
-        for id in stale.into_iter().filter(|id| !kept.contains(id)) {
-            tx.execute("DELETE FROM checklist WHERE id = ?1", [id])?;
+        for (id, uid) in stale.into_iter().filter(|(id, _)| !kept.contains(id)) {
+            sync::logged_delete(&tx, entity::CHECKLIST, &uid, || {
+                tx.execute("DELETE FROM checklist WHERE id = ?1", [id])?;
+                Ok(())
+            })?;
         }
         tx.commit()?;
         Ok(())
@@ -541,6 +550,23 @@ impl Db {
         Ok(note.unwrap_or_default())
     }
 
+    /// The days that have a note (a plan, a review, a mood, or values of the trader's own day
+    /// properties) for `account_id` (0: the note of all accounts), oldest first: what a date picker
+    /// marks.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the query fails.
+    pub fn days_with_notes(&self, account_id: i64) -> Result<Vec<chrono::NaiveDate>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT day FROM day_notes
+             WHERE account_id = ?1 AND (plan <> '' OR review <> '' OR mood <> '' OR custom_json NOT IN ('', '{}'))
+             ORDER BY day",
+        )?;
+        let days: Vec<String> = stmt.query_map([account_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(days.iter().filter_map(|day| day.parse().ok()).collect())
+    }
+
     /// Writes the note of a day and refreshes its full-text index. The index reference
     /// is `YYYY-MM-DD` for the note of all accounts and `YYYY-MM-DD:<account id>` for an
     /// account's own, so the two never replace each other.
@@ -549,15 +575,22 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the write fails.
     pub fn save_day_note(&mut self, account_id: i64, day: chrono::NaiveDate, note: &DayNote) -> Result<()> {
-        let tx = self.conn.transaction()?;
-        tx.execute(
-            "INSERT INTO day_notes (account_id, day, plan, review, mood) VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(account_id, day) DO UPDATE SET
-                 plan = excluded.plan, review = excluded.review, mood = excluded.mood",
-            rusqlite::params![account_id, day.to_string(), note.plan, note.review, note.mood],
-        )?;
-        let values = day_values_on(&tx, account_id, day)?;
-        write_index(&tx, &day_document(account_id, day, note, &values))?;
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let write = || -> Result<()> {
+            tx.execute(
+                "INSERT INTO day_notes (account_id, day, plan, review, mood) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(account_id, day) DO UPDATE SET
+                     plan = excluded.plan, review = excluded.review, mood = excluded.mood",
+                rusqlite::params![account_id, day.to_string(), note.plan, note.review, note.mood],
+            )?;
+            let values = day_values_on(&tx, account_id, day)?;
+            write_index(&tx, &day_document(account_id, day, note, &values))
+        };
+        // A note of an account this database does not know has no portable key and does not sync.
+        match views::day_note_key(&tx, account_id, day).ok() {
+            Some(key) => sync::logged(&tx, entity::DAY_NOTE, Some(&key), || write().map(|()| (key.clone(), ())))?,
+            None => write()?,
+        }
         tx.commit()?;
         Ok(())
     }
@@ -580,18 +613,24 @@ impl Db {
     ///
     /// [`DbError`] when the write fails.
     pub fn save_day_values(&mut self, account_id: i64, day: chrono::NaiveDate, values: &CustomValues) -> Result<()> {
-        let tx = self.conn.transaction()?;
-        tx.execute(
-            "INSERT INTO day_notes (account_id, day, custom_json) VALUES (?1, ?2, ?3)
-             ON CONFLICT(account_id, day) DO UPDATE SET custom_json = excluded.custom_json",
-            rusqlite::params![account_id, day.to_string(), serde_json::to_string(values)?],
-        )?;
-        let note = tx.query_row(
-            "SELECT plan, review, mood FROM day_notes WHERE account_id = ?1 AND day = ?2",
-            rusqlite::params![account_id, day.to_string()],
-            |r| Ok(DayNote { plan: r.get(0)?, review: r.get(1)?, mood: r.get(2)? }),
-        )?;
-        write_index(&tx, &day_document(account_id, day, &note, values))?;
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let write = || -> Result<()> {
+            tx.execute(
+                "INSERT INTO day_notes (account_id, day, custom_json) VALUES (?1, ?2, ?3)
+                 ON CONFLICT(account_id, day) DO UPDATE SET custom_json = excluded.custom_json",
+                rusqlite::params![account_id, day.to_string(), serde_json::to_string(values)?],
+            )?;
+            let note = tx.query_row(
+                "SELECT plan, review, mood FROM day_notes WHERE account_id = ?1 AND day = ?2",
+                rusqlite::params![account_id, day.to_string()],
+                |r| Ok(DayNote { plan: r.get(0)?, review: r.get(1)?, mood: r.get(2)? }),
+            )?;
+            write_index(&tx, &day_document(account_id, day, &note, values))
+        };
+        match views::day_note_key(&tx, account_id, day).ok() {
+            Some(key) => sync::logged(&tx, entity::DAY_NOTE, Some(&key), || write().map(|()| (key.clone(), ())))?,
+            None => write()?,
+        }
         tx.commit()?;
         Ok(())
     }
@@ -613,7 +652,10 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the key is taken or the write fails.
     pub fn save_catalog_item(&mut self, item: &CatalogItem) -> Result<i64> {
-        save_catalog_item_on(&self.conn, item)
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let id = save_catalog_item_on(&tx, item)?;
+        tx.commit()?;
+        Ok(id)
     }
 
     /// The fields the trader defined for `scope`, in their order.
@@ -631,7 +673,10 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the key is taken in its scope or the write fails.
     pub fn save_field_def(&mut self, def: &FieldDef) -> Result<i64> {
-        save_field_def_on(&self.conn, def)
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let id = save_field_def_on(&tx, def)?;
+        tx.commit()?;
+        Ok(id)
     }
 
     /// The trader's arrangement of a form, or the default one.
@@ -649,7 +694,10 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the write fails.
     pub fn save_form_layout(&mut self, layout: &FormLayout) -> Result<()> {
-        save_form_layout_on(&self.conn, layout)
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        save_form_layout_on(&tx, layout)?;
+        tx.commit()?;
+        Ok(())
     }
 
     // --- playbook -------------------------------------------------------------
@@ -667,22 +715,42 @@ impl Db {
     ///
     /// # Errors
     ///
-    /// [`DbError::Sqlite`] when the name is taken or the write fails.
+    /// [`DbError::Invalid`] when the name is taken; [`DbError::Sqlite`] when the write fails.
     pub fn save_playbook(&mut self, playbook: &Playbook, position: i32) -> Result<i64> {
-        let json = serde_json::to_string(playbook)?;
-        if playbook.id == 0 {
-            self.conn.execute(
-                "INSERT INTO playbooks (name, json, position, archived) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![playbook.name, json, position, playbook.archived],
-            )?;
-            Ok(self.conn.last_insert_rowid())
-        } else {
-            self.conn.execute(
-                "UPDATE playbooks SET name = ?2, json = ?3, position = ?4, archived = ?5 WHERE id = ?1",
-                rusqlite::params![playbook.id, playbook.name, json, position, playbook.archived],
-            )?;
-            Ok(playbook.id)
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        // Saving by hand keeps names unique. Two devices may still each make a setup of the same
+        // name; sync keeps both, and the trader renames one when they notice.
+        let taken: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM playbooks WHERE name = ?1 AND id <> ?2",
+            rusqlite::params![playbook.name, playbook.id],
+            |r| r.get(0),
+        )?;
+        if taken > 0 {
+            return Err(DbError::Invalid(format!("đã có setup tên \"{}\"", playbook.name)));
         }
+        let known = if playbook.id == 0 { None } else { views::uid_of(&tx, "playbooks", playbook.id)? };
+        let id = sync::logged(&tx, entity::PLAYBOOK, known.as_deref(), || {
+            let json = serde_json::to_string(playbook)?;
+            let id = if playbook.id == 0 {
+                tx.execute(
+                    "INSERT INTO playbooks (name, json, position, archived) VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![playbook.name, json, position, playbook.archived],
+                )?;
+                tx.last_insert_rowid()
+            } else {
+                tx.execute(
+                    "UPDATE playbooks SET name = ?2, json = ?3, position = ?4, archived = ?5 WHERE id = ?1",
+                    rusqlite::params![playbook.id, playbook.name, json, position, playbook.archived],
+                )?;
+                playbook.id
+            };
+            let uid: String = tx.query_row("SELECT uid FROM playbooks WHERE id = ?1", [id], |r| r.get(0))?;
+            Ok((uid, id))
+        })?;
+        // The index entry goes in with the row: a reader that sees the setup finds it by search.
+        write_index(&tx, &search::playbook_document(&Playbook { id, ..playbook.clone() }))?;
+        tx.commit()?;
+        Ok(id)
     }
 
     /// Deletes a setup and its index entry. Trades whose journal named it keep the link, which
@@ -692,10 +760,17 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the write fails.
     pub fn delete_playbook(&mut self, id: i64) -> Result<()> {
-        let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM playbooks WHERE id = ?1", [id])?;
-        let kind = enum_name(&DocKind::Playbook)?;
-        tx.execute("DELETE FROM search_index WHERE kind = ?1 AND reference = ?2", [kind, id.to_string()])?;
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let delete = || -> Result<()> {
+            tx.execute("DELETE FROM playbooks WHERE id = ?1", [id])?;
+            let kind = enum_name(&DocKind::Playbook)?;
+            tx.execute("DELETE FROM search_index WHERE kind = ?1 AND reference = ?2", [kind, id.to_string()])?;
+            Ok(())
+        };
+        match views::uid_of(&tx, "playbooks", id)? {
+            Some(uid) => sync::logged_delete(&tx, entity::PLAYBOOK, &uid, delete)?,
+            None => delete()?,
+        }
         tx.commit()?;
         Ok(())
     }
@@ -708,10 +783,17 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the write fails.
     pub fn delete_missed_trade(&mut self, id: i64) -> Result<()> {
-        let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM missed_trades WHERE id = ?1", [id])?;
-        let kind = enum_name(&DocKind::Missed)?;
-        tx.execute("DELETE FROM search_index WHERE kind = ?1 AND reference = ?2", [kind, id.to_string()])?;
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let delete = || -> Result<()> {
+            tx.execute("DELETE FROM missed_trades WHERE id = ?1", [id])?;
+            let kind = enum_name(&DocKind::Missed)?;
+            tx.execute("DELETE FROM search_index WHERE kind = ?1 AND reference = ?2", [kind, id.to_string()])?;
+            Ok(())
+        };
+        match views::uid_of(&tx, "missed_trades", id)? {
+            Some(uid) => sync::logged_delete(&tx, entity::MISSED, &uid, delete)?,
+            None => delete()?,
+        }
         tx.commit()?;
         Ok(())
     }
@@ -741,20 +823,11 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the write fails.
     pub fn save_missed_trade(&mut self, missed: &MissedTrade) -> Result<i64> {
-        let json = serde_json::to_string(missed)?;
-        if missed.id == 0 {
-            self.conn.execute(
-                "INSERT INTO missed_trades (account_id, seen_at, json) VALUES (?1, ?2, ?3)",
-                rusqlite::params![missed.account_id, missed.seen_at, json],
-            )?;
-            Ok(self.conn.last_insert_rowid())
-        } else {
-            self.conn.execute(
-                "UPDATE missed_trades SET account_id = ?2, seen_at = ?3, json = ?4 WHERE id = ?1",
-                rusqlite::params![missed.id, missed.account_id, missed.seen_at, json],
-            )?;
-            Ok(missed.id)
-        }
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let id = save_missed_on(&tx, missed)?;
+        write_index(&tx, &search::missed_document(&MissedTrade { id, ..missed.clone() }))?;
+        tx.commit()?;
+        Ok(id)
     }
 
     // --- reviews ------------------------------------------------------------------
@@ -792,21 +865,11 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the write fails.
     pub fn save_review(&mut self, review: &PeriodReview) -> Result<i64> {
-        self.conn.execute(
-            "INSERT INTO reviews (account_id, period, start, json) VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(account_id, period, start) DO UPDATE SET json = excluded.json",
-            rusqlite::params![
-                review.account_id.unwrap_or(0),
-                enum_name(&review.period)?,
-                review.start.to_string(),
-                serde_json::to_string(review)?
-            ],
-        )?;
-        Ok(self.conn.query_row(
-            "SELECT id FROM reviews WHERE account_id = ?1 AND period = ?2 AND start = ?3",
-            rusqlite::params![review.account_id.unwrap_or(0), enum_name(&review.period)?, review.start.to_string()],
-            |r| r.get(0),
-        )?)
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let id = save_review_on(&tx, review)?;
+        write_index(&tx, &search::review_document(review))?;
+        tx.commit()?;
+        Ok(id)
     }
 
     /// The trader's template for `period`, or the default.
@@ -833,8 +896,9 @@ impl Db {
 
     // --- search ---------------------------------------------------------------------
 
-    /// Indexes `doc`, replacing what was indexed for the same thing. Called by every
-    /// write of a review, missed trade or setup; journal and day note writes index themselves.
+    /// Indexes `doc`, replacing what was indexed for the same thing. Every write of a review,
+    /// missed trade, setup, journal or day note indexes itself in the same transaction; this is
+    /// for documents that have no such write.
     ///
     /// # Errors
     ///
@@ -883,7 +947,10 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the database fails.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<()> {
-        set_setting_on(&self.conn, key, value)
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        sync::log_setting(&tx, key, value)?;
+        tx.commit()?;
+        Ok(())
     }
 }
 
@@ -905,7 +972,25 @@ fn field_defs_on(conn: &Connection, scope: FieldScope) -> Result<Vec<FieldDef>> 
     .collect()
 }
 
+/// Writes a field definition and logs it for sync.
 fn save_field_def_on(conn: &Connection, def: &FieldDef) -> Result<i64> {
+    let scope = scope_name(def.scope)?;
+    let known = (def.id != 0).then(|| field_def_key(conn, def.id)).transpose()?.flatten();
+    sync::logged(conn, entity::FIELD_DEF, known.as_deref(), || {
+        let id = save_field_def_raw(conn, def)?;
+        Ok((join_key(&[&scope, &def.key]), id))
+    })
+}
+
+fn field_def_key(conn: &Connection, id: i64) -> Result<Option<String>> {
+    let row: Option<(String, String)> = conn
+        .query_row("SELECT scope, key FROM field_defs WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?;
+    Ok(row.map(|(scope, key)| join_key(&[&scope, &key])))
+}
+
+/// [`save_field_def_on`] without the log, for applying what another device wrote.
+fn save_field_def_raw(conn: &Connection, def: &FieldDef) -> Result<i64> {
     let json = serde_json::to_string(def)?;
     let scope = scope_name(def.scope)?;
     if def.id == 0 {
@@ -942,8 +1027,24 @@ fn catalog_on(conn: &Connection, kind: CatalogKind) -> Result<Vec<CatalogItem>> 
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// Writes a catalog option and logs it for sync.
 fn save_catalog_item_on(conn: &Connection, item: &CatalogItem) -> Result<i64> {
     let kind = kind_name(item.kind)?;
+    let known: Option<String> = if item.id == 0 {
+        None
+    } else {
+        conn.query_row("SELECT kind, key FROM catalog_items WHERE id = ?1", [item.id], |r| {
+            Ok(join_key(&[&r.get::<_, String>(0)?, &r.get::<_, String>(1)?]))
+        })
+        .optional()?
+    };
+    let written = known.clone().unwrap_or_else(|| join_key(&[&kind, &item.key]));
+    sync::logged(conn, entity::CATALOG, known.as_deref(), || {
+        Ok((written.clone(), write_catalog_item(conn, item, &kind)?))
+    })
+}
+
+fn write_catalog_item(conn: &Connection, item: &CatalogItem, kind: &str) -> Result<i64> {
     if item.id == 0 {
         conn.execute(
             "INSERT INTO catalog_items (kind, key, label, color, position, archived) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
@@ -995,16 +1096,112 @@ fn save_journal_on(conn: &Connection, key: &TradeKey, entry: &JournalEntry) -> R
     if stored.as_deref() == Some(json.as_str()) {
         return Ok(());
     }
-    let now = now_ms();
+    let portable = views::journal_key(conn, key)?;
+    sync::logged(conn, entity::JOURNAL, Some(&portable), || {
+        write_journal_raw(conn, key, entry)?;
+        Ok((portable.clone(), ()))
+    })
+}
+
+/// Writes a journal entry and refreshes its index, without logging it for sync.
+fn write_journal_raw(conn: &Connection, key: &TradeKey, entry: &JournalEntry) -> Result<()> {
     conn.execute(
         "INSERT INTO journal (account_id, position_id, segment, entry_json, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(account_id, position_id, segment)
          DO UPDATE SET entry_json = excluded.entry_json, updated_at = excluded.updated_at",
-        rusqlite::params![key.account_id, key.position_id, key.segment, json, now],
+        rusqlite::params![key.account_id, key.position_id, key.segment, serde_json::to_string(entry)?, now_ms()],
     )?;
-    append_change(conn, now, "journal", &key.id(), Some(&json))?;
-    write_index(conn, &journal_document(conn, key, entry)?)?;
+    write_index(conn, &journal_document(conn, key, entry)?)
+}
+
+fn rules_on(conn: &Connection, account_id: i64) -> Result<Rules> {
+    let rules = conn
+        .query_row(
+            "SELECT max_daily_loss, max_daily_trades, max_risk_pct, max_consecutive_losses, daily_target
+             FROM rules WHERE account_id = ?1",
+            [account_id],
+            |r| {
+                Ok(Rules {
+                    max_daily_loss: r.get(0)?,
+                    max_daily_trades: r.get(1)?,
+                    max_risk_pct: r.get(2)?,
+                    max_consecutive_losses: r.get(3)?,
+                    daily_target: r.get(4)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(rules.unwrap_or_default())
+}
+
+fn save_rules_raw(conn: &Connection, account_id: i64, rules: &Rules) -> Result<()> {
+    conn.execute(
+        "INSERT INTO rules (account_id, max_daily_loss, max_daily_trades, max_risk_pct, max_consecutive_losses,
+                            daily_target)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(account_id) DO UPDATE SET
+             max_daily_loss = excluded.max_daily_loss,
+             max_daily_trades = excluded.max_daily_trades,
+             max_risk_pct = excluded.max_risk_pct,
+             max_consecutive_losses = excluded.max_consecutive_losses,
+             daily_target = excluded.daily_target",
+        rusqlite::params![
+            account_id,
+            rules.max_daily_loss,
+            rules.max_daily_trades,
+            rules.max_risk_pct,
+            rules.max_consecutive_losses,
+            rules.daily_target
+        ],
+    )?;
     Ok(())
+}
+
+/// Adds a missed trade (`id` 0) or changes one, and logs it for sync.
+fn save_missed_on(conn: &Connection, missed: &MissedTrade) -> Result<i64> {
+    let known = if missed.id == 0 { None } else { views::uid_of(conn, "missed_trades", missed.id)? };
+    let json = serde_json::to_string(missed)?;
+    sync::logged(conn, entity::MISSED, known.as_deref(), || {
+        let id = if missed.id == 0 {
+            conn.execute(
+                "INSERT INTO missed_trades (account_id, seen_at, json) VALUES (?1, ?2, ?3)",
+                rusqlite::params![missed.account_id, missed.seen_at, json],
+            )?;
+            conn.last_insert_rowid()
+        } else {
+            conn.execute(
+                "UPDATE missed_trades SET account_id = ?2, seen_at = ?3, json = ?4 WHERE id = ?1",
+                rusqlite::params![missed.id, missed.account_id, missed.seen_at, json],
+            )?;
+            missed.id
+        };
+        let uid: String = conn.query_row("SELECT uid FROM missed_trades WHERE id = ?1", [id], |r| r.get(0))?;
+        Ok((uid, id))
+    })
+}
+
+/// Writes a review, replacing the one of the same account and period, and logs it for sync.
+fn save_review_on(conn: &Connection, review: &PeriodReview) -> Result<i64> {
+    let key = views::review_key(conn, review)?;
+    sync::logged(conn, entity::REVIEW, Some(&key), || Ok((key.clone(), save_review_raw(conn, review)?)))
+}
+
+fn save_review_raw(conn: &Connection, review: &PeriodReview) -> Result<i64> {
+    conn.execute(
+        "INSERT INTO reviews (account_id, period, start, json) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(account_id, period, start) DO UPDATE SET json = excluded.json",
+        rusqlite::params![
+            review.account_id.unwrap_or(0),
+            enum_name(&review.period)?,
+            review.start.to_string(),
+            serde_json::to_string(review)?
+        ],
+    )?;
+    Ok(conn.query_row(
+        "SELECT id FROM reviews WHERE account_id = ?1 AND period = ?2 AND start = ?3",
+        rusqlite::params![review.account_id.unwrap_or(0), enum_name(&review.period)?, review.start.to_string()],
+        |r| r.get(0),
+    )?)
 }
 
 fn setting_on(conn: &Connection, key: &str) -> Result<Option<String>> {
@@ -1058,9 +1255,16 @@ fn form_layout_on(conn: &Connection, scope: FieldScope) -> Result<FormLayout> {
     }
 }
 
+/// Saves the arrangement of a form and logs it for sync.
 fn save_form_layout_on(conn: &Connection, layout: &FormLayout) -> Result<()> {
-    let key = format!("form.layout.{}", scope_name(layout.scope)?);
-    set_setting_on(conn, &key, &serde_json::to_string(layout)?)
+    let scope = scope_name(layout.scope)?;
+    let key = format!("form.layout.{scope}");
+    // A form never arranged has no stored layout: what it held before is the default one.
+    let before = setting_on(conn, &key)?.is_some().then_some(scope.as_str());
+    sync::logged(conn, entity::FORM_LAYOUT, before, || {
+        set_setting_on(conn, &key, &serde_json::to_string(layout)?)?;
+        Ok((scope.clone(), ()))
+    })
 }
 
 /// The setting that holds this installation's id in the changelog.
@@ -1070,7 +1274,7 @@ const ACCOUNT_COLUMNS: &str = "id, login, server, broker, name, currency, initia
      server_offset_min, last_sync";
 
 const DEAL_COLUMNS: &str = "ticket, order_id, position_id, time_msc, symbol, kind, entry, volume, price, commission,
-     swap, fee, profit, magic, comment, sl, tp, risk, reason";
+     swap, fee, profit, magic, comment, sl, tp, risk, reason, result_r, gaps";
 
 /// A row count as SQLite stores it.
 fn count(n: usize) -> i64 {
@@ -1124,15 +1328,26 @@ fn deal_from_row_at(r: &Row<'_>, first: usize) -> rusqlite::Result<Deal> {
         tp: r.get(first + 16)?,
         risk: r.get(first + 17)?,
         reason: r.get(first + 18)?,
+        result_r: r.get(first + 19)?,
+        gaps: Gaps::from_bits(r.get(first + 20)?),
     })
 }
 
-/// Inserts a deal or replaces the stored one with the same (account, ticket).
+/// Inserts a deal or replaces the stored one with the same (account, ticket), and logs it for sync.
 fn write_deal(conn: &Connection, account_id: i64, deal: &Deal, source: &str) -> Result<()> {
+    let key = views::deal_key(conn, account_id, deal.ticket)?;
+    sync::logged(conn, entity::DEAL, Some(&key), || {
+        write_deal_raw(conn, account_id, deal, source)?;
+        Ok((key.clone(), ()))
+    })
+}
+
+/// [`write_deal`] without the log, for applying what another device wrote.
+fn write_deal_raw(conn: &Connection, account_id: i64, deal: &Deal, source: &str) -> Result<()> {
     conn.prepare_cached(
         "INSERT OR REPLACE INTO deals (account_id, ticket, order_id, position_id, time_msc, symbol, kind, entry,
-             volume, price, commission, swap, fee, profit, magic, comment, sl, tp, risk, reason, source)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+             volume, price, commission, swap, fee, profit, magic, comment, sl, tp, risk, reason, result_r, gaps, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
     )?
     .execute(rusqlite::params![
         account_id,
@@ -1155,6 +1370,8 @@ fn write_deal(conn: &Connection, account_id: i64, deal: &Deal, source: &str) -> 
         deal.tp,
         deal.risk,
         deal.reason,
+        deal.result_r,
+        deal.gaps.bits(),
         source
     ])?;
     Ok(())
@@ -1183,6 +1400,14 @@ fn upsert_account_on(conn: &Connection, info: &AccountInfo) -> Result<i64> {
     if login.is_empty() {
         return Err(DbError::Invalid("thiếu số tài khoản".into()));
     }
+    let key = join_key(&[login, info.server.trim()]);
+    sync::logged(conn, entity::ACCOUNT, Some(&key), || {
+        let id = upsert_account_row(conn, info, login)?;
+        Ok((key.clone(), id))
+    })
+}
+
+fn upsert_account_row(conn: &Connection, info: &AccountInfo, login: &str) -> Result<i64> {
     // Empty text means "not reported": it neither blanks a stored value nor beats the default.
     let id = conn.query_row(
         "INSERT INTO accounts (login, server, broker, name, currency, last_balance, last_equity, server_offset_min,
@@ -1289,15 +1514,7 @@ fn device_id(conn: &Connection) -> Result<String> {
 
 /// Random enough to tell this machine's changelog from another's; not a secret.
 fn new_device_id() -> String {
-    use std::hash::{BuildHasher, Hasher, RandomState};
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
-    let half = |salt: u8| {
-        let mut hasher = RandomState::new().build_hasher();
-        hasher.write(&nanos.to_le_bytes());
-        hasher.write_u8(salt);
-        hasher.finish()
-    };
-    format!("{:016x}{:016x}", half(0), half(1))
+    crate::sync::new_uid()
 }
 
 /// The stored name of a serde enum unit variant (`CatalogKind::ExitReason` → `exit_reason`).
@@ -1412,6 +1629,24 @@ mod tests {
         assert_eq!(db.missed_trades(0, i64::MAX).unwrap().len(), 0, "the missed trade is gone");
         assert_eq!(db.search("pullback", 10).unwrap().len(), 0, "its index entry is gone");
         assert_eq!(db.search("khong tin", 10).unwrap().len(), 0, "its index entry is gone");
+    }
+
+    #[test]
+    fn a_saved_setup_review_or_missed_trade_is_searchable_as_soon_as_it_is_stored() {
+        use crate::review::{Period, PeriodReview};
+        let mut db = Db::in_memory().unwrap();
+        db.save_playbook(&Playbook { name: "Pullback EMA20".into(), ..Playbook::default() }, 0).unwrap();
+        assert_eq!(db.search("pullback", 10).unwrap().len(), 1, "the setup is indexed by the write that stores it");
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 11, 20).unwrap();
+        let template = db.review_template(Period::Week).unwrap();
+        let mut review = PeriodReview::blank(&template, day, None);
+        review.answers[0].1 = "Giữ đúng ba lệnh mỗi ngày".into();
+        db.save_review(&review).unwrap();
+        assert_eq!(db.search("ba lenh", 10).unwrap().len(), 1, "the review is indexed by its write");
+        let renamed = Playbook { id: db.playbooks().unwrap()[0].id, name: "Breakout".into(), ..Playbook::default() };
+        db.save_playbook(&renamed, 0).unwrap();
+        assert_eq!(db.search("pullback", 10).unwrap().len(), 0, "a rename replaces the index entry");
+        assert_eq!(db.search("breakout", 10).unwrap().len(), 1);
     }
 
     #[test]
