@@ -295,7 +295,7 @@ fn opening_a_day_of_the_calendar_shows_that_days_journal() {
     let mut app = fixture.start();
 
     app.press("role:button[Lịch P/L]").expect("the calendar row is a button");
-    app.wait_for("Tháng này").expect("the page opens");
+    app.wait_for("Kết quả tháng").expect("the page opens");
     app.press("role:button[Tháng trước]").expect("goes to last month");
     let cell = format!("role:button[Xem ngày {}]", day.format("%d/%m"));
     app.wait_for(&cell).expect("last month is drawn");

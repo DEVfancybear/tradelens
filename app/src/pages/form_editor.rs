@@ -19,9 +19,7 @@ use crate::{
     store::{Reading, Writer, query, writer},
     ui::{
         chips::{Tone, chip},
-        controls::{
-            Choice, Variant, action, action_icon, commit_field, confirm, confirm_then, icon_action, select_value,
-        },
+        controls::{Choice, Variant, action, action_icon, commit_field, confirm_then, icon_action, select_value},
         forms::{NumberRange, number_field, switch_row},
         icons::Icon,
         parts::{empty_state, page_with},
@@ -270,20 +268,16 @@ impl Ops {
                 move |db| db.kind_change_impact(scope, &key, to),
                 move |result| match result {
                     Ok(KindImpact { lost, .. }) if lost > 0 => {
-                        spawn(async move {
-                            let go = confirm(
-                                "Đổi kiểu sẽ mất giá trị đã ghi?",
-                                format!(
-                                    "{lost} giá trị đã ghi không chuyển được sang kiểu “{}” và sẽ bị bỏ trống.",
-                                    kind_name(to)
-                                ),
-                                "Đổi kiểu",
-                            )
-                            .await;
-                            if go {
-                                apply(self);
-                            }
-                        });
+                        confirm_then(
+                            self.owner,
+                            "Đổi kiểu sẽ mất giá trị đã ghi?",
+                            format!(
+                                "{lost} giá trị đã ghi không chuyển được sang kiểu “{}” và sẽ bị bỏ trống.",
+                                kind_name(to)
+                            ),
+                            "Đổi kiểu",
+                            move || apply(self),
+                        );
                     }
                     Ok(_) => apply(self),
                     Err(error) => notice.set(Some(error)),

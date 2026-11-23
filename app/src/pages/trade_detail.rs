@@ -8,7 +8,7 @@ use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
     ChecklistItem, Db, DbError, DealEntry, DealKind, Gaps, Origin, Side, TradeKey,
-    attachments::{Attachment, Source},
+    attachments::Attachment,
     catalog::{CatalogItem, CatalogKind, CustomValues, FieldDef, FieldScope, missing_expected},
     form::{BuiltinField, FormLayout},
     time::format_duration,
@@ -536,33 +536,27 @@ fn plan_card(key: &Rc<TradeKey>) -> impl IntoElement {
     plan_vs_actual(view_of, write_plan)
 }
 
-/// The label a screenshot's origin goes by in a screen reader's eyes: the gallery draws the badge.
-fn is_from_ea(shot: &Attachment) -> bool {
-    shot.source != Source::Upload
-}
-
-/// The gallery of chart images saved into the journal: the EA's shots and the trader's own.
+/// The gallery of chart images saved into the journal, with how many there are.
 fn screenshots_card(key: &Rc<TradeKey>, failure: Signal<Option<String>>) -> impl IntoElement {
     let store = store();
     let write = writer();
     let key = stored(TradeKey::clone(key));
     let shots = signal(store.snapshot_now().journal(&key.with(|k| k.clone())).screenshots);
-    // Pictures the EA attaches while the page is open appear without a reload of the page.
+    // Pictures the journal gains while the page is open (a sync) appear without a reload of the page.
     effect(move || {
         let current = store.snapshot().journal(&key.with(|k| k.clone())).screenshots;
         if current != shots.get_untracked() {
             shots.set(current);
         }
     });
-    let ea_count = move || shots.with(|list| list.iter().filter(|s| is_from_ea(s)).count());
     card(
         "Ảnh chart",
         view()
             .gap_2()
             .child(
                 text(move || {
-                    let (all, ea) = (shots.with(Vec::len), ea_count());
-                    if all == 0 { String::new() } else { format!("{all} ảnh · {ea} tự chụp") }
+                    let all = shots.with(Vec::len);
+                    if all == 0 { String::new() } else { format!("{all} ảnh") }
                 })
                 .text_xs()
                 .text_color(move || theme().muted_foreground),

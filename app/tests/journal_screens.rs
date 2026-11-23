@@ -6,7 +6,7 @@ mod common;
 use std::time::Duration;
 
 use nsh_core::platform::Os;
-use nsh_testing::{DialogAnswer, Headless};
+use nsh_testing::Headless;
 use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, TradeKey,
     catalog::{FieldDef, FieldKind, FieldScope, FieldValue, Requirement},
@@ -277,10 +277,11 @@ fn changing_a_propertys_type_in_the_form_editor_converts_every_entry() {
     app.wait_for("Tuỳ biến form nhập liệu").expect("the editor opens over the page");
     app.wait_for("label:Sửa thuộc tính Khung vào lệnh").expect("the property is in the table");
 
-    app.on_dialog(|_| DialogAnswer::Press("Đổi kiểu".to_owned()));
     app.press("label:Sửa thuộc tính Khung vào lệnh").expect("picks the property");
     app.press("label:Kiểu").expect("the kind drop-down");
     app.press("text:# Số").expect("the number kind");
+    app.wait_for("Đổi kiểu sẽ mất giá trị đã ghi?").expect("the question is asked first");
+    app.press("label:Đổi kiểu sẽ mất giá trị đã ghi? >> role:button[Đổi kiểu]").expect("confirms");
     wait_until("the stored values following the new type", || {
         let value =
             |position| db.journal(&key_of(&db, position)).expect("reads").and_then(|e| e.custom.get("focus").cloned());

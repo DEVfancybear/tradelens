@@ -2,7 +2,7 @@
 //! in-memory drive, which the demo mode (`cloud.mode = memory`, the drive named by `cloud.demo_drive`)
 //! offers, so sync, restore and sign-out run for real without an account.
 
-use nsh_testing::{DialogAnswer, Headless};
+use nsh_testing::Headless;
 use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, TradeKey, model::AccountInfo, playbook::Playbook,
 };
@@ -184,17 +184,16 @@ fn a_new_machine_restores_the_data_of_the_old_one_and_keeps_a_copy_of_its_own() 
     b.wait_until("the restore button", WAIT, |s| s.enabled("role:button[Khôi phục sang máy này]") == Ok(true))
         .expect("the restore button is on");
     // Nothing happens until the trader confirms.
-    b.on_dialog(|_| DialogAnswer::Press("Huỷ".to_owned()));
     b.press("role:button[Khôi phục sang máy này]").expect("the restore button");
+    b.wait_for("Thay toàn bộ dữ liệu trên máy này?").expect("the question is asked");
+    b.press("role:button[Huỷ]").expect("declines");
+    b.wait_for_gone("Thay toàn bộ dữ liệu trên máy này?", WAIT).expect("the question closes");
     b.wait(std::time::Duration::from_millis(400)).expect("the app runs");
     assert!(new.db().accounts().expect("accounts").is_empty(), "declining the question restores nothing");
 
-    b.on_dialog(|dialog| {
-        let title = dialog.title.clone().unwrap_or_default();
-        assert!(title.contains("Thay toàn bộ dữ liệu"), "{title}");
-        DialogAnswer::Press("Thay dữ liệu".to_owned())
-    });
     b.press("role:button[Khôi phục sang máy này]").expect("the restore button");
+    b.wait_for("Thay toàn bộ dữ liệu trên máy này?").expect("the question is asked again");
+    b.press("role:button[Thay dữ liệu]").expect("confirms");
     b.wait_for("Đã khôi phục").expect("the card says it restored");
     let restored = new.db();
     assert_eq!(restored.accounts().expect("accounts").len(), 1, "the old machine's account came over");
@@ -238,12 +237,15 @@ fn signing_out_asks_first_and_forgets_the_session() {
     let mut app = start(&fixture);
     open_cloud(&mut app);
     app.wait_for(EMAIL).expect("signed in");
-    app.on_dialog(|_| DialogAnswer::Press("Huỷ".to_owned()));
     app.press("role:button[Đăng xuất]").expect("the sign-out button");
-    app.wait(std::time::Duration::from_millis(400)).expect("the app runs");
+    app.wait_for("Đăng xuất khỏi Google Drive?").expect("the question is asked");
+    app.press("role:button[Huỷ]").expect("declines");
+    app.wait_for_gone("Đăng xuất khỏi Google Drive?", WAIT).expect("the question closes");
     assert!(app.screen().shows(EMAIL), "cancelling the question keeps the session");
-    app.on_dialog(|_| DialogAnswer::Press("Đăng xuất".to_owned()));
     app.press("role:button[Đăng xuất]").expect("the sign-out button");
+    app.wait_for("Đăng xuất khỏi Google Drive?").expect("the question is asked again");
+    // The page has a button of the same name: the one in the question is the one to press.
+    app.press("label:Đăng xuất khỏi Google Drive? >> role:button[Đăng xuất]").expect("confirms");
     app.wait_for_gone(EMAIL, WAIT).expect("the account is gone");
     app.wait_for("Cloud: chưa đăng nhập").expect("the sidebar follows");
     let db = fixture.db();

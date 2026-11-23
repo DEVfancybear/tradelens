@@ -195,8 +195,9 @@ fn a_playbook_is_created_edited_and_deleted() {
     });
 
     app.press("role:button[Sửa]").expect("the edit button again");
-    app.on_dialog(|_| nsh_testing::DialogAnswer::Press("Xoá hẳn".to_owned()));
     app.press("role:button[Xoá playbook]").expect("the delete button");
+    app.wait_for("Xoá playbook?").expect("the question is asked first");
+    app.press("label:Xoá playbook? >> role:button[Xoá hẳn]").expect("confirms");
     wait_until("the setup being deleted", || fixture.db().playbooks().is_ok_and(|p| p.is_empty()));
     app.wait_for("Chưa có playbook nào").expect("the list is empty again");
 }

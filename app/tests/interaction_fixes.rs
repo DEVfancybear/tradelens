@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::NaiveDate;
 use nsh_core::{Cursor, MountItem, NodeId};
-use nsh_testing::{DialogAnswer, Headless};
+use nsh_testing::Headless;
 use tradelens_core::{Db, Deal, DealBatch, DealEntry, DealKind, model::AccountInfo};
 
 mod support;
@@ -26,22 +26,20 @@ fn signed_in() -> Fixture {
 }
 
 #[test]
-fn a_question_asked_by_a_card_that_is_built_again_before_the_answer_still_acts_on_it() {
+fn a_question_covers_the_page_and_its_answer_still_signs_out() {
     let fixture = signed_in();
     let mut app = fixture.start(1280.0, 1100.0, |_| {});
     app.press("role:button[Đăng nhập & sync]").expect("the cloud row");
     app.wait_for(EMAIL).expect("signed in");
-    app.answer_dialogs_myself();
     app.press("role:button[Đăng xuất]").expect("the sign-out button");
-    assert!(app.pending_dialog().is_some(), "the question is shown");
+    app.wait_for("Đăng xuất khỏi Google Drive?").expect("the question is shown");
 
-    // The state changes while the question is open: the card with the button is built again.
-    app.press("label:Tự động sync").expect("the switch");
+    // The question covers the page: what is behind it cannot be pressed until it is answered.
+    assert!(app.press("label:Tự động sync").is_err(), "the page behind the question is covered");
     let db = fixture.db();
-    wait_until("the switch being kept", || db.setting("cloud.auto_sync").is_ok_and(|v| v.as_deref() == Some("1")));
-    assert!(app.pending_dialog().is_some(), "the question is still open after the card was rebuilt");
+    assert_ne!(db.setting("cloud.auto_sync").expect("reads").as_deref(), Some("1"), "the switch was not flipped");
 
-    app.answer_dialog(DialogAnswer::Press("Đăng xuất".to_owned())).expect("answers");
+    app.press("label:Đăng xuất khỏi Google Drive? >> role:button[Đăng xuất]").expect("answers");
     app.wait_for_gone(EMAIL, WAIT).expect("the answer signed out, though the card that asked is gone");
     wait_until("the session being forgotten", || db.setting("cloud.demo_user").is_ok_and(|v| v.as_deref() == Some("")));
 }

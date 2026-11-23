@@ -26,10 +26,17 @@ use crate::{
 
 /// The list, or the page of the trade opened from it.
 pub(crate) fn trades() -> impl IntoElement {
+    // Each is keyed, so that opening or closing a trade's page starts at the top of what shows.
+    let screen = |key: String, page: AnyElement| view().flex_1().min_h(px(0.0)).key(key).child(page);
     dynamic(move || match nav::open_trade() {
-        Some(key) => untracked(|| trade_detail::trade_detail(key)).into_element(),
-        None if nav::manual_entry_open() => untracked(manual_entry::manual_entry).into_element(),
-        None => untracked(list).into_element(),
+        Some(key) => {
+            let id = format!("trade:{key:?}");
+            screen(id, untracked(|| trade_detail::trade_detail(key)).into_element())
+        }
+        None if nav::manual_entry_open() => {
+            screen("manual-entry".to_owned(), untracked(manual_entry::manual_entry).into_element())
+        }
+        None => screen("list".to_owned(), untracked(list).into_element()),
     })
 }
 

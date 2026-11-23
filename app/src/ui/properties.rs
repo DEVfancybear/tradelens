@@ -1218,7 +1218,7 @@ mod tests {
 
     use nsh_core::{Size, platform::Os};
     use nsh_engine::{EngineConfig, Root};
-    use nsh_testing::{DialogAnswer, Headless};
+    use nsh_testing::Headless;
 
     use super::*;
 
@@ -1364,6 +1364,7 @@ mod tests {
             .p_4()
             .gap_3()
             .child(property_list(list))
+            .child(super::super::confirm::host())
             .child(text(move || format!("order {}", labels(&layout.get(), &defs.get()).join("|"))))
             .child(text(move || {
                 format!(
@@ -1450,10 +1451,11 @@ mod tests {
     #[test]
     fn changing_to_a_kind_that_loses_the_value_asks_first() {
         let mut app = start();
-        app.on_dialog(|_| DialogAnswer::Press("Đổi kiểu".to_owned()));
         app.press("label:Sửa thuộc tính Khung vào lệnh").expect("the name opens the popover");
         app.press("label:Kiểu").expect("the kind drop-down");
         app.press("text:▦ Ngày").expect("the date kind");
+        app.wait_for("Đổi kiểu sẽ mất giá trị đã ghi?").expect("the question is asked first");
+        app.press("Đổi kiểu").expect("the destructive answer");
         app.wait_until("the value was dropped", Duration::from_secs(3), |screen| {
             screen.texts().iter().any(|t| t.trim() == "values")
         })
@@ -1463,11 +1465,12 @@ mod tests {
     #[test]
     fn declining_the_loss_keeps_the_kind_and_the_value() {
         let mut app = start();
-        app.on_dialog(|_| DialogAnswer::Press("Huỷ".to_owned()));
         app.press("label:Sửa thuộc tính Khung vào lệnh").expect("the name opens the popover");
         app.press("label:Kiểu").expect("the kind drop-down");
         app.press("text:▦ Ngày").expect("the date kind");
-        app.wait(Duration::from_millis(300)).expect("waits");
+        app.wait_for("Đổi kiểu sẽ mất giá trị đã ghi?").expect("the question is asked first");
+        app.press("Huỷ").expect("the cancel answer");
+        app.wait_for_gone("Đổi kiểu sẽ mất giá trị đã ghi?", Duration::from_secs(5)).expect("closed");
         assert!(app.screen().shows("values tf=Choice(\"M5\")"), "{:?}", app.screen().texts());
     }
 }

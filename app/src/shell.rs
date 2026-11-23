@@ -9,6 +9,7 @@ use crate::{
     nav::{self, Route, SECTIONS},
     pages::{self, search},
     ui::{
+        confirm,
         controls::sidebar_row,
         icons::{Icon, icon},
         palette::search_trigger,
@@ -26,16 +27,28 @@ pub(crate) fn shell() -> impl IntoElement {
         .child(sidebar())
         .child(view().flex_1().min_w(px(0.0)).child(dynamic(move || {
             let route = nav::current();
-            // "Tuỳ biến form" covers the page of the route; closing it shows the page again.
+            // "Tuỳ biến form" covers the page of the route; closing it shows the page again. Each
+            // page is a keyed element of its own: a page made in the place of another one starts
+            // at the top, instead of inheriting the scroll position of the page it replaced.
             match nav::form_editor() {
-                Some(scope) => untracked(|| pages::form_editor::form_editor(scope).into_element()),
-                None => untracked(|| pages::page(route)),
+                Some(scope) => untracked(|| {
+                    view()
+                        .flex_1()
+                        .min_h(px(0.0))
+                        .key(format!("form-editor:{scope:?}"))
+                        .child(pages::form_editor::form_editor(scope))
+                }),
+                None => untracked(|| {
+                    view().flex_1().min_h(px(0.0)).key(format!("page:{route:?}")).child(pages::page(route))
+                }),
             }
         })))
         // The plan prompt of a position the EA just reported: over every screen.
         .child(pages::entry_plan::host())
         // The share dialog, opened from a trade's page and from the review.
         .child(pages::share::host())
+        // The question asked before something is deleted or replaced.
+        .child(confirm::host())
         .child(search::overlay())
 }
 

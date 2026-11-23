@@ -1,5 +1,5 @@
 //! The picture gallery of an entry (a trade, a missed trade, a setup): a wrapping grid of
-//! thumbnails with the EA's entry / exit badges, a caption, a handle to reorder (drag, or the
+//! thumbnails with a caption, a handle to reorder (drag, or the
 //! arrow keys) and a button to remove, ending in the "Thêm ảnh" tile that takes several files
 //! from the file dialog, from a drop on the gallery, or from Ctrl+V.
 //!
@@ -11,10 +11,9 @@ use std::{path::PathBuf, rc::Rc};
 
 use nsh_base::{button, theme};
 use nsh_core::prelude::*;
-use tradelens_core::attachments::{self, AttachError, Attachment, Source};
+use tradelens_core::attachments::{self, AttachError, Attachment};
 
 use super::{
-    chips::{Tone, chip},
     controls::{Variant, icon_action},
     files::{Accept, Pick, image_slot, pasted_images, pick_files, sift},
     icons::{Icon, icon},
@@ -92,7 +91,6 @@ pub fn gallery(
                                     index,
                                     len,
                                     file: folder.as_ref().map(|dir| dir.join(&item.path)),
-                                    badge: badge_of(item.source),
                                     caption: caption_of(&item),
                                 };
                                 tile(place, items, on_change, columns)
@@ -166,17 +164,7 @@ struct Tile {
     len: usize,
     /// The picture's file in the data folder's `attachments/`.
     file: Option<PathBuf>,
-    badge: Option<&'static str>,
     caption: String,
-}
-
-/// The badge a picture carries by where it came from: the EA's shots say so.
-fn badge_of(source: Source) -> Option<&'static str> {
-    match source {
-        Source::Upload => None,
-        Source::EaEntry => Some("Tự chụp · vào lệnh"),
-        Source::EaExit => Some("Tự chụp · ra lệnh"),
-    }
 }
 
 /// The line under a picture: its timeframe (`h4` shows as `H4`) and caption.
@@ -201,7 +189,7 @@ fn tile(
     on_change: impl Fn(Vec<Attachment>) + Copy + 'static,
     columns: Signal<usize>,
 ) -> impl IntoElement {
-    let Tile { label, index, len, file, badge, caption } = place;
+    let Tile { label, index, len, file, caption } = place;
     let name = format!("{label} {}", index + 1);
     let reorder = move |to: usize| {
         if to != index {
@@ -222,17 +210,13 @@ fn tile(
     };
     view()
         .w(px(TILE_WIDTH))
-        .child(
-            image_slot(name.clone(), move || file.clone(), TILE_IMAGE)
-                .when_some(badge, |slot, badge| {
-                    slot.child(view().absolute().top(px(8.0)).left(px(8.0)).child(chip(badge, Tone::Primary)))
-                })
-                .child(view().absolute().top(px(6.0)).right(px(6.0)).child(drag_handle(
-                    format!("Kéo để đổi thứ tự {name}"),
-                    by_drag,
-                    by_key,
-                ))),
-        )
+        .child(image_slot(name.clone(), move || file.clone(), TILE_IMAGE).child(
+            view().absolute().top(px(6.0)).right(px(6.0)).child(drag_handle(
+                format!("Kéo để đổi thứ tự {name}"),
+                by_drag,
+                by_key,
+            )),
+        ))
         .child(
             view()
                 .flex_row()
@@ -280,6 +264,7 @@ mod tests {
     use nsh_core::{Size, platform::Os};
     use nsh_engine::{EngineConfig, Root};
     use nsh_testing::Headless;
+    use tradelens_core::attachments::Source;
 
     use super::*;
 
@@ -299,13 +284,6 @@ mod tests {
         assert_eq!(caption_of(&shot("a", Source::EaEntry, "", Some("m15"))), "M15");
         assert_eq!(caption_of(&shot("a", Source::Upload, " retest ", None)), "retest");
         assert_eq!(caption_of(&shot("a", Source::Upload, "", None)), "");
-    }
-
-    #[test]
-    fn only_the_eas_shots_carry_a_badge() {
-        assert_eq!(badge_of(Source::Upload), None);
-        assert_eq!(badge_of(Source::EaEntry), Some("Tự chụp · vào lệnh"));
-        assert_eq!(badge_of(Source::EaExit), Some("Tự chụp · ra lệnh"));
     }
 
     #[test]
@@ -359,10 +337,10 @@ mod tests {
     }
 
     #[test]
-    fn the_ea_badges_and_captions_are_shown() {
+    fn captions_are_shown_and_no_picture_carries_a_badge() {
         let (_dir, app) = fixture();
-        assert!(app.screen().shows("Tự chụp · vào lệnh"));
-        assert!(app.screen().shows("Tự chụp · ra lệnh"));
+        let badges: Vec<&str> = app.screen().texts().into_iter().filter(|t| t.contains("Tự chụp")).collect();
+        assert!(badges.is_empty(), "the EA is gone, so is what said a picture came from it: {badges:?}");
         assert!(app.screen().shows("H4 · bối cảnh"));
         assert!(app.screen().shows("Thêm ảnh"));
     }

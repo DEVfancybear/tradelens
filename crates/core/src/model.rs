@@ -23,11 +23,17 @@ pub struct Account {
 }
 
 impl Account {
+    /// What the screens call the account: its name and, for a terminal's account, its login
+    /// (`Demo (12345)`). The login of a journal's account (`notion`) is only a key the importer
+    /// files it under, so the name stands alone (`Nhật ký Notion`).
     pub fn title(&self) -> String {
+        let terminal_login = !self.login.is_empty() && self.login.chars().all(|c| c.is_ascii_digit());
         if self.name.trim().is_empty() {
             format!("{} · {}", self.login, self.server)
-        } else {
+        } else if terminal_login {
             format!("{} ({})", self.name, self.login)
+        } else {
+            self.name.clone()
         }
     }
 }

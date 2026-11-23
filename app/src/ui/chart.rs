@@ -17,6 +17,10 @@ use crate::format::{self, Sign};
 /// to keep every digit in an `f32` chart.
 const MINUTE_MS: i64 = 60_000;
 
+/// The look of an axis's labels: the figures of the design's rule 2, in the monospaced family
+/// (`font-mono` of `theme.json`) with tabular digits.
+pub(crate) const AXIS_LABEL_CLASS: &str = "pr-3 text-xs font-mono tabular-nums text-muted-foreground";
+
 /// Room the balance's labels take at the left of both plots, so their edges line up.
 const LABEL_GUTTER: f32 = 72.0;
 
@@ -148,7 +152,7 @@ pub(crate) fn equity_chart(
                                 .to_owned()
                                 .into()
                         }))
-                        .label_class("pr-3 text-xs text-muted-foreground"),
+                        .label_class(AXIS_LABEL_CLASS),
                 ),
         )
         .child(drawdown_panel(points, currency, generation, motion))

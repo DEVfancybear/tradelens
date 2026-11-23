@@ -53,6 +53,22 @@ pub fn App() -> impl IntoElement {
 /// The text of `nsh.json`: the app's id and the main window's size come from it, whoever starts the app.
 const MANIFEST: &str = include_str!("../nsh.json");
 
+/// The bundled font files (`assets/fonts/`): Inter for text, `JetBrains Mono` for figures.
+///
+/// `cargo run` starts the platform without the app's UI set, so the `registry.assets(..)` fonts
+/// of [`native`] are never read and every family would fall back to the system's. The root
+/// registers the bytes itself, before the first render, so `font-sans` / `font-mono` of
+/// `theme.json` resolve to these faces however the app is started.
+const FONTS: [&[u8]; 7] = [
+    include_bytes!("../assets/fonts/Inter-Regular.ttf"),
+    include_bytes!("../assets/fonts/Inter-Medium.ttf"),
+    include_bytes!("../assets/fonts/Inter-SemiBold.ttf"),
+    include_bytes!("../assets/fonts/Inter-Bold.ttf"),
+    include_bytes!("../assets/fonts/JetBrainsMono-Regular.ttf"),
+    include_bytes!("../assets/fonts/JetBrainsMono-Medium.ttf"),
+    include_bytes!("../assets/fonts/JetBrainsMono-SemiBold.ttf"),
+];
+
 /// The app's root as the runner needs it: [`App`] with what `nsh.json` declares. NSH's own tooling
 /// (`nsh run`, `nsh package`) generates this from the file; `cargo run` has to do it here, because
 /// without the id the data folder is the one every app without an id shares (`default`), and
@@ -64,7 +80,12 @@ const MANIFEST: &str = include_str!("../nsh.json");
 pub fn root() -> nsh_core::element::Root {
     let manifest: serde_json::Value = serde_json::from_str(MANIFEST).expect("nsh.json is valid JSON");
     let id = manifest["id"].as_str().expect("nsh.json has an id");
-    let root = nsh_core::element::Root::of::<App>().app_id(id);
+    let root = FONTS.iter().fold(nsh_core::element::Root::of::<App>().app_id(id), |root, font| root.font(*font));
+    // The theme's tokens are there from the first frame, with the family names of its fonts.
+    let root = match ui::theme::tokens() {
+        Some(tokens) => root.tokens(tokens),
+        None => root,
+    };
     match manifest.get("window") {
         Some(window) => root.main_window_json(&window.to_string()),
         None => root,
@@ -109,6 +130,26 @@ mod tests {
         assert_eq!(window.default_size, Some(nsh_core::geometry::size(px(1280.0), px(800.0))));
         assert_eq!(window.attributes.min_size, Some(Some(nsh_core::geometry::size(px(1024.0), px(680.0)))));
         assert!(!window.restore_bounds, "a window left tiny once must not come back tiny");
+    }
+
+    #[test]
+    fn the_root_registers_the_fonts_under_the_families_theme_json_names() {
+        let root = super::root();
+        let families: Vec<String> = root
+            .fonts()
+            .iter()
+            .map(|data| nsh_core::font_family(data).expect("every bundled font has a family name"))
+            .collect();
+        let tokens = nsh_base::tokens_of(Some(include_str!("../theme.json"))).expect("theme.json parses");
+        for token in [nsh_core::element::FONT_SANS, nsh_core::element::FONT_MONO] {
+            let named = tokens.font(token).unwrap_or_else(|| panic!("theme.json has `{token}`"));
+            assert!(
+                families.iter().any(|family| family == &**named),
+                "`{token}` names {named:?}, but the registered families are {families:?}"
+            );
+        }
+        let mono = families.iter().filter(|family| family.as_str() == "JetBrains Mono").count();
+        assert_eq!(mono, 3, "Regular, Medium and SemiBold: {families:?}");
     }
 
     #[test]

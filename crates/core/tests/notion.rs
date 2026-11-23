@@ -263,8 +263,9 @@ fn a_file_where_nothing_parses_is_an_error_that_says_why() {
 fn what_the_file_lacks_is_a_warning_not_an_error() {
     let csv = "Date,Pair,Direction\n2026-11-20 09:00,EURUSD,Long\n";
     let plan = notion::infer(csv.as_bytes()).expect("a bare list of trades");
-    assert_eq!(plan.warnings.len(), 4, "{:?}", plan.warnings);
-    assert!(plan.warnings.iter().any(|w| w.contains("Khối lượng") && w.contains("1 lot")));
+    assert_eq!(plan.warnings.len(), 2, "one line for the lot and the prices, one for the profit: {:?}", plan.warnings);
+    assert_eq!(plan.warnings[0], "File không có khối lượng / giá vào / giá ra: các ô này hiện «—».");
+    assert!(plan.warnings[1].contains("lãi/lỗ để 0"), "{:?}", plan.warnings);
     assert_close(plan.rows[0].entry.volume, 1.0, "assumed lot");
 }
 

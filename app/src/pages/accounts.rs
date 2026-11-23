@@ -116,7 +116,12 @@ fn entry_of(
         .map(|v| {
             let place = if let Some(key) = &v.trade {
                 own.trades.iter().find(|t| t.key == *key).map_or_else(String::new, |t| {
-                    format!("{} · {}", t.symbol, own.clock.local(t.open_time).format("%H:%M"))
+                    // A trade that was only dated has no time to give: the symbol stands alone.
+                    if t.time_known() {
+                        format!("{} · {}", t.symbol, own.clock.local(t.open_time).format("%H:%M"))
+                    } else {
+                        t.symbol.clone()
+                    }
                 })
             } else {
                 format!("{} lệnh", rules::day_status(&samples, own.clock, v.day).trades)

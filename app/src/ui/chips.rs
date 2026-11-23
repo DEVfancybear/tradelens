@@ -79,7 +79,41 @@ pub(crate) fn figure_text(value: impl Fn() -> String + 'static) -> Text {
 
 #[cfg(test)]
 mod tests {
+    use nsh_engine::{EngineConfig, Root};
+    use nsh_testing::Headless;
+
     use super::*;
+
+    #[component]
+    fn Figures() -> impl IntoElement {
+        super::super::theme::install();
+        view()
+            .child(pnl_text(|| "+34.4R".to_owned()))
+            .child(figure_text(|| "47.1%".to_owned()))
+            .child(super::super::parts::stat_tile("Win rate", || ("62.5%".to_owned(), Tone::Neutral), String::new))
+            .child(text("Inter ở đây"))
+    }
+
+    fn family_of(app: &Headless, shown: &str) -> Option<String> {
+        let style = app.screen().span_style(&format!("text:{shown}")).expect("the text is on screen");
+        style.font_family.map(|family| family.name().to_string())
+    }
+
+    #[test]
+    fn a_figure_is_drawn_in_the_monospaced_family_of_the_theme_with_tabular_digits() {
+        let theme = super::super::theme::tokens().expect("theme.json parses");
+        let mut app =
+            Headless::start(EngineConfig::new(Root::of::<Figures>().tokens(theme))).expect("the engine starts");
+        app.wait_for("+34.4R").expect("the figures show");
+        for figure in ["+34.4R", "47.1%", "62.5%"] {
+            assert_eq!(family_of(&app, figure).as_deref(), Some("JetBrains Mono"), "{figure} is a figure");
+        }
+        assert_ne!(
+            family_of(&app, "Inter ở đây").as_deref(),
+            Some("JetBrains Mono"),
+            "what is not a figure is not set in mono"
+        );
+    }
 
     #[test]
     fn tone_follows_the_sign_of_an_amount() {

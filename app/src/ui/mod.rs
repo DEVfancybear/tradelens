@@ -10,6 +10,7 @@ pub(crate) mod chart;
 pub(crate) mod charts;
 pub mod checklist_editor;
 pub(crate) mod chips;
+pub(crate) mod confirm;
 pub(crate) mod controls;
 pub mod date_picker;
 pub mod files;

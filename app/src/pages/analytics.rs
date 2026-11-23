@@ -21,7 +21,7 @@ use crate::{
         breakdown::{BreakdownRow, breakdown_table},
         charts::{BarItem, HeatGrid, HeatValue, heatmap, histogram, mistake_cost_bar},
         chips::pnl_text,
-        controls::{Variant, action, segmented},
+        controls::{link, segmented},
         layout::columns,
         parts::{card, empty_state, page_with},
         tab_bar::tab_bar,
@@ -273,7 +273,12 @@ fn heat_card(cx: Cx) -> impl IntoElement {
                     heatmap(move || cx.a.with(|a| heat_grid_of(&a.heat, &cx.currency(), a.unit()))).into_element()
                 }
             }))
-            .child(text(hint).text_xs().text_color(move || theme().muted_foreground)),
+            // The legend explains cells: with none drawn (an empty state in their place) it has
+            // nothing to explain.
+            .child(dynamic(move || {
+                let drawn = cx.a.with(|a| !a.heat.is_empty());
+                drawn.then(|| text(hint).text_xs().text_color(move || theme().muted_foreground))
+            })),
     )
 }
 
@@ -405,7 +410,7 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
                             .child(view().child(total))
                             .child(text(summary).text_xs().pb_1().text_color(move || theme().muted_foreground)),
                     )
-                    .child(action("Xem lệnh", Variant::Ghost, move || nav::go(Route::Trades))),
+                    .child(link("Xem lệnh", move || nav::go(Route::Trades))),
             )
             .child(dynamic(move || {
                 let (costs, unit) = cx.a.with(|a| (a.mistakes.costs.clone(), a.unit()));

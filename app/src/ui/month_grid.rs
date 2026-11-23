@@ -245,7 +245,25 @@ pub(crate) fn month_grid(
     }))
 }
 
-/// A small month for the overview: the weekdays only, each day a short signed figure.
+/// The short figure of a day in the small month: money without its sign for a currency, R for a
+/// day with no money, `·` for a day with no trade, nothing for a day of the neighbouring months.
+fn compact_label(day: &CalendarDay) -> String {
+    match day.stat {
+        Some(stat) if stat.unit() == Unit::R => format::r_text(Some(stat.r)),
+        Some(stat) => format::money_whole(stat.net, Sign::Always, "").replace('$', ""),
+        None if day.in_month => "·".to_owned(),
+        None => String::new(),
+    }
+}
+
+/// The weeks of the small month: those with a weekday of the month in them. A week made only of
+/// the last weekend of the month before (a month that starts on a Sunday) has nothing to show.
+fn compact_weeks(weeks: Vec<CalendarWeek>) -> Vec<CalendarWeek> {
+    weeks.into_iter().filter(|week| week.days.iter().any(|d| d.in_month && !is_weekend(d.date))).collect()
+}
+
+/// A small month for the overview: the weekdays only, each day a short signed figure, a dashed
+/// empty cell for a weekday that belongs to a neighbouring month.
 pub(crate) fn mini_month(weeks: impl Fn() -> Vec<CalendarWeek> + 'static, today: Memo<NaiveDate>) -> impl IntoElement {
     let header = view().flex_row().gap_1().children(WEEKDAY_NAMES.iter().take(5).map(|name| {
         text(name.replace("Thứ ", "T"))
@@ -256,29 +274,21 @@ pub(crate) fn mini_month(weeks: impl Fn() -> Vec<CalendarWeek> + 'static, today:
             .text_color(move || theme().muted_foreground)
     }));
     view().gap_1().child(header).child(dynamic(move || {
-        let weeks = weeks();
+        let weeks = compact_weeks(weeks());
         let today = today.get();
         untracked(|| {
             view().gap_1().children(weeks.iter().map(|week| {
                 view().flex_row().gap_1().children(week.days.iter().filter(|d| !is_weekend(d.date)).map(|&day| {
-                    let label = match day.stat {
-                        Some(stat) if stat.unit() == Unit::R => format::r_text(Some(stat.r)),
-                        Some(stat) => format::money_whole(stat.net, Sign::Always, "").replace('$', ""),
-                        None if day.in_month => "·".to_owned(),
-                        None => String::new(),
-                    };
+                    let cell = view().flex_1().min_w(px(0.0)).h(px(COMPACT_HEIGHT)).items_center().justify_center();
+                    if !day.in_month {
+                        return cell.rounded(px(6.0)).border_1().border_dashed().border_color(move || theme().border);
+                    }
+                    let label = compact_label(&day);
                     let tone = day.stat.map_or(Tone::Neutral, |s| tone_of(s.result()));
-                    view()
-                        .flex_1()
-                        .min_w(px(0.0))
-                        .h(px(COMPACT_HEIGHT))
-                        .items_center()
-                        .justify_center()
-                        .rounded(px(6.0))
+                    cell.rounded(px(6.0))
                         .border_1()
                         .border_color(edge(&day))
                         .bg(fill(&day))
-                        .opacity(if day.in_month { 1.0_f32 } else { 0.0_f32 })
                         .accessible(true)
                         .label(format!("{} {}", day.date.format("%d/%m"), label))
                         .child(
@@ -343,6 +353,39 @@ mod tests {
         assert_eq!(week_figure(&week, Figure::Trades, "USD").0, "3 lệnh");
         let money_week = CalendarWeek { unit: Unit::Money, net: 120.0, ..week };
         assert_eq!(week_figure(&money_week, Figure::Net, "USD").0, "+$120");
+    }
+
+    #[test]
+    fn the_small_month_leaves_out_a_week_with_no_weekday_of_the_month() {
+        use std::collections::BTreeMap;
+        // 1 November 2026 is a Sunday: the first row of the grid is the last week of October.
+        let november = compact_weeks(tradelens_core::metrics::month_weeks(2026, 11, &BTreeMap::new()));
+        let first = november.first().expect("the month has weeks");
+        assert_eq!(
+            first.days[0].date,
+            NaiveDate::from_ymd_opt(2026, 11, 2).expect("a date"),
+            "starts on its first Monday"
+        );
+        assert_eq!(november.len(), 5, "2-6, 9-13, 16-20, 23-27 and 30 November");
+        // A month that starts in the middle of a week keeps that week, its early days outside the month.
+        let june = compact_weeks(tradelens_core::metrics::month_weeks(2026, 6, &BTreeMap::new()));
+        assert_eq!(june.first().map(|w| w.days[0].in_month), Some(true), "1 June 2026 is a Monday");
+        let july = compact_weeks(tradelens_core::metrics::month_weeks(2026, 7, &BTreeMap::new()));
+        assert_eq!(july.first().map(|w| w.days[0].in_month), Some(false), "1 July 2026 is a Wednesday");
+    }
+
+    #[test]
+    fn a_small_day_shows_its_figure_in_the_unit_it_has() {
+        let day = |stat: Option<DayStat>, in_month: bool| CalendarDay {
+            date: NaiveDate::from_ymd_opt(2026, 6, 19).expect("a date"),
+            in_month,
+            stat,
+        };
+        assert_eq!(compact_label(&day(Some(stat(330.4, 3, 2)), true)), "+330");
+        let r_only = DayStat { net: 0.0, trades: 1, wins: 1, r: 2.0, r_trades: 1, money_trades: 0 };
+        assert_eq!(compact_label(&day(Some(r_only), true)), "+2.0R");
+        assert_eq!(compact_label(&day(None, true)), "·");
+        assert_eq!(compact_label(&day(None, false)), "");
     }
 
     #[test]

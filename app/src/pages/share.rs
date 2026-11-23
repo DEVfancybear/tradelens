@@ -30,7 +30,7 @@ use crate::{
     snapshot::Snapshot,
     store::{query_with, store},
     ui::{
-        controls::{Variant, action, action_icon_when, icon_action, segmented},
+        controls::{Variant, action_icon_when, icon_action, link, segmented},
         files::file_url,
         forms::switch_row,
         icons::Icon,
@@ -423,11 +423,7 @@ fn panel(target: &ShareTarget) -> impl IntoElement {
                 .justify_between()
                 .gap_2()
                 .child(view().flex_row().when_some(month, |slot, start| {
-                    slot.child(action(
-                        format!("Xuất báo cáo PDF tháng {} →", start.format("%m")),
-                        Variant::Ghost,
-                        export,
-                    ))
+                    slot.child(link(format!("Xuất báo cáo PDF tháng {} →", start.format("%m")), export))
                 }))
                 .child(
                     view()
