@@ -64,7 +64,7 @@ Mã: lõi gộp nằm trong `crates/core` (`sync`, `db/sync.rs`, `db/views.rs`; 
 
 ## Ghi nhật ký thay đổi
 
-Mọi ghi cục bộ (qua `Db`: `upsert_batch`, `add_manual_trade`, import Notion, `save_journal`, `save_rules`,
+Mọi ghi cục bộ (qua `Db`: `upsert_batch`, `add_manual_trade`, `update_manual_trade`, `delete_trades`, import Notion, `save_journal`, `save_rules`,
 `save_checklist`, `save_day_note`/`save_day_values`, `set_setting`, danh mục, field, form, playbook, lệnh bỏ lỡ,
 tổng kết, mẫu, xoá, và việc đổi kiểu field kéo theo các entry) đi qua `db::sync::logged`: đọc thực thể
 **trước và sau** dưới dạng trường di động rồi ghi *những trường khác nhau* thành một dòng `changes`
@@ -97,13 +97,23 @@ có tem thì ghi, tem = `updated_at` của journal, các thứ khác tem 0 để
    `plan`/`review` của ngày): bản ghi muộn hơn thắng nguyên trường, **không gộp từng dòng**.
 5. **Deal** gộp theo `(tài khoản, ticket)` như *một bản ghi*: bản có tem lớn hơn thắng; các số đo mà bản kia có
    (`risk`, `reason`, `sl`, `tp`) và bản thắng thiếu thì được điền vào (`merge_deal`, giống import báo cáo đè lên
-   deal của EA). Hai máy import cùng báo cáo → cùng deal, không trùng.
-6. **Xoá** (chỉ playbook, lệnh bỏ lỡ, mục checklist xoá được): xoá giữ lại nội dung ở `sync_tombstones`.
+   deal của EA). Hai máy import cùng báo cáo → cùng deal, không trùng. Deal do người dùng gõ hoặc nhập từ nhật ký
+   (`source` = `manual` / `notion`) thì bản thắng được lấy **nguyên**, không điền số đo từ bản thua: một stop loss
+   đã xoá khi sửa lệnh không sống lại. Sửa lệnh (`Db::update_manual_trade`) ghi lại hai deal vào cùng ticket,
+   nên journal, ảnh và liên kết của lệnh không đổi.
+6. **Xoá** (playbook, lệnh bỏ lỡ, mục checklist, và **lệnh**: `Db::delete_trades` xoá từng deal và từng journal của
+   position trong một giao dịch, mỗi thứ một tombstone, kèm mục chỉ mục tìm kiếm): xoá giữ lại nội dung ở `sync_tombstones`.
    *Xoá thắng mọi sửa đổi cũ hơn nó và thua mọi sửa đổi mới hơn nó.* Sửa mới hơn lệnh xoá (đến trước hay sau)
    thì thực thể **sống lại đúng như lúc bị xoá cộng với sửa đó**; sửa cũ hơn thì bị bỏ. Lệnh xoá thua một sửa
    mới hơn thì không xoá gì. Giới hạn đã biết: khi một lệnh xoá đến *sau* hai sửa đổi (một cũ hơn, một mới hơn
    nó) trên thiết bị đã áp sửa đổi cũ trước, sửa đổi cũ vẫn ở lại (không hoàn tác được); xảy ra ở ba máy cùng
    sửa/xoá một thực thể.
+   Với lệnh: máy B sửa lệnh (hoặc journal) **trước** khi máy A xoá mà chưa kịp sync thì lệnh mất ở cả hai máy; B
+   sửa **sau** lệnh xoá thì deal / journal được sửa sống lại (lệnh sống lại khi cả hai deal đều đổi; một sửa chỉ đổi
+   một deal đưa riêng deal đó về, lệnh vẫn ẩn vì thiếu deal kia, và journal sống lại không kèm lệnh cũng không hiện
+   ở đâu). Import lại cùng báo cáo MT5 là một ghi mới nên mang lệnh đã xoá trở lại ở mọi máy. File ảnh của journal
+   đã xoá bị xoá khỏi máy xoá nếu không journal, lệnh bỏ lỡ hay setup nào dùng; ở máy khác ảnh còn nằm trong thư mục
+   dữ liệu.
 7. **Trùng tên playbook:** hai máy cùng tạo "Breakout" thì cả hai được giữ (bảng `playbooks` không còn UNIQUE
    trên `name`, giữ UNIQUE khi lưu bằng tay: lỗi "đã có setup tên …"); người dùng đổi tên một cái khi thấy.
 8. Thay đổi hỏng hoặc thuộc loại thực thể chưa biết (bản app mới hơn) bị bỏ qua và ghi log, không làm hỏng sync.

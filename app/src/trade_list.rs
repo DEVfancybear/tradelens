@@ -1,7 +1,9 @@
 //! The trades page's filters and sort order: pure functions over [`TradeRow`]s, so the
 //! table is a view of `select(rows, filter, sort)` and nothing else.
 
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::BTreeSet};
+
+use tradelens_core::TradeKey;
 
 use crate::snapshot::TradeRow;
 
@@ -127,8 +129,44 @@ pub(crate) fn select(rows: &[TradeRow], filter: &Filter, sort: Option<Sort>) -> 
     picked
 }
 
+/// The ticked trades after the box of the trade at `at` in `order` (the list as shown) is pressed: it
+/// flips that trade, or, when `range_from` is a trade still in the list (the one pressed before, with Shift
+/// held), ticks every trade from that one to this one.
+pub(crate) fn toggled(
+    selected: &BTreeSet<TradeKey>,
+    order: &[TradeKey],
+    at: usize,
+    range_from: Option<&TradeKey>,
+) -> BTreeSet<TradeKey> {
+    let Some(key) = order.get(at) else { return selected.clone() };
+    let mut next = selected.clone();
+    let from = range_from.and_then(|anchor| order.iter().position(|key| key == anchor));
+    if let Some(from) = from {
+        next.extend(order[from.min(at)..=from.max(at)].iter().cloned());
+    } else if !next.remove(key) {
+        next.insert(key.clone());
+    }
+    next
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_press_flips_one_box_and_a_shift_press_ticks_the_range_from_the_last_one() {
+        let key = |n: i64| TradeKey { account_id: 1, position_id: n, segment: 0 };
+        let order: Vec<TradeKey> = (1..=6).map(key).collect();
+        let none = BTreeSet::new();
+        let one = toggled(&none, &order, 1, None);
+        assert_eq!(one, BTreeSet::from([key(2)]));
+        assert_eq!(toggled(&one, &order, 1, None), none, "pressed again, it is unticked");
+        let range = toggled(&one, &order, 4, Some(&key(2)));
+        assert_eq!(range, BTreeSet::from([key(2), key(3), key(4), key(5)]));
+        let backwards = toggled(&none, &order, 0, Some(&key(3)));
+        assert_eq!(backwards, BTreeSet::from([key(1), key(2), key(3)]), "a range counts from either side");
+        assert_eq!(toggled(&none, &order, 2, Some(&key(99))), BTreeSet::from([key(3)]), "no anchor: a flip");
+        assert_eq!(toggled(&one, &order, 40, None), one, "a press beyond the list is nothing");
+    }
+
     use tradelens_core::{Db, Deal, DealBatch, DealEntry, DealKind, model::AccountInfo, time::parse_mt5_time};
 
     use super::*;

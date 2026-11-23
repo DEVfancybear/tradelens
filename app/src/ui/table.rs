@@ -6,10 +6,11 @@ use nsh_base::{
     DataTableCell, DataTableClasses, DataTableColumn, DataTablePress, DataTableRows, DataTableSort,
     DataTableSortDirection, button, data_table, data_table::DataTableAlign, theme,
 };
-use nsh_core::prelude::*;
+use nsh_core::{Checked, prelude::*};
 
 use super::{
     chips::{Tone, chip, pnl_text},
+    icons::{Icon, icon},
     parts::empty_state,
     theme as tokens,
 };
@@ -17,6 +18,8 @@ use super::{
 /// The texts of one table row, as shown.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct TradeCells {
+    /// The selection box: `1` or `0`, a bar, and what screen readers call it (`0|Chọn lệnh EURUSD 20/11 22:44`).
+    pub(crate) select: String,
     pub(crate) time: String,
     pub(crate) symbol: String,
     pub(crate) side: String,
@@ -66,6 +69,12 @@ fn column(key: &str, title: &str, width: f32, sortable: Sortable, align: DataTab
 /// up and a right-aligned cell must give up too, so that a figure stands under its title.
 const SORT_BUTTON: f32 = 20.0;
 
+/// The width of the column of selection boxes.
+const SELECT_WIDTH: f32 = 44.0;
+
+/// The least the setup column gets; it takes what the others leave.
+const SETUP_MIN: f32 = 96.0;
+
 /// Which columns a table has: the trades page has them all, the overview's list the design's seven.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Shape {
@@ -73,31 +82,55 @@ enum Shape {
     Recent,
 }
 
+/// The side padding of a cell (`px-3`), both sides.
+const CELL_PADDING: f32 = 24.0;
+/// What a glyph of a figure takes in the table's mono font (`JetBrains Mono` at 14 pt is 8.4 wide), with room.
+const FIGURE_GLYPH: f32 = 8.8;
+/// What a glyph of a title takes (12 pt, medium), with room.
+const TITLE_GLYPH: f32 = 7.0;
+
+/// The width a right-aligned figure column needs: its padding, the room of the sort button its title
+/// has (a figure stands under its title's text, so it gives up the same), and `figure` glyphs of the
+/// longest figure a trade has, or its `title`, whichever is wider. A column is never narrower than what
+/// it shows: `Lot` holds `12.50`, `R` holds `+12.5R`, the hold time `123g 30p`.
+fn figure_column(title: &str, figure: usize, sorting: Sortable) -> f32 {
+    let sort = if sorting == Sortable::Yes { SORT_BUTTON } else { 0.0 };
+    let glyphs = |count: usize, glyph: f32| f32::from(u16::try_from(count).unwrap_or(u16::MAX)) * glyph;
+    let widest = glyphs(figure, FIGURE_GLYPH).max(glyphs(title.chars().count(), TITLE_GLYPH) + 4.0);
+    (CELL_PADDING + sort + widest).ceil()
+}
+
 /// The columns of a table `available` points wide: the widths below, and what is left over goes to
-/// the setup column, so that the rows reach the right edge of the card.
+/// the setup column, so that the rows reach the right edge of the card. The figure columns have the
+/// width their figures and titles need; the setup column is the one that gives (its chip is cut with
+/// an ellipsis when it is narrow).
 fn columns(sorting: Sortable, shape: Shape, available: f32) -> Vec<DataTableColumn> {
     use DataTableAlign::{End, Start};
     use Sortable::No;
+    let lot = figure_column("Lot", 5, sorting);
+    let net = figure_column("Net", 11, sorting);
+    let r = figure_column("R", 6, sorting);
     let mut list = match shape {
         Shape::Full => vec![
-            column("time", "Đóng lúc", 116.0, sorting, Start),
-            column("symbol", "Symbol", 100.0, sorting, Start),
-            column("side", "Chiều", 72.0, No, Start),
-            column("lot", "Lot", 68.0, sorting, End),
-            column("hold", "Thời gian giữ", 120.0, sorting, End),
-            column("net", "Net", 112.0, sorting, End),
-            column("r", "R", 72.0, sorting, End),
-            column("setup", "Setup", 132.0, No, Start),
-            column("journal", "Nhật ký", 96.0, No, Start),
+            column("select", "", SELECT_WIDTH, No, Start),
+            column("time", "Đóng lúc", 108.0, sorting, Start),
+            column("symbol", "Symbol", 104.0, sorting, Start),
+            column("side", "Chiều", 68.0, No, Start),
+            column("lot", "Lot", lot, sorting, End),
+            column("hold", "Thời gian giữ", figure_column("Thời gian giữ", 8, sorting), sorting, End),
+            column("net", "Net", net, sorting, End),
+            column("r", "R", r, sorting, End),
+            column("setup", "Setup", SETUP_MIN, No, Start),
+            column("journal", "Nhật ký", 88.0, No, Start),
         ],
         Shape::Recent => vec![
-            column("time", "Đóng lúc", 116.0, sorting, Start),
-            column("symbol", "Symbol", 100.0, sorting, Start),
-            column("side", "Chiều", 72.0, No, Start),
-            column("lot", "Lot", 68.0, sorting, End),
-            column("net", "Net", 112.0, sorting, End),
-            column("r", "R", 72.0, sorting, End),
-            column("setup", "Setup", 132.0, No, Start),
+            column("time", "Đóng lúc", 108.0, sorting, Start),
+            column("symbol", "Symbol", 104.0, sorting, Start),
+            column("side", "Chiều", 68.0, No, Start),
+            column("lot", "Lot", lot, sorting, End),
+            column("net", "Net", net, sorting, End),
+            column("r", "R", r, sorting, End),
+            column("setup", "Setup", SETUP_MIN, No, Start),
         ],
     };
     let used: f32 = list.iter().filter_map(|c| c.width).map(|w| w.0).sum();
@@ -112,6 +145,7 @@ fn columns(sorting: Sortable, shape: Shape, available: f32) -> Vec<DataTableColu
 fn rows_of(cells: &[TradeCells]) -> DataTableRows {
     let texts = |pick: fn(&TradeCells) -> &str| cells.iter().map(pick).collect::<Vec<_>>();
     DataTableRows::new(cells.len())
+        .texts("select", texts(|c| &c.select))
         .texts("time", texts(|c| &c.time))
         .texts("symbol", texts(|c| &c.symbol))
         .texts("side", texts(|c| &c.side))
@@ -123,6 +157,29 @@ fn rows_of(cells: &[TradeCells]) -> DataTableRows {
         .texts("journal", texts(|c| &c.journal))
 }
 
+/// The look of a ticked or empty box, with the name and state screen readers read. It is not a control
+/// of its own: a press on it is a press on the row, at the column of the boxes, which the table hears.
+fn tick_box(label: String, state: Checked) -> impl IntoElement {
+    let on = state == Checked::True;
+    view()
+        .role(AccessibilityRole::Checkbox)
+        .label(label)
+        .accessibility_state(AccessibilityState { checked: Some(state), ..AccessibilityState::default() })
+        .cursor_pointer()
+        .size(px(18.0))
+        .items_center()
+        .justify_center()
+        .rounded(px(5.0))
+        .border_1()
+        .border_color(move || if on { theme().primary } else { theme().input })
+        .bg(move || if on { theme().primary } else { theme().card })
+        .child(icon(Icon::Check, 14.0).text_color(move || theme().primary_foreground).opacity(if on {
+            1.0_f32
+        } else {
+            0.0_f32
+        }))
+}
+
 /// Draws one cell from its column and text: the text is everything the cell shows, so a
 /// cell is made again exactly when what it shows changes.
 fn cell(cell: &DataTableCell, sorting: Sortable, on_open: impl Fn(usize) + Copy + 'static) -> AnyElement {
@@ -132,6 +189,12 @@ fn cell(cell: &DataTableCell, sorting: Sortable, on_open: impl Fn(usize) + Copy 
     let key = cell.key.as_str();
     let row = usize::try_from(cell.row).unwrap_or(usize::MAX);
     match key {
+        // Only the look of a box: a press on it reaches the table's row press, which toggles the row.
+        "select" => {
+            let (flag, label) = shown.split_once('|').unwrap_or(("0", ""));
+            let on = flag == "1";
+            tick_box(label.to_owned(), if on { Checked::True } else { Checked::False }).into_element()
+        }
         "time" => text(shown)
             .font_family(tokens::mono)
             .tabular_nums()
@@ -190,15 +253,17 @@ impl Sorting {
 }
 
 /// The trades table. `rows` are read again when they change, in the order `sorting` says;
-/// `on_open` hears the position in `rows` of a row the trader pressed; `empty` gives the
+/// `on_open` hears the position in `rows` of a row the trader pressed; `on_select` hears the
+/// position of a row whose box was pressed, and whether Shift was held; `empty` gives the
 /// title and hint shown when there are no rows.
 pub(crate) fn trades_table(
     rows: impl Fn() -> Vec<TradeCells> + Copy + 'static,
     sorting: Sorting,
     on_open: impl Fn(usize) + Copy + 'static,
+    on_select: impl Fn(usize, bool) + Copy + 'static,
     empty: impl Fn() -> (String, String) + Copy + 'static,
 ) -> impl IntoElement {
-    build(rows, Some(sorting), Shape::Full, on_open, empty)
+    build(rows, Some(sorting), Shape::Full, (on_open, on_select), empty)
 }
 
 /// The same table for a short, fixed list (the latest trades): titles do not sort.
@@ -207,14 +272,14 @@ pub(crate) fn recent_trades(
     on_open: impl Fn(usize) + Copy + 'static,
     empty: impl Fn() -> (String, String) + Copy + 'static,
 ) -> impl IntoElement {
-    build(rows, None, Shape::Recent, on_open, empty)
+    build(rows, None, Shape::Recent, (on_open, |_, _| {}), empty)
 }
 
 fn build(
     rows: impl Fn() -> Vec<TradeCells> + Copy + 'static,
     sorting: Option<Sorting>,
     shape: Shape,
-    on_open: impl Fn(usize) + Copy + 'static,
+    (on_open, on_select): (impl Fn(usize) + Copy + 'static, impl Fn(usize, bool) + Copy + 'static),
     empty: impl Fn() -> (String, String) + Copy + 'static,
 ) -> impl IntoElement {
     // The width the table has: its columns share it, so that the rows reach the card's right edge.
@@ -278,9 +343,22 @@ fn build(
                         }));
                     }
                 })
+                // The rows the trader ticked are lit, as the design lights them.
+                .row_classes(move || {
+                    rows()
+                        .iter()
+                        .map(|cells| SharedString::from(if cells.select.starts_with('1') { "bg-accent" } else { "" }))
+                        .collect::<Vec<_>>()
+                })
                 .on_row_press(move |press: &DataTablePress| {
                     if let Ok(row) = usize::try_from(press.row) {
-                        on_open(row);
+                        // The first column of the full table holds the boxes: a press there selects, a press
+                        // anywhere else on the row opens it.
+                        if shape == Shape::Full && press.column == Some(0) {
+                            on_select(row, press.shift);
+                        } else {
+                            on_open(row);
+                        }
                     }
                 })
                 .render_cell(move |c: &DataTableCell| cell(c, sortable, on_open))

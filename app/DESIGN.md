@@ -168,7 +168,7 @@ khác do `on_def` của màn xử lý (màn Tuỳ biến form).
   cho "Viết / Sửa kế hoạch"; kết nối MT5 của v0.4 sẽ đưa lệnh vừa mở vào); mỗi yêu cầu là một `Modal` (`Writer` để "Ghi sau" và
   Escape ghi cờ). Một việc chạy bằng `Writer::run` mà chủ của nó là hộp thoại phải xong *trước khi* đóng
   hộp thoại (đóng huỷ tác vụ), nên `finish` chỉ gọi trong `done`.
-- **Phím tắt**: Ctrl+N (từ Lệnh) mở nhập lệnh tay, Ctrl+Enter lưu ở đó.
+- **Phím tắt**: Ctrl+N (từ Lệnh) mở nhập lệnh tay, Ctrl+Enter lưu ở đó; Ctrl+E (ở chi tiết lệnh) sửa số liệu của lệnh người dùng gõ.
 - Form nhật ký của lệnh dùng chung: `trade_detail::journal_form(fields, shots, suggestion, failure)` vẽ danh sách
   thuộc tính của `FieldScope::Trade` từ `FormLayout`; chi tiết lệnh và nhập lệnh tay đều dùng nó.
 
@@ -257,6 +257,19 @@ Nhật ký ngày đọc `nav::requested_journal_day()` rồi gọi `nav::take_jo
   `DatePicker` của `nsh_base`: tuần bắt đầu thứ 2, tên thứ tiếng Việt, tháng / năm, nút "Hôm nay", chấm ở ngày `marking(..)` đánh dấu.
   Dùng ở Nhật ký ngày, Tổng kết, Lệnh bỏ lỡ, Nhập lệnh tay và thuộc tính kiểu Ngày. Nút ngày có nhãn truy cập là ngày ISO
   (`role:button[2026-11-15]`). Phím mũi tên / Enter / Escape là của `DatePicker` (NSH có test riêng); test không đầu của app chưa điều khiển được.
+  **Ngày kèm giờ gõ được: `date_picker::moment_field(nhãn ngày, nhãn giờ, Moment)`**: nút ngày (lịch) và ô "HH:MM" cạnh nó; ô giờ nhận
+  `0930`, `930`, `9:30`, `9h30` (`parse_clock`), giữ khi Enter hoặc rời ô, báo lỗi tiếng Việt dưới ô (`Moment::problem`) và có viền focus;
+  để trống nghĩa là chưa biết giờ (`MomentValue::time = None`). Phần giờ trong popup lịch vẫn dùng được (mũi tên, số), đoạn đang sửa có nền
+  `primary` và vòng focus. Test gõ vào `label:Giờ vào` rồi `press_key("enter")`.
+- **Sửa và xoá lệnh:** `Db::update_manual_trade(key, &ManualTrade)` ghi lại hai deal của lệnh người dùng gõ hoặc nhập từ Notion (giữ ticket,
+  nên nhật ký, ảnh và liên kết ở nguyên), `Db::manual_trade(key)` đọc ra để điền biểu mẫu (`None` với lệnh MT5), `Db::delete_trades(&keys)` xoá
+  deal + journal + mục tìm kiếm trong một giao dịch và ghi tombstone để máy khác xoá theo (`docs/cloud-sync.md`, quy tắc 6). Trang sửa là
+  `manual_entry::edit_trade(key)` đè lên trang lệnh (`nav::open_edit_trade` / `close_edit_trade`); xoá hỏi bằng `confirm_then`
+  (`trade_detail::delete_question`, `delete_trades`), từ trang lệnh và từ thanh "Đã chọn N lệnh · Xoá" của danh sách (cột hộp chọn của
+  `trades_table`: bấm hộp chọn, Shift+bấm chọn đoạn; `trade_list::toggled`). **Nguồn của lệnh** (`TradeRow::origin`) là `source` của deal
+  (`Db::trade_origins`), không phải tài khoản hay dải ticket; **số lẻ của giá** (`TradeRow::digits`) là số lẻ nhiều nhất của symbol trong
+  dữ liệu đang xem, từ 2 đến 5 (`format::price_to`), vì `format::price` chỉ cắt số 0 cuối nên `1.0850` hiện `1.085`. Symbol qua
+  `tradelens_core::symbol::normalise` ở mọi chỗ lưu.
 - **Dữ liệu không đủ:** deal mang `Gaps` (`TIME`, `VOLUME`, `PRICE`) do importer ghi; `Trade::money_known / volume_known / prices_known /
   time_known / hold_secs / origin` là quy tắc duy nhất, màn không tự suy từ giá trị (lot 1, giá 0, 00:00). Số liệu nhiều lệnh đi qua
   `metrics::Basis` (`unit()` là R khi không lệnh nào có tiền; `money_note()` khi trộn). Màn mới có số tiền phải chọn đơn vị bằng nó.

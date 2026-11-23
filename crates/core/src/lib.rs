@@ -13,6 +13,7 @@
 //! - [`review`]  weekly / monthly reviews and the queue of trades to look at again
 //! - [`rules`]   discipline rules → violations
 //! - [`search`]  full-text search over notes, plans, reviews and the playbook
+//! - [`symbol`]  instrument codes as MetaTrader writes them
 //! - [`time`]    server time → local time, sessions
 //! - [`db`]      SQLite storage and migrations
 //! - [`form`]    forms the trader shapes like Notion: rename, reorder, hide, add, convert, delete
@@ -33,6 +34,7 @@ pub mod report;
 pub mod review;
 pub mod rules;
 pub mod search;
+pub mod symbol;
 pub mod sync;
 pub mod time;
 pub mod trades;

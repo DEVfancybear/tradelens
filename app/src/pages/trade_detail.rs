@@ -23,12 +23,12 @@ use crate::{
     journal_draft::{Draft, added, key_of_choice, key_or_empty, removed, suggested_exit, ticked, unticked, with_value},
     nav,
     snapshot::TradeRow,
-    store::{Reading, Store, query, store, writer},
+    store::{Reading, Store, Writer, query, store, writer},
     ui::{
         chips::{Tone, chip, figure_text, pnl_text},
         controls::{
-            Choice, Variant, action, action_icon_when, action_when, rating, select_value, tag_picker, text_field,
-            textarea,
+            Choice, Variant, action, action_icon, action_icon_when, action_when, confirm_then, rating, root_owner,
+            select_value, tag_picker, text_field, textarea,
         },
         forms::{NumberRange, check_box, checklist, number_field},
         gallery::gallery,
@@ -292,19 +292,22 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
         move || {
             // The terminal's ticket for its trades; for the others, where they came from.
             from_row(row, |r| {
-                let which = match r.trade.origin() {
+                let which = match r.origin {
                     Origin::Mt5 => r.trade.key.position_id.to_string(),
                     other => other.label().to_owned(),
                 };
                 format!("{} · {which}", r.trade.symbol)
             })
         },
-        view().flex_row().items_center().gap_2().child(share_button(&key, row)).child(action_when(
-            "Lưu",
-            Variant::Primary,
-            move || dirty.get() && !busy.get(),
-            editor.save(),
-        )),
+        view()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .gap_2()
+            .child(edit_button(&key, row, &editor))
+            .child(delete_button(&key, row, editor.failure))
+            .child(share_button(&key, row))
+            .child(action_when("Lưu", Variant::Primary, move || dirty.get() && !busy.get(), editor.save())),
         view().gap_4().child(breadcrumb(row, editor.back())).child(
             view()
                 .flex_row()
@@ -321,7 +324,7 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
                         .child(screenshots_card(&key, editor.failure))
                         .child(dynamic(move || {
                             // The two deals the app wrote for an imported journal's trade hold nothing to list.
-                            from_row(row, |r| r.trade.origin() == Origin::Mt5).then(|| deals_card(row))
+                            from_row(row, |r| r.origin == Origin::Mt5).then(|| deals_card(row))
                         })),
                 )
                 .child(view().w(px(520.0)).child(journal_card(
@@ -332,6 +335,70 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
                 ))),
         ),
     )
+}
+
+/// What the trader may do with the facts of a trade, as the button and the shortcut name it.
+const EDIT: &str = "Sửa lệnh";
+
+/// "Sửa lệnh" (and Ctrl+E): the form of the trade's facts, for a trade the trader typed or imported
+/// from their journal. A trade of the terminal has no such button: its facts are the terminal's.
+/// The journal is saved first, so that no edit is lost to the form that replaces the page.
+fn edit_button(key: &Rc<TradeKey>, row: Memo<Option<TradeRow>>, editor: &Editor) -> impl IntoElement {
+    let open = {
+        let (leave, key) = (Rc::clone(&editor.leave), Rc::clone(key));
+        Rc::new(move || {
+            if row.with_untracked(|r| r.as_ref().is_some_and(|r| r.origin.is_editable())) {
+                let key = (*key).clone();
+                leave(Box::new(move || nav::open_edit_trade(key)));
+            }
+        })
+    };
+    let shortcut = Rc::clone(&open);
+    on_key_with("mod+e", KeyOptions { pass_through: true, ..KeyOptions::default() }, move |_| shortcut());
+    dynamic(move || {
+        let open = Rc::clone(&open);
+        from_row(row, |r| r.origin.is_editable())
+            .then(|| action_icon(Icon::Edit, EDIT, Variant::Secondary, move || open()))
+    })
+}
+
+/// The question before a trade or several are deleted: its title and what it says.
+pub(crate) fn delete_question(count: usize, symbol: &str, origin: Origin) -> (String, String) {
+    let what = if count == 1 { format!("lệnh {symbol}") } else { format!("{count} lệnh") };
+    let mut said = format!(
+        "Xoá {what} cùng nhật ký và ảnh chart của {}. Không hoàn tác được.",
+        if count == 1 { "nó" } else { "chúng" }
+    );
+    if origin == Origin::Mt5 {
+        said.push_str(" Lệnh từ MT5: import lại cùng báo cáo sẽ đưa lệnh trở lại.");
+    }
+    (if count == 1 { "Xoá lệnh?".to_owned() } else { format!("Xoá {count} lệnh?") }, said)
+}
+
+/// Deletes the trades, and the images of their journals that nothing else uses, then runs `done`.
+pub(crate) fn delete_trades(write: Writer, keys: Vec<TradeKey>, done: impl FnOnce(Result<(), String>) + 'static) {
+    write.run(move |db| db.delete_trades(&keys).map(|_| ()), done);
+}
+
+/// "Xoá lệnh": asks, then deletes the trade with its journal, and goes back to the list.
+fn delete_button(key: &Rc<TradeKey>, row: Memo<Option<TradeRow>>, failure: Signal<Option<String>>) -> impl IntoElement {
+    let key = Rc::clone(key);
+    let (asker, write) = (root_owner(), writer());
+    action_icon(Icon::Trash, "Xoá lệnh", Variant::Destructive, move || {
+        let (symbol, origin) = row
+            .with_untracked(|r| r.as_ref().map(|r| (r.trade.symbol.clone(), r.origin)))
+            .unwrap_or((String::new(), Origin::Manual));
+        let (title, said) = delete_question(1, &symbol, origin);
+        let key = (*key).clone();
+        confirm_then(asker, title, said, "Xoá lệnh", move || {
+            delete_trades(write, vec![key], move |result| match result {
+                Ok(()) => nav::close_trade(),
+                Err(error) => {
+                    failure.try_set(Some(error));
+                }
+            });
+        });
+    })
 }
 
 /// "Chia sẻ": opens the share dialog on this trade; a trade still open has no result to share.
@@ -376,7 +443,8 @@ fn facts_card(row: Memo<Option<TradeRow>>) -> impl IntoElement {
         .child(
             text(move || {
                 from_row(row, |r| {
-                    let origin = r.trade.origin();
+                    // Where the trade came from is how its deals were written, not the account it is filed under.
+                    let origin = r.origin;
                     // Only a trade of the terminal is made of real deals; the others hold the two the app wrote.
                     if origin == Origin::Mt5 {
                         format!("{} · nguồn: {} · gộp {} deal", r.account, origin.label(), r.deals.len())
@@ -388,6 +456,14 @@ fn facts_card(row: Memo<Option<TradeRow>>) -> impl IntoElement {
             .text_xs()
             .text_color(move || theme().muted_foreground),
         )
+        .child(dynamic(move || {
+            // What the trader cannot change here, and what they still can.
+            from_row(row, |r| r.origin == Origin::Mt5).then(|| {
+                text("Số liệu của lệnh lấy từ MT5 nên không sửa được; nhật ký và ảnh chart vẫn sửa được.")
+                    .text_xs()
+                    .text_color(move || theme().muted_foreground)
+            })
+        }))
         .child(facts_grid(row))
 }
 
@@ -474,10 +550,13 @@ fn facts_of(row: &TradeRow) -> Facts {
         closed: row.closed().map_or_else(|| "Đang mở".to_owned(), |at| moment(row, at)),
         hold: trade.hold_secs().map_or_else(|| UNKNOWN.to_owned(), format_duration),
         volume: known(format!("{} lot", format::lots(trade.volume)), trade.volume_known()),
-        open_price: known(format::price(trade.open_price), prices),
-        close_price: known(trade.close_price.map_or_else(|| UNKNOWN.to_owned(), format::price), prices),
-        stop_loss: known(format::level(trade.sl), prices),
-        take_profit: known(format::level(trade.tp), prices),
+        open_price: known(format::price_to(trade.open_price, row.digits), prices),
+        close_price: known(
+            trade.close_price.map_or_else(|| UNKNOWN.to_owned(), |p| format::price_to(p, row.digits)),
+            prices,
+        ),
+        stop_loss: known(format::level_to(trade.sl, row.digits), prices),
+        take_profit: known(format::level_to(trade.tp, row.digits), prices),
         risk: known(
             trade
                 .risk
@@ -486,7 +565,7 @@ fn facts_of(row: &TradeRow) -> Facts {
         ),
         commission: money(trade.commission + trade.fee),
         swap: money(trade.swap),
-        ticket: (trade.origin() == Origin::Mt5).then(|| trade.key.position_id.to_string()),
+        ticket: (row.origin == Origin::Mt5).then(|| trade.key.position_id.to_string()),
     }
 }
 
@@ -525,7 +604,7 @@ fn plan_card(key: &Rc<TradeKey>) -> impl IntoElement {
         let snapshot = store.snapshot();
         let trade = snapshot.row(&plan_key)?;
         let plan = snapshot.journal(&plan_key).plan?;
-        Some(PlanView { plan, trade: trade.trade.clone(), currency: trade.currency.clone() })
+        Some(PlanView { plan, trade: trade.trade.clone(), currency: trade.currency.clone(), digits: trade.digits })
     };
     let write_plan = move || {
         let snapshot = store.snapshot_now();
@@ -617,7 +696,11 @@ fn deals_card(row: Memo<Option<TradeRow>>) -> impl IntoElement {
                             _ => format::money(d.profit, Sign::Always, &r.currency),
                         };
                         let lots = if d.gaps.has(Gaps::VOLUME) { "—".to_owned() } else { format::lots(d.volume) };
-                        let price = if d.gaps.has(Gaps::PRICE) { "—".to_owned() } else { format::price(d.price) };
+                        let price = if d.gaps.has(Gaps::PRICE) {
+                            "—".to_owned()
+                        } else {
+                            format::price_to(d.price, r.digits)
+                        };
                         (at, entry_label(d.entry), d.kind, lots, price, profit)
                     })
                     .collect::<Vec<_>>()

@@ -15,7 +15,10 @@ use tradelens_core::{
     Db,
     attachments::{Attachment, Source},
     catalog::{CatalogItem, CatalogKind},
-    model::{AccountInfo, ChecklistItem, Deal, DealBatch, DealEntry, DealKind, JournalEntry, Rules, TradeKey},
+    model::{
+        AccountInfo, ChecklistItem, Deal, DealBatch, DealEntry, DealKind, JournalEntry, ManualTrade, Rules, Side,
+        TradeKey,
+    },
     playbook::Playbook,
 };
 
@@ -309,6 +312,113 @@ fn a_setup_deleted_on_one_machine_while_edited_on_the_other_follows_the_document
     a.db.delete_playbook(id).expect("deleted");
     settle(&mut [&mut a, &mut b], &drive);
     assert!(a.playbook("Pullback EMA").is_none() && b.playbook("Pullback EMA").is_none());
+    assert_same(&a, &b);
+}
+
+/// A trade the trader typed.
+fn typed() -> ManualTrade {
+    ManualTrade {
+        symbol: "EURUSD".into(),
+        side: Side::Long,
+        volume: Some(0.5),
+        open_time: 1_763_000_000_000,
+        open_price: Some(1.0850),
+        close_time: 1_763_003_600_000,
+        close_price: Some(1.0905),
+        date_only: false,
+        sl: 1.0830,
+        tp: 0.0,
+        profit: Some(275.0),
+        commission: 0.0,
+        swap: 0.0,
+        result_r: None,
+    }
+}
+
+/// How many deals the machine holds of the position.
+fn deals_of(machine: &Machine, position_id: i64) -> usize {
+    machine.db.deals(None).expect("deals").iter().filter(|(_, d)| d.position_id == position_id).count()
+}
+
+#[test]
+fn a_trade_deleted_on_one_machine_is_deleted_on_the_other_with_its_journal() {
+    let (drive, mut a, mut b) = started();
+    a.write_journal(100, |entry| entry.screenshots = vec![shot("images/x.png", "H1")]);
+    settle(&mut [&mut a, &mut b], &drive);
+    assert_eq!(b.journal(100).notes, "lệnh đầu");
+
+    let deleted = a.db.delete_trade(&a.trade(100)).expect("deleted");
+    assert_eq!((deleted.trades, deleted.unused_images), (1, vec!["images/x.png".to_owned()]));
+    settle(&mut [&mut a, &mut b], &drive);
+
+    for machine in [&a, &b] {
+        assert_eq!(deals_of(machine, 100), 0, "{} still has the deals", machine.name);
+        assert_eq!(machine.db.journal(&machine.trade(100)).expect("reads"), None, "{}", machine.name);
+        assert_eq!(deals_of(machine, 200), 2, "the other trade stays on {}", machine.name);
+    }
+    assert!(b.db.search("lệnh đầu", 5).expect("searches").is_empty(), "no search entry on B either");
+    assert_same(&a, &b);
+}
+
+#[test]
+fn a_trade_edited_on_the_other_machine_before_it_was_deleted_is_deleted_everywhere() {
+    let (drive, mut a, mut b) = started();
+    let key = a.db.add_manual_trade(a.account(), &typed()).expect("typed");
+    a.db.save_journal(&key, &JournalEntry { notes: "gốc".into(), ..JournalEntry::default() }).expect("journal");
+    settle(&mut [&mut a, &mut b], &drive);
+
+    // B edits the facts and the journal; later, without having seen that, A deletes the trade.
+    let on_b = b.trade(key.position_id);
+    b.db.update_manual_trade(&on_b, &ManualTrade { open_price: Some(1.0860), close_price: Some(1.0900), ..typed() })
+        .expect("edited");
+    b.write_journal(key.position_id, |entry| entry.notes = "sửa ở B".into());
+    tick();
+    a.db.delete_trade(&key).expect("deleted");
+    settle(&mut [&mut a, &mut b], &drive);
+
+    for machine in [&a, &b] {
+        assert_eq!(deals_of(machine, key.position_id), 0, "{} kept the deals", machine.name);
+        assert_eq!(machine.db.journal(&machine.trade(key.position_id)).expect("reads"), None, "{}", machine.name);
+    }
+    assert_same(&a, &b);
+}
+
+#[test]
+fn an_edit_made_after_the_deletion_brings_the_trade_back_with_the_edit() {
+    let (drive, mut a, mut b) = started();
+    let key = a.db.add_manual_trade(a.account(), &typed()).expect("typed");
+    a.db.save_journal(&key, &JournalEntry { notes: "gốc".into(), ..JournalEntry::default() }).expect("journal");
+    settle(&mut [&mut a, &mut b], &drive);
+
+    a.db.delete_trade(&key).expect("deleted");
+    tick();
+    let on_b = b.trade(key.position_id);
+    let edited = ManualTrade { open_price: Some(1.0860), close_price: Some(1.0900), ..typed() };
+    b.db.update_manual_trade(&on_b, &edited).expect("edited");
+    b.write_journal(key.position_id, |entry| entry.setup = "sau khi xoá".into());
+    settle(&mut [&mut a, &mut b], &drive);
+
+    for machine in [&a, &b] {
+        let back = machine.trade(key.position_id);
+        assert_eq!(machine.db.manual_trade(&back).expect("reads"), Some(edited.clone()), "{}", machine.name);
+        let journal = machine.journal(key.position_id);
+        assert_eq!((journal.notes.as_str(), journal.setup.as_str()), ("gốc", "sau khi xoá"), "{}", machine.name);
+    }
+    assert_same(&a, &b);
+}
+
+#[test]
+fn a_report_imported_again_after_the_deletion_brings_the_trade_back_on_both_machines() {
+    let (drive, mut a, mut b) = started();
+    a.db.delete_trade(&a.trade(200)).expect("deleted");
+    settle(&mut [&mut a, &mut b], &drive);
+    assert_eq!(deals_of(&b, 200), 0);
+
+    tick();
+    b.db.upsert_batch(&batch(vec![deal(4, 200, DealEntry::In, 0.0), deal(5, 200, DealEntry::Out, -20.0)]), "html")
+        .expect("imports again");
+    settle(&mut [&mut a, &mut b], &drive);
+    assert_eq!((deals_of(&a, 200), deals_of(&b, 200)), (2, 2));
     assert_same(&a, &b);
 }
 

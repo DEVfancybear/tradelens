@@ -56,8 +56,14 @@ impl Tone {
 
 /// A small rounded label: Buy / Sell, a setup, a state.
 pub(crate) fn chip(label: impl Into<SharedString>, tone: Tone) -> impl IntoElement {
-    view().flex_row().items_center().h(px(22.0)).px_2().rounded(px(6.0)).bg(move || tone.fill()).child(
-        text(label.into()).text_xs().font_weight(FontWeight::MEDIUM).number_of_lines(1).text_color(move || tone.ink()),
+    // It may be narrower than its text (a long setup name in a narrow column): the text ends in an ellipsis.
+    view().flex_row().items_center().h(px(22.0)).min_w(px(0.0)).px_2().rounded(px(6.0)).bg(move || tone.fill()).child(
+        text(label.into())
+            .text_xs()
+            .font_weight(FontWeight::MEDIUM)
+            .number_of_lines(1)
+            .min_w(px(0.0))
+            .text_color(move || tone.ink()),
     )
 }
 
