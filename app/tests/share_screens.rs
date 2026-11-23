@@ -167,6 +167,24 @@ fn a_trade_is_shared_as_a_picture_that_follows_the_privacy_choice() {
 }
 
 #[test]
+fn escape_or_a_press_outside_closes_the_share_dialog_and_it_opens_again() {
+    let fixture = Fixture::new();
+    seed(&mut fixture.db());
+    let mut app = fixture.start();
+    open_trade(&mut app, "EURUSD");
+    app.press("role:button[Chia sẻ]").expect("a closed trade has a share button");
+    app.wait_for("Chia sẻ kết quả").expect("the dialog opens");
+    app.press_key("escape").expect("Escape");
+    app.wait_for_gone("Chia sẻ kết quả", WAIT).expect("Escape closes it");
+
+    app.press("role:button[Chia sẻ]").expect("the share button works again");
+    app.wait_for("Chia sẻ kết quả").expect("the dialog opens again");
+    let corner = nsh_core::Point { x: nsh_core::Points(4.0), y: nsh_core::Points(4.0) };
+    app.press_at("label:Đóng hộp thoại", corner).expect("a press on the scrim");
+    app.wait_for_gone("Chia sẻ kết quả", WAIT).expect("a press outside closes it");
+}
+
+#[test]
 fn a_trade_still_open_has_nothing_to_share() {
     let fixture = Fixture::new();
     let mut db = fixture.db();

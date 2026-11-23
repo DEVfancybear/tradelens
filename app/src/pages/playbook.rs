@@ -20,7 +20,8 @@ use crate::{
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{
-            Variant, action, action_icon, action_icon_when, confirm_then, root_owner, tag_picker, text_field, textarea,
+            Variant, action, action_icon, action_icon_when, confirm_then, link, root_owner, tag_picker, text_field,
+            textarea,
         },
         forms::{NumberRange, number_field},
         gallery::gallery,
@@ -527,7 +528,7 @@ fn grade_table(rows: Memo<Vec<Group>>, name: &str, groups: Memo<Vec<Group>>) -> 
                         let trades = groups.with(|g| g.iter().find(|x| x.label == name).map_or(0, |x| x.trades));
                         let name = name.clone();
                         untracked(|| {
-                            action(format!("Xem {trades} lệnh"), Variant::Ghost, move || {
+                            link(format!("Xem {trades} lệnh"), move || {
                                 store.trade_filter.set(Filter { setup: Some(name.clone()), ..Filter::default() });
                                 nav::go(Route::Trades);
                             })

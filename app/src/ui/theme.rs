@@ -1,16 +1,31 @@
 //! The theme (`theme.json`, shadcn `cssVars`) and the app's own tokens.
 
 use nsh_base::{theme, tokens_of};
-use nsh_core::{element::set_tokens, prelude::*};
+use nsh_core::{
+    element::{Tokens, set_tokens},
+    prelude::*,
+};
 
 /// The theme file, also named by `nsh.json` for `nsh run` and `nsh package`.
 const THEME: &str = include_str!("../../theme.json");
 
-/// Draws the app with its theme under `cargo run` too, where `nsh.json` is not read.
-pub(crate) fn install() {
+/// The tokens of `theme.json`; what cannot be read is logged and leaves the default theme.
+pub(crate) fn tokens() -> Option<Tokens> {
     match tokens_of(Some(THEME)) {
-        Ok(tokens) => set_tokens(tokens),
-        Err(error) => log::error!("theme.json: {error}"),
+        Ok(tokens) => Some(tokens),
+        Err(error) => {
+            log::error!("theme.json: {error}");
+            None
+        }
+    }
+}
+
+/// Draws the app with its theme under `cargo run` too, where `nsh.json` is not read. The root
+/// carries the same tokens ([`crate::root`]) so that the first frame already has them, with the
+/// fonts they name; this makes a component mounted without that root (a test's) have them too.
+pub(crate) fn install() {
+    if let Some(tokens) = tokens() {
+        set_tokens(tokens);
     }
 }
 

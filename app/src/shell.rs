@@ -11,7 +11,9 @@ use crate::{
     ui::{
         controls::sidebar_row,
         icons::{Icon, icon},
+        modal,
         palette::search_trigger,
+        viewer,
     },
 };
 
@@ -26,16 +28,27 @@ pub(crate) fn shell() -> impl IntoElement {
         .child(sidebar())
         .child(view().flex_1().min_w(px(0.0)).child(dynamic(move || {
             let route = nav::current();
-            // "Tuỳ biến form" covers the page of the route; closing it shows the page again.
+            // "Tuỳ biến form" covers the page of the route; closing it shows the page again. Each
+            // page is a keyed element of its own: a page made in the place of another one starts
+            // at the top, instead of inheriting the scroll position of the page it replaced.
             match nav::form_editor() {
-                Some(scope) => untracked(|| pages::form_editor::form_editor(scope).into_element()),
-                None => untracked(|| pages::page(route)),
+                Some(scope) => untracked(|| {
+                    view()
+                        .flex_1()
+                        .min_h(px(0.0))
+                        .key(format!("form-editor:{scope:?}"))
+                        .child(pages::form_editor::form_editor(scope))
+                }),
+                None => untracked(|| {
+                    view().flex_1().min_h(px(0.0)).key(format!("page:{route:?}")).child(pages::page(route))
+                }),
             }
         })))
-        // The plan prompt of a position the EA just reported: over every screen.
-        .child(pages::entry_plan::host())
-        // The share dialog, opened from a trade's page and from the review.
-        .child(pages::share::host())
+        // The modal that is on screen, one at a time: the plan prompt of a position the EA just
+        // reported, and the share dialog opened from a trade's page and from the review.
+        .child(modal::host())
+        // The full-size picture viewer opened from a gallery; the search stays above it.
+        .child(viewer::overlay())
         .child(search::overlay())
 }
 

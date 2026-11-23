@@ -152,7 +152,7 @@ fn the_calendar_of_an_empty_database_still_draws_the_month() {
     let fixture = Fixture::new();
     let mut app = fixture.start();
     app.press("role:button[Lịch P/L]").expect("the calendar row is a button");
-    app.wait_for("Tháng này").expect("the month summary shows");
+    app.wait_for("Kết quả tháng").expect("the month summary shows");
     app.wait_for("Không có lệnh đóng").expect("the selected day says it has no trades");
 }
 
@@ -223,7 +223,8 @@ fn the_overview_shows_todays_discipline_the_month_and_the_symbols() {
     app.wait_for("Số lệnh").expect("the trade count rule is named");
     app.wait_for("$20 / $300").expect("today lost 20 of the 300 allowed");
     app.wait_for("0 vi phạm").expect("nothing was broken");
-    app.wait_for("Tháng này").expect("the small month shows");
+    app.wait_for(&chrono::Local::now().format("Tháng %-m/%Y").to_string())
+        .expect("the small month is titled by its month");
     app.wait_for("Theo symbol").expect("the symbol card shows");
     app.wait_for("+$30.00").expect("a symbol's net result shows with its sign");
 

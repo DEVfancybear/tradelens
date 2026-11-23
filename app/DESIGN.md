@@ -19,6 +19,7 @@ chuẩn mà code trong `src/ui/` phải theo.
 | Nhấn | `primary` (teal) | hành động chính, mục đang chọn, đường equity |
 | Lãi / lỗ | `profit`, `loss` (+ `-soft` làm nền ô) | số P/L, ô lịch, thanh phân tích |
 | Cảnh báo | `warning` | quy tắc sắp chạm ngưỡng |
+| Phá huỷ | `destructive` | màu chữ báo lỗi / phá huỷ (hộp xác nhận là alert hệ thống nên không dùng token) |
 | Biểu đồ | `chart-1…5` | chuỗi dữ liệu không mang nghĩa lãi/lỗ |
 
 Không viết mã màu trong code; thiếu vai trò thì thêm token trước.
@@ -28,7 +29,7 @@ Không viết mã màu trong code; thiếu vai trò thì thêm token trước.
 Inter cho chữ, JetBrains Mono cho số trong bảng lệnh. Thang: 12 (`text_xs`, nhãn), 14 (`text_sm`,
 nội dung), 16, 20 (`text_xl`, số KPI), 24 (`text_2xl`, tiêu đề trang). Đậm 500 cho nhãn nút, 600 cho tiêu đề.
 Font nằm ở `app/assets/fonts/` (Inter 400–700, JetBrains Mono 400–600) và được đăng ký bằng
-`registry.assets(assets!())` trong `lib.rs`, nên `font-sans` / `font-mono` của `theme.json` luôn ra đúng font.
+`registry.assets(assets!())` trong `lib.rs`, nhưng nền tảng chạy bằng `cargo run` không đọc nó, nên `root()` đăng ký thêm các file đó bằng `Root::font`; nhờ vậy `font-sans` / `font-mono` của `theme.json` luôn ra đúng font.
 
 ## Khoảng cách và bo góc
 
@@ -40,13 +41,17 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 |---|---|---|
 | `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `empty_state`, `warning_banner(message)` (một dòng cảnh báo quy tắc, `role` Alert) | `parts.rs` | có |
 | `parts::property_row(label, control)` (hàng nhãn + điều khiển đơn giản, khác `properties`) | `parts.rs` | có |
-| `action` / `action_when` (Primary / Secondary / Ghost) | `controls.rs` | có |
+| `action` / `action_when` (Primary / Secondary / Ghost); nút tắt có một dáng chung (nền `muted`, chữ `muted-foreground`, mờ, không hover) | `controls.rs` | có |
+| `link(label, on_press)` (liên kết chữ `primary`, gạch chân khi rê chuột: "Xem tất cả", "Mở lịch"…) | `controls.rs` | có |
+| `confirm_then(owner, tiêu đề, mô tả, nhãn, then)` (hỏi bằng `alert_dialog` hệ thống; `then` chạy dưới `owner`, chỉ khi bấm `nhãn`) | `controls.rs` | có |
+| `Modal`, `modal::open`, `modal::close`, `modal::host()` (một hộp thoại trong cửa sổ mỗi lúc: nền, panel, tiêu đề, ✕, Escape, giữ Tab; gắn một lần trong `shell`) | `modal.rs` | có |
 | `action_icon` / `action_icon_when` (icon trước nhãn), `icon_action` (chỉ icon, bắt buộc `accessibility_label`) | `controls.rs` | có |
-| `sidebar_row` (icon), `segmented`, `select_field`, `select_value`, `text_field`, `commit_field`, `textarea`, `tag_picker`, `rating` / `rating_of`, `confirm` | `controls.rs` | có |
+| `sidebar_row` (icon), `segmented`, `select_field`, `select_value`, `text_field`, `commit_field`, `textarea`, `tag_picker`, `rating` / `rating_of` | `controls.rs` | có |
 | `icon(Icon, size)`, `Icon` (bộ icon nét 1.75 của thiết kế) | `icons.rs` (`pub`) | có |
 | `number_field`, `switch_row`, `setting_row`, `check_box`, `checklist`, `progress_rule` | `forms.rs` (`pub`) | có |
 | `dropzone`, `image_slot`, `Accept`, `pick_files`, `pasted_images`, `paths_of_uris` | `files.rs` (`pub`) | có |
-| `gallery` (ảnh, badge EA, kéo/phím đổi thứ tự, Thêm ảnh) | `gallery.rs` (`pub`) | có |
+| `gallery` (ảnh, chú thích, kéo/phím đổi thứ tự, Thêm ảnh; bấm ảnh mở `viewer`; "Xem" và ✕ ở góc ô khi rê chuột / có focus; xoá hoàn tác được 6 giây) | `gallery.rs` (`pub`) | có |
+| `viewer::overlay()` (gắn một lần, cuối `shell`) + `viewer::open(Request)` (trình xem ảnh phủ cả cửa sổ: vừa khung, bộ đếm, trước / sau, phóng to, kéo để di chuyển, mở bằng ứng dụng khác) | `viewer.rs` (`pub`) | có |
 | `drag_handle`, `grid_drop_index`, `list_drop_index` | `reorder.rs` (`pub`) | có |
 | `property_list` + `PropertyList` + `PropertyEdits` (hàng thuộc tính, popover, thêm/ẩn/xoá, đổi kiểu) | `properties.rs` (`pub`) | có |
 | `plan_vs_actual(plan, on_write)`, `plan_rows(&EntryPlan, &Trade, currency)` (kế hoạch lúc vào đặt cạnh thực tế, từ `journal::review`) | `plan_vs_actual.rs` | có |
@@ -128,7 +133,7 @@ khác do `on_def` của màn xử lý (màn Tuỳ biến form).
 ### Chia sẻ kết quả và báo cáo PDF tháng
 
 - **Mở hộp thoại chia sẻ:** `pages::share::open(ShareTarget::Trade(key))` hoặc `ShareTarget::Period(Period::Week | Month, start)`;
-  `share::host()` (gắn một lần trong `shell`) hiện `dialog()` giống popup kế hoạch. Nút "Chia sẻ" có ở chi tiết lệnh (tắt khi lệnh còn mở)
+  hiện bằng `ui::modal` giống popup kế hoạch. Nút "Chia sẻ" có ở chi tiết lệnh (tắt khi lệnh còn mở)
   và ở header Tổng kết & xem lại.
 - **Ảnh dựng trong `core`, không phải trong NSH:** `core::report::render_png(&ShareCard)` dựng SVG rồi rasterize bằng `resvg` với font đóng gói
   (Inter, JetBrains Mono từ `app/assets/fonts/`, `include_bytes!` ở `core/src/report/fonts.rs`); ảnh luôn theo giao diện tối của thiết kế.
@@ -149,9 +154,19 @@ khác do `on_def` của màn xử lý (màn Tuỳ biến form).
 - **Đổi kiểu thuộc tính** chuyển giá trị của *mọi* nhật ký đã lưu: `Db::apply_field_def(&FieldDef)` (đổi kiểu bằng
   `form::convert`, đổi tên một lựa chọn theo vào giá trị, thêm lựa chọn từ giá trị mới) và `Db::kind_change_impact`
   (đếm giá trị sẽ mất, để hỏi `alert_dialog`). Màn dùng `property_list` gọi `apply_field_def` trong `on_def`.
-- **Popup ghi kế hoạch**: `pages::entry_plan::enqueue(PlanRequest)` xếp một yêu cầu vào hàng đợi (chi tiết lệnh dùng
-  cho "Viết / Sửa kế hoạch"; kết nối MT5 của v0.4 sẽ đưa lệnh vừa mở vào); `entry_plan::host()`
-  gắn một lần trong `shell`. Một việc chạy bằng `Writer::run` mà chủ của nó là hộp thoại phải xong *trước khi* đóng
+- **Hộp thoại trong cửa sổ: `ui::modal`** (`Modal::new(id, tiêu đề, body, on_dismiss)`, `modal::open`, `modal::close(id)`;
+  `modal::host()` gắn một lần trong `shell`). **Không dùng `nsh_base::dialog()`**: lớp cửa sổ native của nó không vẽ trên Windows
+  (cửa sổ tối đi, không có nội dung); `app/tests/no_native_dialog.rs` quét mã nguồn để chặn. Modal là một lớp `absolute` của root
+  như bảng tìm: nền `background` mờ 72% (bấm vào nền gọi `on_dismiss`, trừ khi `keeps_open_on_scrim` khi form có chữ chưa lưu),
+  panel `popover` ở giữa, tiêu đề + nút ✕, thân cuộn khi cao hơn cửa sổ; Escape và ✕ gọi `on_dismiss`, nó tự `modal::close`
+  khi xong việc. Mỗi lúc chỉ một modal hiện, modal sau xếp hàng. Escape gắn bằng `on_key` của chính lớp nên mất cùng lớp, và không
+  có phím Enter toàn cục. Focus chuyển vào panel khi mở; hai "lính canh" ở hai đầu lớp giữ Tab / Shift+Tab trong modal (test
+  `tab_does_not_leave_the_modal` chạy với `Os::Windows`). Chưa trả focus về nút đã mở modal vì NSH không cho đọc phần tử đang giữ focus.
+  Câu hỏi phá huỷ vẫn dùng `confirm_then` (alert hệ thống), không dùng modal. Trong test không đầu, bấm nền bằng
+  `press_at("label:Đóng hộp thoại", điểm góc)` vì `press` thường bỏ qua việc nền che trang.
+- **Popup ghi kế hoạch**: `pages::entry_plan::enqueue(PlanRequest, Writer)` xếp một yêu cầu vào hàng đợi (chi tiết lệnh dùng
+  cho "Viết / Sửa kế hoạch"; kết nối MT5 của v0.4 sẽ đưa lệnh vừa mở vào); mỗi yêu cầu là một `Modal` (`Writer` để "Ghi sau" và
+  Escape ghi cờ). Một việc chạy bằng `Writer::run` mà chủ của nó là hộp thoại phải xong *trước khi* đóng
   hộp thoại (đóng huỷ tác vụ), nên `finish` chỉ gọi trong `done`.
 - **Phím tắt**: Ctrl+N (từ Lệnh) mở nhập lệnh tay, Ctrl+Enter lưu ở đó.
 - Form nhật ký của lệnh dùng chung: `trade_detail::journal_form(fields, shots, suggestion, failure)` vẽ danh sách
@@ -181,6 +196,23 @@ Tôn trọng *reduce motion*: chỉ đổi opacity, không dịch chuyển.
 Khi một ô nhập bám theo `Reading::value()`, bọc bằng `computed(move || data.value())`: một lần đọc lại đang chạy cũng
 làm `value()` báo đổi (cờ `loading`), và nếu không có memo thì dữ liệu cũ ghi đè lên chỗ người dùng vừa sửa.
 
+### Trình xem ảnh (`ui::viewer`) và ảnh trong `gallery`
+
+- **Là một lớp của cửa sổ, không phải `dialog()`** (lớp cửa sổ gốc của `dialog()` không vẽ đúng trên Windows): `viewer::overlay()` là
+  con cuối của `shell`, `viewer::open(Request::new(nhãn, slides, vị trí, restore))` mở nó. `slides` là closure đọc danh sách ảnh sống,
+  nên trình xem theo danh sách của `gallery`; `restore(vị trí)` đưa focus về ô ảnh khi đóng. `gallery` tự đóng trình xem của nó khi bị
+  huỷ (`cleanup` → `viewer::close_if_from`), vì closure `slides` đọc signal của trang.
+- **Phím là phím của cửa sổ (`on_key`), không phải `on_key_down` của view:** bấm một nút trong trình xem làm focus rời khỏi lớp, và phím
+  trên view sẽ ngừng chạy. Các phím sống đúng bằng đời của lớp (owner của `when`).
+- **Vùng bấm:** các khung bố cục (thanh trên, sân khấu, chân) là `PointerEvents::BoxNone` để nền mờ phía sau vẫn nhận cú bấm ngoài ảnh; ảnh
+  chỉ chiếm đúng hình chữ nhật vừa khung (kích thước thật đọc bằng `image_size`, chưa có thì lấp đầy khung). Con trỏ không theo
+  signal, nên "phóng to" / "kéo" là hai lớp bấm đổi chỗ bằng `when(..).otherwise(..)` chứ không đổi con trỏ của một phần tử.
+- **Hành động ở góc ô ảnh** hiện bằng `.group()` + `.group_hover` / `.group_focus_within` (độ mờ 0 → 1); nút vẫn nằm trong thứ tự Tab. Nút
+  trong nút không có, nên ô ảnh là `button` và các nút góc là anh em của nó, đặt `absolute` lên trên.
+- **Xoá ảnh không hỏi, hoàn tác được:** `on_change` nhận danh sách mới ngay; dòng "Đã xoá ảnh · Hoàn tác" chỉ hiện khi danh sách vẫn đúng
+  là danh sách sau khi xoá (sửa khác hay đổi sang mục khác thì hết cơ hội), hẹn giờ 6 giây chạy dưới owner của gallery (ô ảnh bị dựng
+  lại ngay khi danh sách đổi, hẹn giờ của nó sẽ bị huỷ).
+
 ### Giờ hiển thị và "hôm nay"
 
 Một nguồn duy nhất: `zone.rs`. Cài đặt `time_display` (`TimeDisplay::Local` / `Server`) cùng offset của server và của máy
@@ -206,10 +238,17 @@ Nhật ký ngày đọc `nav::requested_journal_day()` rồi gọi `nav::take_jo
 ### Câu hỏi xác nhận, con trỏ, lịch chọn ngày, dữ liệu không đủ
 
 - **Hỏi rồi mới làm: `controls::confirm_then(owner, tiêu đề, mô tả, nhãn, then)`**, không `spawn(async { confirm(..).await })` trong
-  trình xử lý nút. Tác vụ khởi từ nút thuộc owner của nút; thẻ chứa nút nằm trong `dynamic` bị dựng lại mỗi lần state đổi và
-  huỷ tác vụ trước khi hộp thoại hiện (đăng xuất, khôi phục, xoá thuộc tính, xoá playbook / lệnh bỏ lỡ đều từng bị). `owner` lấy lúc
-  dựng bằng `controls::root_owner()` (Workspace gọi `provide_root_owner()`), hoặc `Cloud::confirm_sign_out` / `confirm_restore`.
-  Việc trong `then` chạm signal của phần có thể đã dựng lại thì dùng `try_set`.
+  trình xử lý nút. Câu hỏi là `alert_dialog` của hệ điều hành (đã kiểm trên cửa sổ Windows thật; nút của nó theo màu nền tảng, không
+  theme được). Đừng thay bằng `dialog()` trong app cho câu hỏi phá huỷ: trên Windows lớp cửa sổ của `dialog()` không vẽ và câu hỏi
+  từng bị trả lời "xác nhận" mà không ai bấm. Tác vụ khởi từ nút thuộc owner của nút; thẻ chứa nút nằm trong `dynamic` bị dựng lại
+  mỗi lần state đổi và huỷ tác vụ trước khi hộp thoại hiện (đăng xuất, khôi phục, xoá thuộc tính, xoá playbook / lệnh bỏ lỡ đều
+  từng bị). `owner` lấy lúc dựng bằng `controls::root_owner()` (Workspace gọi `provide_root_owner()`), hoặc
+  `Cloud::confirm_sign_out` / `confirm_restore`. Việc trong `then` chạm signal của phần có thể đã dựng lại thì dùng `try_set`.
+  Trong test không đầu, trả lời bằng `on_dialog(|_| DialogAnswer::Press(..))` hoặc `answer_dialogs_myself()` + `answer_dialog`.
+- **Mỗi trang là một phần tử có `key`** (`shell`, `pages::trades`): trang dựng thay cho trang khác bắt đầu ở đầu trang. Không có
+  `key`, NSH giữ vị trí cuộn của nút cuộn dựng lại tại chỗ.
+- **Font:** `root()` đăng ký bảy file font (`Root::font`) và token của `theme.json` (`Root::tokens`); `registry.assets(..)` một mình
+  không đủ khi chạy bằng `cargo run`, vì nền tảng khởi động không kèm UI set của app.
 - **Con trỏ:** mọi thứ bấm được có `.cursor_pointer()` trong component (`button_shell`, `sidebar_row`, `tab`, `toggle`, ô lịch, thẻ chọn,
   chip chọn, tên thuộc tính, dropzone, ảnh); nút tắt đặt `Cursor::Default` trong `disabled_style`; tay nắm kéo là `Cursor::Grab`.
   Component mới dùng `button()` / `toggle()` / `tab()` phải thêm `.cursor_pointer()`. Test không đầu đọc con trỏ qua `observe` các

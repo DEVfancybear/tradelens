@@ -101,7 +101,7 @@ pub(crate) fn r_curve_chart(
                         .format(TickFormat::from_fn(move |value, _| {
                             format::r_text(Some(value)).replace(".0R", "R").into()
                         }))
-                        .label_class("pr-3 text-xs text-muted-foreground"),
+                        .label_class(super::chart::AXIS_LABEL_CLASS),
                 ),
         )
 }

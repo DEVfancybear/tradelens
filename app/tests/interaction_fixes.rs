@@ -46,6 +46,42 @@ fn a_question_asked_by_a_card_that_is_built_again_before_the_answer_still_acts_o
     wait_until("the session being forgotten", || db.setting("cloud.demo_user").is_ok_and(|v| v.as_deref() == Some("")));
 }
 
+#[test]
+fn a_cancelled_sign_out_question_whose_card_was_built_again_signs_nothing_out() {
+    let fixture = signed_in();
+    let mut app = fixture.start(1280.0, 1100.0, |_| {});
+    app.press("role:button[Đăng nhập & sync]").expect("the cloud row");
+    app.wait_for(EMAIL).expect("signed in");
+    app.answer_dialogs_myself();
+    app.press("role:button[Đăng xuất]").expect("the sign-out button");
+    assert!(app.pending_dialog().is_some(), "the question is shown");
+
+    app.press("label:Tự động sync").expect("the switch builds the card again");
+    let db = fixture.db();
+    wait_until("the switch being kept", || db.setting("cloud.auto_sync").is_ok_and(|v| v.as_deref() == Some("1")));
+    app.answer_dialog(DialogAnswer::Press("Huỷ".to_owned())).expect("cancels");
+    app.wait(std::time::Duration::from_millis(600)).expect("the app runs");
+    assert!(app.screen().shows(EMAIL), "cancelling keeps the account");
+    assert_eq!(db.setting("cloud.demo_user").expect("reads").as_deref(), Some("google"), "the session is kept");
+}
+
+#[test]
+fn a_sign_out_question_nobody_answers_signs_nothing_out() {
+    let fixture = signed_in();
+    let mut app = fixture.start(1280.0, 1100.0, |_| {});
+    app.press("role:button[Đăng nhập & sync]").expect("the cloud row");
+    app.wait_for(EMAIL).expect("signed in");
+    app.answer_dialogs_myself();
+    app.press("role:button[Đăng xuất]").expect("the sign-out button");
+    // Neither time nor key presses answer it: only a press on one of its own buttons does.
+    app.wait(std::time::Duration::from_secs(3)).expect("the app runs");
+    app.press_key("enter").expect("Enter");
+    app.wait(std::time::Duration::from_millis(600)).expect("the app runs");
+    assert!(app.pending_dialog().is_some(), "the question is still waiting");
+    assert!(app.screen().shows(EMAIL), "the account is still there");
+    assert_eq!(fixture.db().setting("cloud.demo_user").expect("reads").as_deref(), Some("google"));
+}
+
 /// The cursor of every view that got a style, by node.
 type Cursors = Arc<Mutex<std::collections::HashMap<NodeId, Cursor>>>;
 
@@ -201,6 +237,11 @@ fn the_day_of_the_journal_is_picked_from_a_calendar_and_the_page_follows() {
     let day = fifteenth();
     app.press(&format!("role:button[{}]", day.format("%Y-%m-%d"))).expect("a day of the calendar");
     app.wait_for(&journal_title(day)).expect("the page follows the day that was picked");
+    // Whether the calendar closes on a pick is the platform's; on macOS it stays open, and its own
+    // "Hôm nay" preset would then match too. Escape closes it either way.
+    app.press_key("Escape").expect("Escape closes the calendar");
+    app.wait_until("one today button", WAIT, |screen| screen.count("role:button[Hôm nay]") == Ok(1))
+        .expect("only the page's today button is left");
     app.press("role:button[Hôm nay]").expect("the today button");
     app.wait_for(&journal_title(chrono::Local::now().date_naive())).expect("back to today");
 }

@@ -9,6 +9,7 @@ use nsh_core::platform::Os;
 use nsh_testing::{DialogAnswer, Headless};
 use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, TradeKey,
+    attachments::{Attachment, Source},
     catalog::{FieldDef, FieldKind, FieldScope, FieldValue, Requirement},
     journal::EntryPlan,
     model::AccountInfo,
@@ -260,6 +261,45 @@ fn a_picture_added_to_a_trade_is_saved_into_its_journal() {
 }
 
 #[test]
+fn a_trades_pictures_open_full_size_and_a_removal_can_be_undone() {
+    let fixture = Fixture::new();
+    let mut db = fixture.db();
+    seed(&mut db);
+    let shot = |path: &str, caption: &str| Attachment {
+        path: path.to_owned(),
+        caption: caption.to_owned(),
+        timeframe: Some("h4".to_owned()),
+        source: Source::Upload,
+        added_at: 0,
+    };
+    let pictures = vec![shot("images/one.png", "bối cảnh"), shot("images/two.png", "retest")];
+    let entry = JournalEntry { screenshots: pictures.clone(), ..JournalEntry::default() };
+    db.save_journal(&key_of(&db, 2), &entry).expect("the pictures are stored");
+    let mut app = fixture.start();
+    open_trade(&mut app, "XAUUSD");
+
+    // A picture opens over the whole window (the sidebar is under the scrim), and Escape closes it.
+    app.wait_for("label:Phóng to Ảnh chart 2").expect("the gallery shows both pictures");
+    app.press("label:Phóng to Ảnh chart 2").expect("the second picture");
+    app.wait_for("2 / 2").expect("the viewer opens on it");
+    app.press_key("left").expect("previous");
+    app.wait_for("1 / 2").expect("the first picture");
+    app.press_key("escape").expect("Escape");
+    app.wait_for_gone("1 / 2", WAIT).expect("the viewer closes");
+
+    // The removal is saved at once, and so is its undo, in the same place.
+    press_until(&mut app, "label:Xoá Ảnh chart 1", "Đã xoá ảnh ·");
+    wait_until("the removal being saved", || {
+        db.journal(&key_of(&db, 2)).expect("reads").is_some_and(|e| e.screenshots.len() == 1)
+    });
+    app.wait_for("Đã xoá ảnh ·").expect("the undo line shows");
+    press_until(&mut app, "role:button[Hoàn tác]", "label:Xoá Ảnh chart 2");
+    wait_until("the undo being saved", || {
+        db.journal(&key_of(&db, 2)).expect("reads").is_some_and(|e| e.screenshots == pictures)
+    });
+}
+
+#[test]
 fn changing_a_propertys_type_in_the_form_editor_converts_every_entry() {
     let fixture = Fixture::new();
     let mut db = fixture.db();
@@ -420,4 +460,45 @@ fn the_plan_prompt_saves_the_plan_or_flags_the_trade_for_later() {
     assert_eq!(plan.entry, Some(2648.2), "the levels start from the trade's");
     assert_eq!(plan.stop_loss, Some(2640.0));
     assert!(!entry.review_later, "a written plan leaves the review queue");
+}
+
+/// A point of the scrim that the plan's panel does not cover.
+fn scrim_corner() -> nsh_core::Point<nsh_core::Points> {
+    nsh_core::Point { x: nsh_core::Points(4.0), y: nsh_core::Points(4.0) }
+}
+
+#[test]
+fn the_plan_prompt_shows_its_form_and_escape_or_the_close_button_close_it_without_a_plan() {
+    let fixture = Fixture::new();
+    seed(&mut fixture.db());
+    let mut app = fixture.start();
+    open_trade(&mut app, "XAUUSD");
+    let db = fixture.db();
+    let no_plan = |db: &Db| {
+        [1, 2].into_iter().all(|p| db.journal(&key_of(db, p)).expect("reads").is_none_or(|e| e.plan.is_none()))
+    };
+
+    open_plan_prompt(&mut app);
+    for field in ["label:Lý do vào lệnh", "label:Giá vào", "label:Stop loss", "label:Take profit", "label:Risk"] {
+        app.wait_for(field).unwrap_or_else(|error| panic!("the form has {field}: {error}"));
+    }
+    app.type_text("label:Lý do vào lệnh", "chưa lưu").expect("the reason is typed");
+    // A press outside the panel must not throw the typing away.
+    app.press_at("label:Đóng hộp thoại", scrim_corner()).expect("a press on the scrim");
+    app.wait(Duration::from_millis(400)).expect("the app runs");
+    assert!(app.screen().shows("Lưu kế hoạch"), "the scrim leaves a form with edits open");
+
+    // Escape is "Ghi sau": the trade is flagged and no plan is written.
+    app.press_key("escape").expect("Escape");
+    app.wait_for_gone("Lưu kế hoạch", WAIT).expect("the dialog closes");
+    wait_until("the trade being flagged", || {
+        [1, 2].into_iter().any(|p| db.journal(&key_of(&db, p)).expect("reads").is_some_and(|e| e.review_later))
+    });
+    assert!(no_plan(&db), "Escape wrote no plan");
+
+    // The close button says the same.
+    open_plan_prompt(&mut app);
+    app.press("label:Đóng và ghi kế hoạch sau").expect("the close button");
+    app.wait_for_gone("Lưu kế hoạch", WAIT).expect("the dialog closes again");
+    assert!(no_plan(&db), "the close button wrote no plan");
 }

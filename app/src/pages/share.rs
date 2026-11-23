@@ -13,7 +13,7 @@ use std::{
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{Datelike, NaiveDate};
-use nsh_base::{dialog, theme};
+use nsh_base::theme;
 use nsh_core::{
     file_dialog::{FileFilter, SaveDialog},
     prelude::*,
@@ -30,22 +30,22 @@ use crate::{
     snapshot::Snapshot,
     store::{query_with, store},
     ui::{
-        controls::{Variant, action, action_icon_when, icon_action, segmented},
+        controls::{Variant, action_icon_when, link, segmented},
         files::file_url,
         forms::switch_row,
         icons::Icon,
+        modal::{self, Modal},
         theme as tokens,
     },
 };
 
 /// Width of the dialog's panel, in points.
 const PANEL_WIDTH: f32 = 680.0;
-/// The padding inside the panel.
-const PANEL_PADDING: f32 = 22.0;
-/// How far the scrim darkens the screen behind the dialog.
-const SCRIM_OPACITY: f32 = 0.72;
+/// What the modal takes of the panel's width: its padding on both sides, its border and room for
+/// the scroll bar.
+const PANEL_CHROME: f32 = 2.0 * 20.0 + 2.0 + 16.0;
 /// The preview's size: the card's 1200 × 630 scaled to the panel's inside width.
-const PREVIEW_WIDTH: f32 = PANEL_WIDTH - 2.0 * PANEL_PADDING;
+const PREVIEW_WIDTH: f32 = PANEL_WIDTH - PANEL_CHROME;
 const PREVIEW_HEIGHT: f32 = PREVIEW_WIDTH * 630.0 / 1200.0;
 
 /// What a card is of.
@@ -57,34 +57,16 @@ pub(crate) enum ShareTarget {
     Period(Period, NaiveDate),
 }
 
-/// The target being shared, while the dialog is open.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-struct Open(Option<ShareTarget>);
+/// The name of the share modal: there is one at a time.
+const MODAL_ID: &str = "share";
 
-/// Opens the dialog on `target`.
+/// Opens the dialog on `target`, as the window's modal: Escape, the close button and a press
+/// outside the panel close it.
 pub(crate) fn open(target: ShareTarget) {
-    global::<Open>().set(Open(Some(target)));
-}
-
-fn close() {
-    global::<Open>().set(Open(None));
-}
-
-/// The dialog, mounted once over the whole window.
-pub(crate) fn host() -> impl IntoElement {
-    let open = global::<Open>();
-    dynamic(move || open.get().0.map(|target| dialog().on_cancel(close).flex_1().child(untracked(|| scrim(&target)))))
-}
-
-/// The darkened screen with the panel in its middle.
-fn scrim(target: &ShareTarget) -> impl IntoElement {
-    view()
-        .flex_1()
-        .items_center()
-        .justify_center()
-        .p_6()
-        .bg(move || theme().background.opacity(SCRIM_OPACITY))
-        .child(panel(target))
+    modal::open(
+        Modal::new(MODAL_ID, "Chia sẻ kết quả", move || panel(&target).into_element(), || modal::close(MODAL_ID))
+            .width(PANEL_WIDTH),
+    );
 }
 
 pub(super) const PRIVACY_CHOICES: [Privacy; 3] = [Privacy::ShowMoney, Privacy::OnlyR, Privacy::NoFigures];
@@ -386,22 +368,7 @@ fn panel(target: &ShareTarget) -> impl IntoElement {
     };
     let (save, copy, export) = (save_picture(target.clone(), state), copy_picture(state), export_month(month, state));
     view()
-        .w(px(PANEL_WIDTH))
-        .p(px(PANEL_PADDING))
         .gap_4()
-        .rounded(move || theme().radius)
-        .border_1()
-        .border_color(move || theme().border)
-        .bg(move || theme().card)
-        .shadow_lg()
-        .child(
-            view()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .child(text("Chia sẻ kết quả").text_base().font_weight(FontWeight::SEMIBOLD))
-                .child(icon_action(Icon::Close, "Đóng", Variant::Ghost, close)),
-        )
         .child(segmented(
             "Quyền riêng tư",
             &PRIVACY_CHOICES,
@@ -423,11 +390,7 @@ fn panel(target: &ShareTarget) -> impl IntoElement {
                 .justify_between()
                 .gap_2()
                 .child(view().flex_row().when_some(month, |slot, start| {
-                    slot.child(action(
-                        format!("Xuất báo cáo PDF tháng {} →", start.format("%m")),
-                        Variant::Ghost,
-                        export,
-                    ))
+                    slot.child(link(format!("Xuất báo cáo PDF tháng {} →", start.format("%m")), export))
                 }))
                 .child(
                     view()

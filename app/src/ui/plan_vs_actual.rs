@@ -11,7 +11,7 @@ use tradelens_core::{
 
 use super::{
     chips::{Tone, chip, figure_text},
-    controls::{Variant, action},
+    controls::{Variant, action, link},
     parts::empty_state,
 };
 use crate::format::{self, Sign};
@@ -167,7 +167,7 @@ fn filled(shown: &PlanView, on_write: impl Fn() + 'static) -> impl IntoElement {
                         if before { "Viết trước khi đóng" } else { "Viết sau khi đóng" },
                         if before { Tone::Primary } else { Tone::Neutral },
                     ))
-                    .child(action("Sửa kế hoạch", Variant::Ghost, on_write)),
+                    .child(link("Sửa kế hoạch", on_write)),
             ),
         )
         .when(!thesis.is_empty(), |v| {

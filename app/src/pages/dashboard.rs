@@ -22,7 +22,7 @@ use crate::{
         chart::equity_chart,
         charts::{DivergingItem, diverging_bars},
         chips::{Tone, chip},
-        controls::{Variant, action, action_icon, segmented},
+        controls::{Variant, action, action_icon, link, segmented},
         forms::{RuleLevel, progress_rule},
         icons::Icon,
         layout::{columns, titled_card},
@@ -69,19 +69,28 @@ pub(crate) fn dashboard() -> impl IntoElement {
     let range = store.range;
     let today = computed(move || insight::today_now(&store.snapshot()));
     let analysis = computed(move || Arc::new(insight::analyse(&store.snapshot(), range.get(), today.get())));
+    // Ctrl+N adds a trade by hand, as the button does (and as it does on the trades page).
+    on_key_with("mod+n", KeyOptions { pass_through: true, ..KeyOptions::default() }, |_| nav::open_manual_entry());
     page_with(
         "Tổng quan",
         move || {
             let accounts = store.snapshot().accounts.len();
             format!("{} · {accounts} tài khoản", range.get().describe())
         },
-        view().flex_row().flex_wrap().items_center().gap_3().child(account_picker()).child(segmented(
-            "Khoảng thời gian",
-            &Range::ALL,
-            Range::label,
-            move || range.get(),
-            move |next| range.set(next),
-        )),
+        view()
+            .flex_row()
+            .flex_wrap()
+            .items_center()
+            .gap_3()
+            .child(account_picker())
+            .child(segmented(
+                "Khoảng thời gian",
+                &Range::ALL,
+                Range::label,
+                move || range.get(),
+                move |next| range.set(next),
+            ))
+            .child(action_icon(Icon::Plus, "Thêm lệnh", Variant::Primary, nav::open_manual_entry)),
         view().gap_6().child(stat_row()).child(columns(
             view().gap_6().child(curve_card(today)).child(recent_card()),
             view().gap_6().child(discipline_card(today)).child(month_card(today)).child(symbol_card(analysis)),
@@ -113,14 +122,46 @@ fn drawdown_note(s: &Snapshot) -> String {
     }
 }
 
+/// What a figure with nothing to count shows.
+const NONE: &str = "—";
+
+/// The line under the first tile when no trade closed in the range.
+const NONE_HINT: &str = "Chưa có lệnh đóng trong khoảng này";
+
+/// The line under the net result: how much of the balance it is, or what the trades are.
+fn net_note(s: &Snapshot) -> String {
+    let st = &s.stats;
+    if let Some(mixed) = s.basis.money_note() {
+        mixed
+    } else if s.unit() == Unit::R {
+        format!("{} lệnh đã đóng, tính theo R", st.trades)
+    } else if st.start_balance > 0.0 {
+        format!("{} so với số dư đầu kỳ", format::percent(st.net / st.start_balance))
+    } else {
+        format!("{} lệnh đã đóng", st.trades)
+    }
+}
+
 /// The headline numbers of the chosen accounts and range: in money, or in R when none of the
 /// trades in view has money (a journal kept in R), so that no tile ever says `$0.00`. With a mix,
 /// the money figures cover the trades that have money and say so.
 fn stat_row() -> impl IntoElement {
     let store = store();
     let unit = move || store.snapshot().unit();
-    let figure = move |pick: fn(&Snapshot) -> (String, Tone)| move || pick(&store.snapshot());
-    let note = move |pick: fn(&Snapshot) -> String| move || pick(&store.snapshot());
+    // Nothing closed in the range: every tile is a dash, never an amount of zero, and the first
+    // one says why.
+    let figure = move |pick: fn(&Snapshot) -> (String, Tone)| {
+        move || {
+            let snapshot = store.snapshot();
+            if snapshot.stats.trades == 0 { (NONE.to_owned(), Tone::Neutral) } else { pick(&snapshot) }
+        }
+    };
+    let note = move |pick: fn(&Snapshot) -> String| {
+        move || {
+            let snapshot = store.snapshot();
+            if snapshot.stats.trades == 0 { String::new() } else { pick(&snapshot) }
+        }
+    };
     view()
         .flex_row()
         .flex_wrap()
@@ -135,18 +176,10 @@ fn stat_row() -> impl IntoElement {
                 let tone = Tone::of_amount(&text);
                 (text, tone)
             }),
-            note(|s| {
-                let st = &s.stats;
-                if let Some(mixed) = s.basis.money_note() {
-                    mixed
-                } else if s.unit() == Unit::R {
-                    format!("{} lệnh đã đóng, tính theo R", st.trades)
-                } else if st.start_balance > 0.0 {
-                    format!("{} so với số dư đầu kỳ", format::percent(st.net / st.start_balance))
-                } else {
-                    format!("{} lệnh đã đóng", st.trades)
-                }
-            }),
+            move || {
+                let snapshot = store.snapshot();
+                if snapshot.stats.trades == 0 { NONE_HINT.to_owned() } else { net_note(&snapshot) }
+            },
         ))
         .child(stat_tile(
             "Win rate",
@@ -314,7 +347,7 @@ fn recent_card() -> impl IntoElement {
         || ("Chưa có lệnh nào trong khoảng này".to_owned(), "Chọn khoảng thời gian dài hơn để thấy thêm.".to_owned());
     titled_card(
         "Lệnh gần đây",
-        action("Xem tất cả", Variant::Ghost, || nav::go(Route::Trades)),
+        link("Xem tất cả", || nav::go(Route::Trades)),
         view().h(px(RECENT_HEIGHT)).child(recent_trades(rows, open, empty)),
     )
 }
@@ -402,17 +435,25 @@ fn discipline_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
     )
 }
 
-/// The month's calendar in small, with a link to the full one.
+/// The title of the month's calendar: `Tháng 11/2026`.
+fn month_title(day: chrono::NaiveDate) -> String {
+    format!("Tháng {}/{}", day.month(), day.year())
+}
+
+/// The month's calendar in small, with a link to the full one. It shows the current month, or the
+/// latest one that has trades when the current month has none (as the calendar page opens), and its
+/// title says which.
 fn month_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
     let store = store();
     let days = computed(move || insight::daily_results(&store.snapshot()));
+    let shown = computed(move || days.with(|d| insight::opening_day(d, today.get())));
     let weeks = move || {
-        let day = today.get();
+        let day = shown.get();
         days.with(|d| tradelens_core::metrics::month_weeks(day.year(), day.month(), d))
     };
     titled_card(
-        "Tháng này",
-        action_icon(Icon::Calendar, "Mở lịch", Variant::Ghost, || nav::go(Route::Calendar)),
+        move || month_title(shown.get()),
+        link("Mở lịch", || nav::go(Route::Calendar)),
         mini_month(weeks, today),
     )
 }
@@ -443,7 +484,7 @@ fn symbol_card(analysis: Memo<Arc<Analysis>>) -> impl IntoElement {
     let store: Store = store();
     titled_card(
         "Theo symbol",
-        action("Xem phân tích", Variant::Ghost, || nav::go(Route::Analytics)),
+        link("Xem phân tích", || nav::go(Route::Analytics)),
         diverging_bars(move || analysis.with(|a| symbol_items(a, &store.snapshot().currency))),
     )
 }

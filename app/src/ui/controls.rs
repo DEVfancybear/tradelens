@@ -27,6 +27,9 @@ pub(crate) enum Variant {
     Ghost,
 }
 
+/// Whether a button can be pressed, read again whenever it is asked.
+type Enabled = Rc<dyn Fn() -> bool>;
+
 /// The app's button.
 pub(crate) fn action(
     label: impl IntoReactive<SharedString>,
@@ -43,10 +46,32 @@ pub(crate) fn action_when(
     enabled: impl Fn() -> bool + 'static,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
+    let enabled: Enabled = Rc::new(enabled);
+    let ink = variant.ink_when(&enabled);
     button_shell(variant, enabled, on_press)
         .h(px(34.0))
         .px_4()
-        .child(text(label).text_sm().number_of_lines(1).font_weight(FontWeight::MEDIUM).text_color(variant.ink()))
+        .child(text(label).text_sm().number_of_lines(1).font_weight(FontWeight::MEDIUM).text_color(ink))
+}
+
+/// A link: a word or two in the `primary` colour that go to another page, as the design draws
+/// "Xem tất cả" and "Mở lịch". The pointing hand and an underline show on hover; the focus ring on
+/// the keyboard.
+pub(crate) fn link(label: impl IntoReactive<SharedString>, on_press: impl Fn() + 'static) -> impl IntoElement {
+    button()
+        .cursor_pointer()
+        .on_press(on_press)
+        .rounded(px(4.0))
+        .hover(nsh_core::element::Styled::underline)
+        .active(|s| s.opacity(0.8))
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .child(
+            text(label)
+                .text_xs()
+                .number_of_lines(1)
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(move || theme().primary),
+        )
 }
 
 /// A button with an icon before its label.
@@ -67,12 +92,14 @@ pub(crate) fn action_icon_when(
     enabled: impl Fn() -> bool + 'static,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
+    let enabled: Enabled = Rc::new(enabled);
+    let (icon_ink, label_ink) = (variant.ink_when(&enabled), variant.ink_when(&enabled));
     button_shell(variant, enabled, on_press)
         .h(px(34.0))
         .px_3()
         .gap_2()
-        .child(icon(glyph, ICON_SIZE).text_color(variant.ink()))
-        .child(text(label).text_sm().number_of_lines(1).font_weight(FontWeight::MEDIUM).text_color(variant.ink()))
+        .child(icon(glyph, ICON_SIZE).text_color(icon_ink))
+        .child(text(label).text_sm().number_of_lines(1).font_weight(FontWeight::MEDIUM).text_color(label_ink))
 }
 
 /// A square button that holds only an icon. `accessibility_label` is what screen readers say
@@ -83,15 +110,21 @@ pub(crate) fn icon_action(
     variant: Variant,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
-    button_shell(variant, || true, on_press)
+    let enabled: Enabled = Rc::new(|| true);
+    let ink = variant.ink_when(&enabled);
+    button_shell(variant, enabled, on_press)
         .accessibility_label(accessibility_label.into())
         .size(px(34.0))
-        .child(icon(glyph, ICON_SIZE).text_color(variant.ink()))
+        .child(icon(glyph, ICON_SIZE).text_color(ink))
 }
 
 /// Asks the trader to confirm something that destroys data, with the system's alert: `true`
 /// only when `confirm_label` is chosen; Cancel, Escape and a dismissed dialog answer `false`.
 /// Await it in a task, never block on it.
+///
+/// The alert is the platform's own, so its buttons wear the platform's colours and the app's theme
+/// cannot change them. An in-app `dialog()` was tried and dropped: on Windows its window layer did
+/// not paint, and the question was answered without the trader's input.
 pub(crate) async fn confirm(
     title: impl Into<SharedString>,
     description: impl Into<SharedString>,
@@ -113,7 +146,8 @@ pub(crate) async fn confirm(
 /// A task started in a press handler belongs to the owner of the button: when the part of the page the
 /// button is in is built again (the cloud card is, at every change of the sign-in state), the task is
 /// cancelled and the question never appears. `owner` is one that lives as long as the page (the
-/// root's, [`root_owner`]); call this from the handler, take `owner` while building.
+/// root's, [`root_owner`]); call this from the handler, take `owner` while building. `then` runs
+/// only when the trader chose `confirm_label`.
 pub(crate) fn confirm_then(
     owner: Owner,
     title: impl Into<SharedString> + 'static,
@@ -149,13 +183,19 @@ pub(crate) fn provide_root_owner() {
 const ICON_SIZE: f32 = 16.0;
 
 impl Variant {
-    /// The colour of the content on a button of this variant.
+    /// The colour of the content on an enabled button of this variant.
     fn ink(self) -> AdaptiveColor {
         match self {
             Self::Primary => theme().primary_foreground,
             Self::Secondary => theme().secondary_foreground,
             Self::Ghost => theme().foreground,
         }
+    }
+
+    /// The colour of the content: [`Variant::ink`], or the muted ink of a button that is switched off.
+    fn ink_when(self, enabled: &Enabled) -> impl Fn() -> AdaptiveColor + Clone + 'static {
+        let enabled = Rc::clone(enabled);
+        move || if enabled() { self.ink() } else { theme().muted_foreground }
     }
 
     fn fill(self) -> AdaptiveColor {
@@ -167,12 +207,15 @@ impl Variant {
     }
 }
 
+/// How much of its colour a button that is switched off keeps.
+const DISABLED_OPACITY: f32 = 0.6;
+
 /// What every button shares: fill, shape, states; its size and content are the caller's.
-fn button_shell(
-    variant: Variant,
-    enabled: impl Fn() -> bool + 'static,
-    on_press: impl Fn() + 'static,
-) -> ButtonElement {
+///
+/// A button that is switched off looks the same in every variant: the muted fill (none for a
+/// ghost button) with the muted ink of [`Variant::ink_when`], dimmed, with no hover and no pressed
+/// state; a variant's own fill would otherwise hide that it cannot be pressed.
+fn button_shell(variant: Variant, enabled: Enabled, on_press: impl Fn() + 'static) -> ButtonElement {
     button()
         .cursor_pointer()
         .on_press(on_press)
@@ -182,14 +225,20 @@ fn button_shell(
         .justify_center()
         .rounded(move || theme().radius)
         .bg(variant.fill())
-        // A button with no fill of its own (a link such as "Xem tất cả") shows the hover as a fill.
+        // A button with no fill of its own shows the hover as a fill.
         .hover(move |s| match variant {
             Variant::Ghost => s.bg(move || theme().accent),
             Variant::Primary | Variant::Secondary => s.opacity(0.9),
         })
         .active(|s| s.scale(motion::PRESS_SCALE))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
-        .disabled_style(|s| s.opacity(0.5).cursor(nsh_core::Cursor::Default))
+        .disabled_style(move |s| {
+            let s = s.opacity(DISABLED_OPACITY).cursor(nsh_core::Cursor::Default);
+            match variant {
+                Variant::Ghost => s.bg(AdaptiveColor::TRANSPARENT),
+                Variant::Primary | Variant::Secondary => s.bg(move || theme().muted),
+            }
+        })
 }
 
 /// A row of the sidebar: an icon, a label, and the selection's fill and bar.
@@ -565,6 +614,8 @@ pub(crate) fn rating_of(
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use nsh_engine::{EngineConfig, Root};
     use nsh_testing::{DialogAnswer, Headless};
 
@@ -572,21 +623,38 @@ mod tests {
 
     #[component]
     fn Harness() -> impl IntoElement {
+        crate::ui::theme::install();
         let pressed = signal(Vec::<&'static str>::new());
         let note = move |what: &'static str| pressed.update(|all| all.push(what));
         let committed = signal(String::from("Tên cũ"));
         let confirmed = signal(String::from("chưa hỏi"));
+        let owner = Owner::current();
+        let rebuilt = signal(0_u32);
         view()
             .gap_2()
             .child(icon_action(Icon::Trash, "Xoá dòng", Variant::Ghost, move || note("icon")))
             .child(action_icon(Icon::Plus, "Thêm dòng", Variant::Secondary, move || note("labelled")))
             .child(action_icon_when(Icon::Check, "Lưu", Variant::Primary, || false, move || note("disabled")))
+            .child(action_when("Tắt", Variant::Secondary, || false, move || note("sent")))
+            .child(action_when("Bật", Variant::Secondary, || true, move || note("resent")))
+            .child(link("Xem tất cả", move || note("link")))
             .child(commit_field("Tên", "Tên", move || committed.get(), move |name| committed.set(name)))
             .child(action("Hỏi", Variant::Secondary, move || {
-                spawn(async move {
-                    let yes = confirm("Xoá?", "Không hoàn tác được.", "Xoá hẳn").await;
-                    confirmed.set(format!("đã trả lời {yes}"));
+                confirmed.set("đã hỏi".to_owned());
+                confirm_then(owner, "Xoá?", "Không hoàn tác được.", "Xoá hẳn", move || {
+                    confirmed.set("đã xác nhận".to_owned());
                 });
+            }))
+            // A button made again every time `rebuilt` changes, and which asks as it goes: the
+            // question outlives it, as the cloud card's does when the sign-in state changes.
+            .child(dynamic(move || {
+                let _ = rebuilt.get();
+                action("Hỏi rồi dựng lại", Variant::Secondary, move || {
+                    confirm_then(owner, "Thay?", "Dữ liệu sẽ bị thay.", "Thay hẳn", move || {
+                        confirmed.set("đã thay".to_owned());
+                    });
+                    rebuilt.update(|n| *n += 1);
+                })
             }))
             .child(text(move || format!("pressed {}", pressed.get().join(","))))
             .child(text(move || format!("name {}", committed.get())))
@@ -624,13 +692,82 @@ mod tests {
     }
 
     #[test]
-    fn a_confirmation_is_true_only_for_its_destructive_button() {
+    fn a_button_that_is_switched_off_has_the_muted_ink_whatever_its_variant() {
+        let app = start();
+        let ink =
+            |label: &str| app.screen().span_style(&format!("text:{label}")).expect("the label is on screen").color;
+        assert!(is_token("muted-foreground", ink("Tắt")), "a switched-off secondary button");
+        assert!(is_token("muted-foreground", ink("Lưu")), "a switched-off primary button");
+        assert!(is_token("secondary-foreground", ink("Bật")), "the same button, on");
+        assert!(!app.screen().enabled("role:button[Tắt]").expect("the button"));
+        assert!(app.screen().enabled("role:button[Bật]").expect("the button"));
+    }
+
+    #[test]
+    fn a_link_is_a_primary_coloured_press_target() {
         let mut app = start();
-        app.on_dialog(|_| DialogAnswer::Press("Xoá hẳn".to_owned()));
-        app.press("Hỏi").expect("asks");
-        app.wait_for("đã trả lời true").expect("confirmed");
+        let style = app.screen().span_style("text:Xem tất cả").expect("the link's text");
+        assert!(is_token("primary", style.color), "the link is teal");
+        app.press("Xem tất cả").expect("the link");
+        app.wait_for("pressed link").expect("the press arrived");
+    }
+
+    /// Whether `got` is the token `name` of `theme.json`, in the light or the dark appearance.
+    fn is_token(name: &str, got: nsh_core::Color) -> bool {
+        let tokens = nsh_base::tokens_of(Some(include_str!("../../theme.json"))).expect("theme.json parses");
+        let token = tokens.color(name).unwrap_or_else(|| panic!("theme.json has `{name}`"));
+        got == nsh_core::Color::from(token.light) || got == nsh_core::Color::from(token.dark)
+    }
+
+    /// The question is the system's alert: tests answer it through the headless dialog API, never
+    /// by pressing a view.
+    #[test]
+    fn a_confirmation_runs_what_it_guards_only_for_its_destructive_button() {
+        let mut app = start();
         app.on_dialog(|_| DialogAnswer::Press("Huỷ".to_owned()));
+        app.press("Hỏi").expect("asks");
+        app.wait_for("đã hỏi").expect("the handler ran");
+        app.wait(Duration::from_millis(400)).expect("the app runs");
+        assert!(!app.screen().shows("đã xác nhận"), "cancelling confirms nothing");
+
+        app.on_dialog(|dialog| {
+            assert_eq!(dialog.title.as_deref(), Some("Xoá?"));
+            DialogAnswer::Press("Xoá hẳn".to_owned())
+        });
         app.press("Hỏi").expect("asks again");
-        app.wait_for("đã trả lời false").expect("cancelled");
+        app.wait_for("đã xác nhận").expect("the guarded action ran");
+    }
+
+    #[test]
+    fn a_confirmation_nobody_answers_runs_nothing() {
+        let mut app = start();
+        app.answer_dialogs_myself();
+        app.press("Hỏi").expect("asks");
+        app.wait(Duration::from_millis(800)).expect("the app runs");
+        assert!(app.pending_dialog().is_some(), "the question waits for an answer");
+        assert!(!app.screen().shows("đã xác nhận"), "an unanswered question confirms nothing");
+    }
+
+    #[test]
+    fn a_question_outlives_the_button_that_asked_it() {
+        let mut app = start();
+        app.answer_dialogs_myself();
+        app.press("Hỏi rồi dựng lại").expect("asks, and the button is made again");
+        app.wait(Duration::from_millis(400)).expect("the app runs");
+        assert!(app.pending_dialog().is_some(), "the question is open though its asker was rebuilt");
+        app.answer_dialog(DialogAnswer::Press("Thay hẳn".to_owned())).expect("answers");
+        app.wait_for("đã thay").expect("the answer acts, though the button that asked is gone");
+    }
+
+    #[test]
+    fn cancelling_a_question_whose_asker_was_rebuilt_runs_nothing() {
+        let mut app = start();
+        app.answer_dialogs_myself();
+        app.press("Hỏi rồi dựng lại").expect("asks, and the button is made again");
+        app.wait(Duration::from_millis(400)).expect("the app runs");
+        assert!(app.pending_dialog().is_some(), "the question is open");
+        app.answer_dialog(DialogAnswer::Press("Huỷ".to_owned())).expect("answers");
+        app.wait(Duration::from_millis(400)).expect("the app runs");
+        assert!(!app.screen().shows("đã thay"), "cancelling acts on nothing");
     }
 }

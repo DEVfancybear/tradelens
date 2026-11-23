@@ -8,16 +8,16 @@ use tradelens_core::{DayNote, DbError, Rules, metrics, time::weekday_vi};
 
 use super::account_picker::account_picker;
 use crate::{
-    format::{self, Sign},
+    format::{self, MoneyColumn, Position, Sign},
     insight, nav,
     store::{Load, query, query_with, store},
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{Variant, action_icon, icon_action, segmented},
         icons::Icon,
-        layout::columns,
+        layout::{columns, titled_card},
         month_grid::{Figure, month_grid},
-        parts::{card, empty_state, page_with, property_row},
+        parts::{empty_state, page_with, property_row},
         theme::{self as tokens, warning},
     },
 };
@@ -35,6 +35,11 @@ fn previous(month: Month) -> Month {
 
 fn next(month: Month) -> Month {
     if month.1 == 12 { (month.0 + 1, 1) } else { (month.0, month.1 + 1) }
+}
+
+/// The month as the calendar names it: `Tháng 6, 2026`.
+fn month_name((year, month): Month) -> String {
+    format!("Tháng {month}, {year}")
 }
 
 pub(crate) fn calendar() -> impl IntoElement {
@@ -100,14 +105,11 @@ fn month_card(
                     month.update(|m| *m = previous(*m));
                 }))
                 .child(
-                    text(move || {
-                        let (year, month) = month.get();
-                        format!("Tháng {month}, {year}")
-                    })
-                    .text_xl()
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .min_w(px(150.0))
-                    .text_center(),
+                    text(move || month_name(month.get()))
+                        .text_xl()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .min_w(px(150.0))
+                        .text_center(),
                 )
                 .child(icon_action(Icon::ChevronRight, "Tháng sau", Variant::Ghost, move || {
                     month.update(|m| *m = next(*m));
@@ -202,7 +204,9 @@ fn day_note_of(selected: Signal<Option<NaiveDate>>) -> crate::store::Reading<Day
 /// The big figure of a day and the line beside it. A day with no money shows its R where the amount
 /// would be, never an amount of zero.
 fn day_summary(stat: &metrics::DayStat, currency: &str) -> (String, String) {
-    let figure = if stat.unit() == metrics::Unit::R {
+    let figure = if stat.trades == 0 {
+        "—".to_owned()
+    } else if stat.unit() == metrics::Unit::R {
         format::r_text(Some(stat.r))
     } else {
         format::money(stat.net, Sign::Always, currency)
@@ -243,14 +247,14 @@ fn day_card(selected: Signal<Option<NaiveDate>>) -> impl IntoElement {
                 let stat = stats.get(&day).copied().unwrap_or_default();
                 let title = format!("{}, {}", weekday_vi(day.weekday()), day.format("%d/%m"));
                 let (figure, detail) = day_summary(&stat, &currency);
+                // A money column only when some trade of the day has money; the R is its own column.
+                let column = MoneyColumn::from(trades.iter().any(|row| row.trade.money_known()));
                 let rows = trades.iter().map(|row| {
                     let key = row.key().clone();
                     let symbol = row.trade.symbol.clone();
-                    let net = if row.trade.money_known() {
-                        format::money(row.trade.net(), Sign::Always, &row.currency)
-                    } else {
-                        format::r_text(row.r)
-                    };
+                    let money =
+                        row.trade.money_known().then(|| format::money(row.trade.net(), Sign::Always, &row.currency));
+                    let (r, money) = format::result_cells(Position::Closed, money, row.r, column);
                     let side = row.trade.side.label().to_owned();
                     let tone = if side == "Buy" { Tone::Profit } else { Tone::Loss };
                     let time = match row.closed() {
@@ -278,7 +282,15 @@ fn day_card(selected: Signal<Option<NaiveDate>>) -> impl IntoElement {
                         )
                         .child(text(symbol).flex_1().text_sm().font_weight(FontWeight::SEMIBOLD).number_of_lines(1))
                         .child(chip(side, tone))
-                        .child(view().w(px(92.0)).items_end().child(pnl_text(move || net.clone())))
+                        .child(
+                            view()
+                                .w(px(if money.is_some() { 56.0 } else { 92.0 }))
+                                .items_end()
+                                .child(pnl_text(move || r.clone()).text_xs()),
+                        )
+                        .children(
+                            money.map(|money| view().w(px(92.0)).items_end().child(pnl_text(move || money.clone()))),
+                        )
                 });
                 view()
                     .gap_3()
@@ -366,8 +378,10 @@ fn month_totals(
         days.dedup();
         days.len()
     };
-    card(
-        "Tháng này",
+    // Titled with the month in view, not "this month": the page may be on any month.
+    titled_card(
+        move || month_name(month.get()),
+        view(),
         view()
             .gap_2()
             .child(property_row("Kết quả tháng", pnl_text(move || shown(summary().result))))

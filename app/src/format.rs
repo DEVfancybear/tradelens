@@ -138,6 +138,60 @@ pub(crate) fn full_stamp(at: NaiveDateTime) -> String {
     at.format("%d/%m/%Y %H:%M:%S").to_string()
 }
 
+/// Whether a day's list of trades has a column of money beside its column of R.
+///
+/// A list has one when any of its trades has money; one made of trades that were only kept in R
+/// has the R column alone, so the same figure is never printed twice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MoneyColumn {
+    Shown,
+    Dropped,
+}
+
+impl From<bool> for MoneyColumn {
+    /// The column a list needs, from whether any of its trades has money.
+    fn from(any_money: bool) -> Self {
+        if any_money { Self::Shown } else { Self::Dropped }
+    }
+}
+
+/// Whether a trade has closed, so that it has a result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Position {
+    Closed,
+    Open,
+}
+
+impl From<bool> for Position {
+    /// From whether the trade has closed.
+    fn from(closed: bool) -> Self {
+        if closed { Self::Closed } else { Self::Open }
+    }
+}
+
+/// What a trade of a day's list says in its result columns: its R, and its money when the list has
+/// a money column ([`MoneyColumn`]). A trade without money shows a dash where its money would be,
+/// never its R.
+///
+/// `money` is the formatted money of the trade, `None` when it has none.
+pub(crate) fn result_cells(
+    position: Position,
+    money: Option<String>,
+    r: Option<f64>,
+    column: MoneyColumn,
+) -> (String, Option<String>) {
+    const OPEN: &str = "đang mở";
+    if position == Position::Open {
+        // An open position has nothing to give in R, so the word stands in the last column.
+        return match column {
+            MoneyColumn::Shown => ("—".to_owned(), Some(OPEN.to_owned())),
+            MoneyColumn::Dropped => (OPEN.to_owned(), None),
+        };
+    }
+    let money = (column == MoneyColumn::Shown).then(|| money.unwrap_or_else(|| "—".to_owned()));
+    (r_text(r), money)
+}
+
 /// Whether a displayed amount is a loss (starts with a minus sign).
 pub(crate) fn is_loss(text: &str) -> bool {
     text.starts_with(MINUS) || text.starts_with('-')
@@ -207,6 +261,26 @@ mod tests {
         assert_eq!(percent(0.5833), "58.3%");
         assert_eq!(ratio(Some(1.857)), "1.86");
         assert_eq!(ratio(None), "—");
+    }
+
+    #[test]
+    fn a_day_list_never_prints_r_as_money() {
+        use {
+            MoneyColumn::{Dropped, Shown},
+            Position::{Closed, Open},
+        };
+        let usd = Some("+$40.00".to_owned());
+        // Both kinds in one list: the trade without money has a dash in the money column.
+        assert_eq!(result_cells(Closed, usd.clone(), Some(2.0), Shown), ("+2.0R".to_owned(), usd.clone()));
+        assert_eq!(result_cells(Closed, None, Some(2.0), Shown), ("+2.0R".to_owned(), Some("—".to_owned())));
+        // Only trades in R: the money column is dropped.
+        assert_eq!(result_cells(Closed, None, Some(2.0), Dropped), ("+2.0R".to_owned(), None));
+        assert_eq!(result_cells(Closed, None, None, Dropped), ("—".to_owned(), None));
+        // An open position.
+        assert_eq!(result_cells(Open, usd, None, Shown), ("—".to_owned(), Some("đang mở".to_owned())));
+        assert_eq!(result_cells(Open, None, None, Dropped), ("đang mở".to_owned(), None));
+        assert_eq!(MoneyColumn::from(true), Shown);
+        assert_eq!(Position::from(false), Open);
     }
 
     #[test]

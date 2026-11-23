@@ -153,16 +153,19 @@ fn warnings(layout: &Layout, unit: Unit) -> Vec<String> {
                 .to_owned(),
         );
     }
-    for (field, assumed) in [
-        (Field::Volume, "dùng 1 lot"),
-        (Field::OpenPrice, "giá vào để 0"),
-        (Field::ClosePrice, "giá ra để 0"),
-        (Field::Profit, "lãi/lỗ để 0"),
-    ] {
-        let stated_in_r = field == Field::Profit && unit == Unit::R;
-        if layout.column(field).is_none() && !stated_in_r {
-            notes.push(format!("File không có cột {}: {assumed}.", field.label()));
-        }
+    // The lot and the prices a file lacks are recorded as gaps on the deals and show as a dash, so one
+    // line says it for all of them.
+    let missing: Vec<&str> =
+        [(Field::Volume, "khối lượng"), (Field::OpenPrice, "giá vào"), (Field::ClosePrice, "giá ra")]
+            .into_iter()
+            .filter(|&(field, _)| layout.column(field).is_none())
+            .map(|(_, name)| name)
+            .collect();
+    if !missing.is_empty() {
+        notes.push(format!("File không có {}: các ô này hiện «—».", missing.join(" / ")));
+    }
+    if layout.column(Field::Profit).is_none() && unit != Unit::R {
+        notes.push(format!("File không có cột {}: lãi/lỗ để 0.", Field::Profit.label()));
     }
     notes
 }
