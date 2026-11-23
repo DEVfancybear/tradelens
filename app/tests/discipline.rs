@@ -1,6 +1,8 @@
 //! Accounts and discipline, the daily journal and the settings, headless on the real engine
 //! over a database in a temporary data directory.
 
+mod common;
+
 use std::time::{Duration, Instant};
 
 use chrono::{Datelike, Local, NaiveDate};
@@ -295,8 +297,8 @@ fn settings_are_kept_in_the_database() {
     app.press("role:button[Cài đặt]").expect("the settings row is a button");
     app.wait_for("Chế độ màu").expect("the page opens");
 
-    app.press("role:button[Chế độ màu: Sáng]").expect("a look is chosen");
-    app.press("role:button[Giờ hiển thị: Giờ server]").expect("a clock is chosen");
+    common::toggle_on(&mut app, "role:button[Chế độ màu: Sáng]");
+    common::toggle_on(&mut app, "role:button[Giờ hiển thị: Giờ server]");
     let db = fixture.db();
     wait_for_database("the settings being saved", Duration::from_secs(5), || {
         db.setting("appearance").expect("reads").as_deref() == Some("light")
@@ -375,7 +377,7 @@ fn the_time_display_setting_changes_the_times_the_pages_show() {
 
     app.press("role:button[Cài đặt]").expect("the settings row is a button");
     app.wait_for("Chế độ màu").expect("the page opens");
-    app.press("role:button[Giờ hiển thị: Giờ server]").expect("the server's clock is chosen");
+    common::toggle_on(&mut app, "role:button[Giờ hiển thị: Giờ server]");
     app.press("role:button[Lệnh]").expect("back to the trades");
     app.wait_for(&on_server).expect("the same trade now shows the time MT5 reports");
     app.wait_for_gone(&on_machine, Duration::from_secs(5)).expect("and no longer the machine's");
