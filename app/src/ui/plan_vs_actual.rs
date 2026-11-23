@@ -249,6 +249,7 @@ mod tests {
             fee: 0.0,
             profit: 0.0,
             risk: Some(195.0),
+            result_r: None,
             magic: 0,
             comment: String::new(),
             manual: false,

@@ -576,6 +576,7 @@ fn a_trade_already_in_mt5_only_gets_the_journal() {
         sl: 0.0,
         tp: 0.0,
         risk: None,
+        result_r: None,
         reason: None,
     };
     let batch = DealBatch {

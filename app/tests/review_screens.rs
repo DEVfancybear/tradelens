@@ -1,50 +1,37 @@
 //! The playbook, the missed trades, the reviews, the search and the importers, headless on the
 //! real engine over a database in a temporary data directory.
 
-use std::{
-    path::{Path, PathBuf},
-    time::{Duration, Instant},
-};
+use std::path::{Path, PathBuf};
 
 use chrono::Local;
 use nsh_app_tradelens::ui::properties::kind_name;
-use nsh_core::{Size, prelude::px};
-use nsh_engine::{EngineConfig, Root};
 use nsh_testing::Headless;
 use tradelens_core::{
     DayNote, Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, Side, TradeKey, catalog::FieldScope,
     import::notion, missed::MissedTrade, model::AccountInfo, playbook::Playbook, review::Period,
 };
 
-const WAIT: Duration = Duration::from_secs(8);
+mod support;
+use support::{WAIT, wait_until};
 
-/// A data directory with a database in it, and the engine's view of it.
-struct Fixture {
-    dir: tempfile::TempDir,
+/// The shared fixture with this file's window.
+struct Fixture(support::Fixture);
+
+impl std::ops::Deref for Fixture {
+    type Target = support::Fixture;
+
+    fn deref(&self) -> &support::Fixture {
+        &self.0
+    }
 }
 
 impl Fixture {
     fn new() -> Self {
-        let dir = tempfile::tempdir().expect("a temp dir");
-        // The app opens the database the tests seed and read.
-        Db::open(dir.path().join("tradelens.db")).expect("the database opens");
-        Self { dir }
+        Self(support::Fixture::new())
     }
 
-    fn db(&self) -> Db {
-        Db::open(self.dir.path().join("tradelens.db")).expect("the database opens")
-    }
-
-    /// Starts the app on a desktop-sized window with this fixture as its data directory.
     fn start(&self) -> Headless {
-        let config = EngineConfig {
-            viewport: Size::new(px(1400.0), px(1000.0)),
-            data_dir: Some(self.dir.path().to_path_buf()),
-            ..EngineConfig::new(Root::of::<nsh_app_tradelens::Workspace>())
-        };
-        let mut app = Headless::start(config).expect("the app starts");
-        app.wait_for("Tổng quan").expect("the app opens");
-        app
+        self.0.start(1400.0, 1000.0, |_| {})
     }
 }
 
@@ -88,6 +75,7 @@ fn deal(
         sl: 0.0,
         tp: 0.0,
         risk: None,
+        result_r: None,
         reason: None,
     }
 }
@@ -127,15 +115,6 @@ fn seed(db: &mut Db) {
 fn key_of(db: &Db, position: i64) -> TradeKey {
     let account = db.accounts().expect("accounts read").remove(0);
     TradeKey { account_id: account.id, position_id: position, segment: 0 }
-}
-
-/// Waits until `check` holds, polling at most `within`.
-fn wait_for_database(what: &str, check: impl Fn() -> bool) {
-    let started = Instant::now();
-    while !check() {
-        assert!(started.elapsed() < WAIT, "{what} did not happen within {WAIT:?}");
-        std::thread::sleep(Duration::from_millis(50));
-    }
 }
 
 fn open_page(app: &mut Headless, row: &str, marker: &str) {
@@ -194,7 +173,7 @@ fn a_playbook_is_created_edited_and_deleted() {
     app.press("role:button[Thêm điều kiện vào]").expect("a rule is added");
     app.type_text("label:Điều kiện vào 1", "Giá chạm EMA20").expect("the rule is typed");
     app.press("role:button[Lưu]").expect("the save button");
-    wait_for_database("the setup being stored", || fixture.db().playbooks().is_ok_and(|p| p.len() == 1));
+    wait_until("the setup being stored", || fixture.db().playbooks().is_ok_and(|p| p.len() == 1));
     let stored = fixture.db().playbooks().expect("setups read").remove(0);
     assert_eq!(stored.name, "Pullback EMA20");
     assert_eq!(stored.symbols, ["EURUSD", "XAUUSD"]);
@@ -205,14 +184,14 @@ fn a_playbook_is_created_edited_and_deleted() {
     app.press("role:button[Sửa]").expect("the edit button");
     app.type_text("label:Tên playbook", " H1").expect("the name is extended");
     app.press("role:button[Lưu]").expect("the save button");
-    wait_for_database("the setup being renamed", || {
+    wait_until("the setup being renamed", || {
         fixture.db().playbooks().is_ok_and(|p| p.first().is_some_and(|p| p.name == "Pullback EMA20 H1"))
     });
 
     app.press("role:button[Sửa]").expect("the edit button again");
     app.on_dialog(|_| nsh_testing::DialogAnswer::Press("Xoá hẳn".to_owned()));
     app.press("role:button[Xoá playbook]").expect("the delete button");
-    wait_for_database("the setup being deleted", || fixture.db().playbooks().is_ok_and(|p| p.is_empty()));
+    wait_until("the setup being deleted", || fixture.db().playbooks().is_ok_and(|p| p.is_empty()));
     app.wait_for("Chưa có playbook nào").expect("the list is empty again");
 }
 
@@ -247,9 +226,7 @@ fn a_missed_trade_is_recorded_with_its_reason() {
     app.type_text("label:Ghi chú", "Đợi thêm nến xác nhận").expect("the notes are typed");
     app.press("role:button[Lưu]").expect("the save button");
 
-    wait_for_database("the missed trade being stored", || {
-        fixture.db().missed_trades(0, i64::MAX).is_ok_and(|m| m.len() == 1)
-    });
+    wait_until("the missed trade being stored", || fixture.db().missed_trades(0, i64::MAX).is_ok_and(|m| m.len() == 1));
     let stored = fixture.db().missed_trades(0, i64::MAX).expect("missed trades read").remove(0);
     assert_eq!((stored.symbol.as_str(), stored.side), ("XAUUSD", Side::Short));
     assert_eq!(stored.reason.as_deref(), Some("fear"));
@@ -329,9 +306,7 @@ fn a_review_is_written_saved_and_found_again() {
     // No account is known, so no server offset either: the page counts days in UTC, which is
     // another week than the machine's between its midnight and UTC's on a Monday.
     let start = Period::Week.bounds(chrono::Utc::now().date_naive()).0;
-    wait_for_database("the review being stored", || {
-        fixture.db().review(None, Period::Week, start).is_ok_and(|r| r.is_some())
-    });
+    wait_until("the review being stored", || fixture.db().review(None, Period::Week, start).is_ok_and(|r| r.is_some()));
     let stored = fixture.db().review(None, Period::Week, start).expect("review reads").expect("a review");
     assert_eq!(stored.answers[0], ("3 điều làm tốt tuần này".to_owned(), "Chờ retest đúng playbook".to_owned()));
     app.wait_for("Đã lưu").expect("the form says it is saved");
@@ -449,7 +424,7 @@ fn an_mt5_html_report_adds_its_trades() {
 #[test]
 fn a_file_that_is_not_a_report_is_refused_with_a_reason() {
     let fixture = Fixture::new();
-    let broken = fixture.dir.path().join("broken.html");
+    let broken = fixture.path().join("broken.html");
     std::fs::write(&broken, "<html><body>không có bảng deal</body></html>").expect("writes");
     let mut app = fixture.start();
     open_page(&mut app, "Nguồn dữ liệu", "Nhật ký import");
@@ -469,9 +444,9 @@ fn a_notion_export_is_previewed_then_imported_with_no_column_mapping() {
     let mut app = fixture.start();
     open_page(&mut app, "Nguồn dữ liệu", "Nhật ký import");
     app.on_pick_paths(vec![file]).expect("answers the dialog");
-    app.press("label:Kéo thả file CSV của Notion vào đây").expect("the drop zone opens the dialog");
+    app.press("label:Kéo thả file ZIP hoặc CSV của Notion vào đây").expect("the drop zone opens the dialog");
     shows_text_containing(&mut app, "the preview", &format!("{rows} lệnh đọc được"));
-    app.wait_for("Trường tự nhận ra").expect("the detected fields are listed");
+    app.wait_for("Cột tự nhận ra (từ nội dung, không cần ghép tay)").expect("the detected fields are listed");
     for property in &plan.properties {
         let line = format!("{} · {} · {} lệnh có giá trị", property.label, kind_name(property.kind), property.filled);
         app.wait_for(&line).unwrap_or_else(|error| panic!("{line}: {error}"));
@@ -503,7 +478,7 @@ fn a_notion_export_can_go_to_an_mt5_account() {
     let mut app = fixture.start();
     open_page(&mut app, "Nguồn dữ liệu", "Nhật ký import");
     app.on_pick_paths(vec![file]).expect("answers the dialog");
-    app.press("label:Kéo thả file CSV của Notion vào đây").expect("the drop zone opens the dialog");
+    app.press("label:Kéo thả file ZIP hoặc CSV của Notion vào đây").expect("the drop zone opens the dialog");
     app.wait_for("Nhập vào tài khoản").expect("the account choice shows");
     app.press("label:Nhập vào tài khoản").expect("the choice opens");
     app.press(&format!("text:{}", account.title())).expect("the MT5 account is chosen");

@@ -9,7 +9,6 @@ use tradelens_core::{
     catalog::{CatalogItem, CatalogKind},
     metrics::{self, Group, Sample},
     playbook::{self, Playbook},
-    search,
 };
 
 use crate::{
@@ -327,11 +326,9 @@ fn set_examples(db: &mut Db, id: i64, examples: Vec<tradelens_core::attachments:
     Ok(())
 }
 
-/// Stores a setup at `position` and refreshes what the search knows of it.
+/// Stores a setup at `position`; the search index is refreshed by the same write.
 pub(super) fn save_indexed(db: &mut Db, setup: &Playbook, position: usize) -> Result<i64, DbError> {
-    let id = db.save_playbook(setup, i32::try_from(position).unwrap_or(i32::MAX))?;
-    db.index_document(&search::playbook_document(&Playbook { id, ..setup.clone() }))?;
-    Ok(id)
+    db.save_playbook(setup, i32::try_from(position).unwrap_or(i32::MAX))
 }
 
 fn title_row(

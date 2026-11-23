@@ -43,7 +43,12 @@ pub(crate) fn cells_of(row: &TradeRow) -> TradeCells {
         side: trade.side.label().to_owned(),
         lot: format::lots(trade.volume),
         hold: trade.duration_secs().map_or_else(|| "—".to_owned(), format_duration),
-        net: if closed { format::money(trade.net(), Sign::Always, &row.currency) } else { "—".to_owned() },
+        // A trade imported in R has no money: a dash, never "$0.00".
+        net: if closed && trade.money_known() {
+            format::money(trade.net(), Sign::Always, &row.currency)
+        } else {
+            "—".to_owned()
+        },
         r: if closed { format::r_text(row.r) } else { "—".to_owned() },
         setup: row.setup.clone(),
         journal: (if row.journaled { JOURNALED } else { NOT_JOURNALED }).to_owned(),
@@ -68,7 +73,12 @@ pub(crate) fn summarise(snapshot: &Snapshot, picked: &[usize]) -> Summary {
     let stats = metrics::stats(&samples, 0.0, &[], snapshot.zone.clock());
     Summary {
         trades: rows.len(),
-        net: format::money(stats.net, Sign::Always, &snapshot.currency),
+        // Only trades imported in R in the list: there is no money to add up.
+        net: if !samples.is_empty() && samples.iter().all(|x| !x.trade.money_known()) {
+            "—".to_owned()
+        } else {
+            format::money(stats.net, Sign::Always, &snapshot.currency)
+        },
         win_rate: if samples.is_empty() { "—".to_owned() } else { format::percent(stats.win_rate) },
         profit_factor: format::ratio(stats.profit_factor),
         unjournaled: rows.iter().filter(|row| !row.journaled).count(),
@@ -291,6 +301,7 @@ mod tests {
             sl: 2640.0,
             tp: 0.0,
             risk: None,
+            result_r: None,
             reason: None,
         }
     }

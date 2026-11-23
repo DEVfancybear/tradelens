@@ -38,7 +38,7 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 
 | Component | File | Trạng thái |
 |---|---|---|
-| `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `empty_state`, `planned`, `warning_banner(message)` (một dòng cảnh báo quy tắc, `role` Alert) | `parts.rs` | có |
+| `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `empty_state`, `warning_banner(message)` (một dòng cảnh báo quy tắc, `role` Alert) | `parts.rs` | có |
 | `parts::property_row(label, control)` (hàng nhãn + điều khiển đơn giản, khác `properties`) | `parts.rs` | có |
 | `action` / `action_when` (Primary / Secondary / Ghost) | `controls.rs` | có |
 | `action_icon` / `action_icon_when` (icon trước nhãn), `icon_action` (chỉ icon, bắt buộc `accessibility_label`) | `controls.rs` | có |
@@ -98,6 +98,24 @@ action("Lưu", Variant::Primary, move || {
   (dùng `use_context`), không gọi trong listener.
 - Trong `dynamic(..)`, chỉ đọc cái quyết định hình dạng, còn lại bọc `untracked(|| ..)`; nếu không, đổi giao diện
   sáng/tối dựng lại vùng đó giữa lúc nút đang được tạo (panic "prop read after its owner was disposed").
+
+- `Store::read(op, done)` đọc DB một lần trên luồng `blocking` (không theo revision) cho việc không phải dữ liệu của trang;
+  `Store::replace_database(backup, replace, done)` chép DB đang mở sang `backup`, đóng nó, để `replace` ghi file mới (khôi phục
+  sang máy mới) rồi mở lại; `Store::database_path()` và `Store::is_ready()` cho code ngoài `store.rs`.
+
+### Đăng nhập & sync, Notion API (`src/cloud.rs`)
+
+- `cloud::provide()` (gọi một lần trong `Workspace`) tạo `Cloud`, một handle `Copy`: `state: Signal<State>` (cài đặt `cloud.*`,
+  ai đã đăng nhập, `Phase`, lần sync cuối, danh sách thiết bị), các hành động `sign_in`, `sign_out`, `sync(Why)`, `restore`,
+  `set_auto_sync(AutoSync)`, và hẹn giờ 15 phút + chặn nút đóng cửa sổ để sync trước khi đóng. Trang lấy nó bằng `cloud::cloud()`
+  lúc dựng, giống `store()`.
+- **Mọi `spawn` / `Writer::run` của `Cloud` chạy dưới owner của root** (`Owner::run`), không phải của nút đã bấm: nút nằm trong
+  `dynamic` bị dựng lại khi `state` đổi (đang đăng nhập, đang sync) và dựng lại thì huỷ tác vụ của nó, tức là một lần đăng nhập
+  hay sync đang chạy bị bỏ dở mà không báo lỗi.
+- Luồng nền (đăng nhập, sync, khôi phục, Notion) chỉ làm việc với dữ liệu `Send` (`Env` là ảnh chụp các cài đặt đã đọc sẵn) và
+  không chạm signal; kết quả quay về luồng giao diện qua `spawn(async { blocking(..).await; .. })`, sync xong gọi `data_changed()`.
+- `Env::load_secret / save_secret / clear_secret` giữ token Notion trong kho khoá của hệ điều hành, hoặc trong bộ nhớ ở chế độ
+  thử (`cloud.mode = memory`); `Env::notion_client(token)` theo `cloud.notion.base_url` khi có.
 
 ### Danh sách thuộc tính
 
@@ -172,3 +190,15 @@ làm nên `Zone`, nằm trong `Snapshot::zone` (đọc lại khi cài đặt đ�
 `Db` (`account_trades::load`) dùng `zone::time_display` và `AccountTrades::today(now_utc_ms)`.
 Mở Nhật ký ngày ở một ngày khác (kết quả tìm, nút "Mở nhật ký ngày" ở Lịch): `nav::show_journal_day(day, account_id)`; màn
 Nhật ký ngày đọc `nav::requested_journal_day()` rồi gọi `nav::take_journal_day()`.
+
+### Test không đầu (`app/tests/`)
+
+- Dùng chung `tests/support/mod.rs`: `Fixture` (thư mục dữ liệu tạm có DB, **tự dọn bằng `Drop` có thử lại** vì engine đóng DB sau
+  khi test bỏ `app`, và Windows không xoá được file đang mở), một hằng `WAIT` (30 giây, chỉ tốn khi điều kiện chưa đúng) và
+  `wait_until` để chờ thứ màn hình không cho thấy (DB, file). Không dùng `sleep` hay timeout 5 giây rải rác.
+- Chờ **trạng thái đích**, không chờ thời gian: trang tải dữ liệu rồi mới dựng form (Nhật ký ngày chờ `label:Kế hoạch ngày`, vì gõ
+  trước khi đọc xong thì chữ gõ bị ghi đè); bấm nút mà trang đang vẽ lại có thể mất lần bấm, nên bấm lại tới khi trạng thái đích
+  hiện (`press_until`, `toggle_on`), không bao giờ bấm lại công tắc đã bật.
+- Một ghi ở nền mà test đọc DB ngay phải xong **trong một transaction**: `save_playbook`, `save_missed_trade`, `save_review` ghi cả
+  chỉ mục tìm kiếm cùng lúc, nên thấy dòng là tìm được dòng.
+- Thứ tự drop trong test: DB mở trước thư mục chứa nó (`struct { db, dir }`, không phải `{ dir, db }`).

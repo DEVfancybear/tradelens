@@ -31,6 +31,7 @@ fn trade(position: i64, closed: &str, profit: f64, risk: Option<f64>) -> Trade {
         fee: 0.0,
         profit,
         risk,
+        result_r: None,
         magic: 0,
         comment: String::new(),
         manual: false,

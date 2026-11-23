@@ -180,6 +180,7 @@ fn plan_warnings(
         fee: 0.0,
         profit: 0.0,
         risk: None,
+        result_r: None,
         magic: 0,
         comment: String::new(),
         manual: false,
@@ -702,6 +703,7 @@ mod tests {
             tp: 0.0,
             risk: None,
             reason: None,
+            result_r: None,
         };
         let mut db = Db::in_memory().expect("opens");
         let batch = DealBatch {

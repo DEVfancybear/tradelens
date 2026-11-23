@@ -3,7 +3,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use chrono::NaiveDateTime;
+use chrono::{Duration, NaiveDate, NaiveDateTime};
 
 use crate::catalog::{CustomValues, FieldKind, FieldValue};
 use crate::import::ImportError;
@@ -17,7 +17,7 @@ use super::cells::{
 use super::detect::Layout;
 use super::properties::value_of;
 use super::sheet::{Row, Sheet};
-use super::{Field, NotionMapping, NotionPlan, PlannedJournal, PlannedProperty, PlannedRow, RowIssue};
+use super::{Field, NotionMapping, NotionPlan, PlannedJournal, PlannedProperty, PlannedRow, RowIssue, Verdict};
 
 /// The login of the account Notion trades go to when the caller names none.
 const DEFAULT_LOGIN: &str = "notion";
@@ -49,12 +49,21 @@ pub(super) fn build(
     let mut issues = Vec::new();
     let mut seen_titles: HashMap<(String, i64), usize> = HashMap::new();
     let mut used_ids: HashSet<u64> = HashSet::new();
+    let mut per_day: HashMap<NaiveDate, i64> = HashMap::new();
     let mut seen_options: Vec<HashSet<String>> = vec![HashSet::new(); properties.len()];
     let mut option_order: Vec<Vec<String>> = vec![Vec::new(); properties.len()];
 
     for row in &sheet.rows {
         match read_row(sheet, layout, row) {
-            Ok(parsed) => {
+            Ok(mut parsed) => {
+                // Trades dated without a time keep the order of the rows within their day.
+                if parsed.date_only {
+                    let slot = per_day.entry(parsed.trade.open.date()).or_insert(0);
+                    let shift = Duration::seconds(*slot);
+                    *slot += 1;
+                    parsed.trade.open += shift;
+                    parsed.trade.close += shift;
+                }
                 let key = (parsed.title.clone(), parsed.open_ms);
                 let occurrence = seen_titles.entry(key).or_insert(0);
                 let mut id =
@@ -76,7 +85,8 @@ pub(super) fn build(
                     property.filled += 1;
                     journal.custom.insert(property.key.clone(), value);
                 }
-                rows.push(parsed.trade.into_row(row.line, parsed.title, id, journal));
+                let verdict = verdict_of(layout, row, &parsed.trade);
+                rows.push(parsed.trade.into_row(row.line, parsed.title, id, verdict, journal));
             }
             Err(reason) => issues.push(RowIssue { line: row.line, reason }),
         }
@@ -103,6 +113,8 @@ pub(super) fn build(
     } else {
         AccountInfo { login: overrides.account_login.trim().to_owned(), ..AccountInfo::default() }
     };
+    let unit = if rows.iter().any(|row| row.result_r().is_some()) { Unit::R } else { Unit::Money };
+    let warnings = warnings(layout, unit);
     Ok(NotionPlan {
         account,
         headers: sheet.headers.clone(),
@@ -111,11 +123,12 @@ pub(super) fn build(
             account_login: overrides.account_login.clone(),
         },
         title_column: layout.title.map(name_of),
+        outcome: layout.outcome_column(sheet),
         ignored_columns: layout.ignored.iter().map(|&c| name_of(c)).collect(),
         properties: properties.into_iter().map(|(_, property)| property).collect(),
         rows,
         issues,
-        warnings: warnings(layout),
+        warnings,
         total_rows: sheet.rows.len(),
     })
 }
@@ -128,16 +141,30 @@ fn choices_of(value: &FieldValue) -> Vec<String> {
     }
 }
 
+/// What the file states its results in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Unit {
+    Money,
+    R,
+}
+
 /// What the file lacks, and what the import assumes instead.
-fn warnings(layout: &Layout) -> Vec<String> {
+fn warnings(layout: &Layout, unit: Unit) -> Vec<String> {
     let mut notes = Vec::new();
+    if unit == Unit::R {
+        notes.push(
+            "File ghi kết quả theo R, không có tiền: số tiền của các lệnh này hiện «—» và thống kê tính theo R."
+                .to_owned(),
+        );
+    }
     for (field, assumed) in [
         (Field::Volume, "dùng 1 lot"),
         (Field::OpenPrice, "giá vào để 0"),
         (Field::ClosePrice, "giá ra để 0"),
         (Field::Profit, "lãi/lỗ để 0"),
     ] {
-        if layout.column(field).is_none() {
+        let stated_in_r = field == Field::Profit && unit == Unit::R;
+        if layout.column(field).is_none() && !stated_in_r {
             notes.push(format!("File không có cột {}: {assumed}.", field.label()));
         }
     }
@@ -156,6 +183,8 @@ struct Trade {
     sl: f64,
     tp: f64,
     profit: f64,
+    /// The result in R of a file that has no money.
+    result_r: Option<f64>,
     commission: f64,
     swap: f64,
 }
@@ -163,6 +192,8 @@ struct Trade {
 struct Parsed {
     title: String,
     open_ms: i64,
+    /// The open was a date with no time of day.
+    date_only: bool,
     trade: Trade,
     journal: PlannedJournal,
 }
@@ -170,7 +201,14 @@ struct Parsed {
 impl Trade {
     /// The entry deal and the exit deal of a hand-entered trade (see [`crate::Db::add_manual_trade`]):
     /// the entry has the lower ticket, costs and profit are on the exit.
-    fn into_row(self, line: usize, title: String, id: u64, journal: PlannedJournal) -> PlannedRow {
+    fn into_row(
+        self,
+        line: usize,
+        title: String,
+        id: u64,
+        verdict: Option<Verdict>,
+        journal: PlannedJournal,
+    ) -> PlannedRow {
         let exit_ticket = -(TICKET_BASE + 2 * i64::try_from(id).expect("a 40-bit id fits i64"));
         let entry_ticket = exit_ticket - 1;
         let (entry_kind, exit_kind) = match self.side {
@@ -197,6 +235,7 @@ impl Trade {
             sl: self.sl,
             tp: self.tp,
             risk: None,
+            result_r: None,
             reason: None,
         };
         let entry = deal(entry_ticket, entry_kind, DealEntry::In, self.open, self.open_price);
@@ -204,10 +243,43 @@ impl Trade {
             commission: self.commission,
             swap: self.swap,
             profit: self.profit,
+            result_r: self.result_r,
             ..deal(exit_ticket, exit_kind, DealEntry::Out, self.close, self.close_price)
         };
-        PlannedRow { line, title, position_id: entry_ticket, entry, exit, journal }
+        PlannedRow { line, title, position_id: entry_ticket, entry, exit, verdict, journal }
     }
+}
+
+/// The instrument as MetaTrader writes it: `BTC/USD` and `xau-usd` become `BTCUSD` and `XAUUSD`.
+/// Text that is not a code (it has spaces, or other punctuation) is left as it is.
+fn normalise_symbol(text: &str) -> String {
+    let separator = |c: char| matches!(c, '/' | '\\' | '-' | '_');
+    let code =
+        !text.is_empty() && text.chars().all(|c| c.is_alphanumeric() || separator(c) || matches!(c, '.' | '#' | '+'));
+    if code { text.chars().filter(|&c| !separator(c)).flat_map(char::to_uppercase).collect() } else { text.to_owned() }
+}
+
+/// How the trade ended: by its status cell when the file has a status column and the cell holds a
+/// value it learned, else by the sign of the result.
+fn verdict_of(layout: &Layout, row: &Row, trade: &Trade) -> Option<Verdict> {
+    if let Some((column, values)) = &layout.outcome {
+        let cell = row.cell(*column);
+        if let Some((_, verdict)) = values.iter().find(|(value, _)| value.eq_ignore_ascii_case(cell)) {
+            return Some(*verdict);
+        }
+    }
+    let score = trade.result_r.unwrap_or(trade.profit + trade.commission + trade.swap);
+    let known = trade.result_r.is_some() || layout.column(Field::Profit).is_some();
+    if !known {
+        return None;
+    }
+    Some(if score > 0.0 {
+        Verdict::Win
+    } else if score < 0.0 {
+        Verdict::Loss
+    } else {
+        Verdict::BreakEven
+    })
 }
 
 /// Reads one row, or says in Vietnamese why it cannot be.
@@ -250,7 +322,7 @@ fn read_row(sheet: &Sheet, layout: &Layout, row: &Row) -> Result<Parsed, String>
     if close < open {
         return Err("thời gian ra sớm hơn thời gian vào".to_owned());
     }
-    let symbol = text(Field::Symbol).to_owned();
+    let symbol = normalise_symbol(text(Field::Symbol));
     if symbol.is_empty() {
         return Err("thiếu symbol".to_owned());
     }
@@ -274,6 +346,8 @@ fn read_row(sheet: &Sheet, layout: &Layout, row: &Row) -> Result<Parsed, String>
         sl: number(Field::StopLoss, Need::Optional)?.unwrap_or(0.0),
         tp: number(Field::TakeProfit, Need::Optional)?.unwrap_or(0.0),
         profit: number(Field::Profit, Need::Required)?.unwrap_or(0.0),
+        // A cell that is not a number (a note, a dash) is a trade whose R is not known.
+        result_r: parse_number(text(Field::ResultR), locale.comma),
         commission: number(Field::Commission, Need::Optional)?.unwrap_or(0.0),
         swap: number(Field::Swap, Need::Optional)?.unwrap_or(0.0),
     };
@@ -293,8 +367,11 @@ fn read_row(sheet: &Sheet, layout: &Layout, row: &Row) -> Result<Parsed, String>
         review_later: parse_bool(text(Field::ReviewLater)),
         notes: text(Field::Notes).to_owned(),
         screenshots: split_files(text(Field::Screenshot)),
+        attachments: Vec::new(),
+        missing_files: Vec::new(),
         custom: CustomValues::new(),
     };
     let title = row.cell(layout.key_column).to_owned();
-    Ok(Parsed { title, open_ms: to_ms(open), trade, journal })
+    let date_only = !open_cell.contains(':') && open.time() == chrono::NaiveTime::MIN;
+    Ok(Parsed { title, open_ms: to_ms(open), date_only, trade, journal })
 }

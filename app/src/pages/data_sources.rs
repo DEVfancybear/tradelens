@@ -8,19 +8,21 @@ use std::{path::PathBuf, rc::Rc};
 use chrono::{DateTime, Local};
 use nsh_base::theme;
 use nsh_core::prelude::*;
+use tradelens_cloud::notion::{NotionDatabase, TOKEN_SECRET};
 use tradelens_core::{
-    Db,
+    Db, DbError,
     db::ImportLogEntry,
     import::{self, notion},
     time::naive,
 };
 
 use crate::{
+    cloud as app_cloud,
     format::{self, Sign},
-    store::{query, store, writer},
+    store::{Writer, query, store, writer},
     ui::{
         chips::{Tone, chip, figure_text},
-        controls::{Choice, Variant, action_icon_when, select_field},
+        controls::{Choice, Variant, action_icon_when, action_when, select_field, text_field},
         files::{Accept, Pick, dropzone},
         parts::{card, empty_state, page},
         properties::kind_name,
@@ -30,8 +32,8 @@ use crate::{
 /// What the report importer takes: MT5's HTML and XLSX, and the JSON the Python script writes.
 const REPORT_FILES: Accept = Accept { name: "Báo cáo MT5 hoặc JSON", extensions: &["html", "htm", "xlsx", "json"] };
 
-/// What the Notion importer takes.
-const NOTION_FILES: Accept = Accept { name: "CSV của Notion", extensions: &["csv"] };
+/// What the Notion importer takes: the CSV, or the zip Notion writes with the images beside it.
+const NOTION_FILES: Accept = Accept { name: "CSV hoặc ZIP của Notion", extensions: &["csv", "zip"] };
 
 /// What the trader runs, in `python/`, to write the history of the open terminal to a file.
 const PYTHON_COMMAND: &str = "python tradelens_sync.py --days 365 --out deals.json";
@@ -167,54 +169,80 @@ fn outcome_line(outcome: &FileOutcome) -> impl IntoElement {
 
 // --- importing a Notion export --------------------------------------------------------------------------
 
-/// The Notion file that was read, waiting for the trader to press "Nhập".
-#[derive(Debug, Clone, PartialEq)]
+/// The Notion data that was read, waiting for the trader to press "Nhập".
+#[derive(Debug, Clone)]
 struct Preview {
     file: String,
     plan: notion::NotionPlan,
+    /// The zip the images are read from, when the plan came from one.
+    archive: Option<notion::NotionArchive>,
 }
 
-fn notion_import_card() -> impl IntoElement {
-    let store = store();
-    let write = writer();
-    let preview = signal_with(None::<Rc<Preview>>, SignalEquals::Never);
-    let report = signal_with(None::<Rc<notion::NotionImportReport>>, SignalEquals::Never);
-    let failure = signal(None::<String>);
-    let busy = signal(false);
-    let account = signal(DEFAULT_ACCOUNT.to_owned());
-    let read = move |paths: Vec<PathBuf>| {
+/// The state both ways in (a file, the API) share: what was read, what was stored, what went wrong.
+#[derive(Clone, Copy)]
+struct Flow {
+    preview: Signal<Option<Rc<Preview>>>,
+    report: Signal<Option<Rc<notion::NotionImportReport>>>,
+    failure: Signal<Option<String>>,
+    busy: Signal<bool>,
+    /// The account the trades go to, as the choice's key.
+    account: Signal<String>,
+}
+
+impl Flow {
+    fn new() -> Self {
+        Self {
+            preview: signal_with(None, SignalEquals::Never),
+            report: signal_with(None, SignalEquals::Never),
+            failure: signal(None),
+            busy: signal(false),
+            account: signal(DEFAULT_ACCOUNT.to_owned()),
+        }
+    }
+
+    /// Shows what was read as the preview, or why it could not be.
+    fn read(self, what: Result<Preview, String>) {
+        batch(|| {
+            self.busy.set(false);
+            self.report.set(None);
+            match what {
+                Ok(preview) => {
+                    self.failure.set(None);
+                    self.account.set(DEFAULT_ACCOUNT.to_owned());
+                    self.preview.set(Some(Rc::new(preview)));
+                }
+                Err(message) => {
+                    self.preview.set(None);
+                    self.failure.set(Some(message));
+                }
+            }
+        });
+    }
+
+    /// Reads the file dropped on the zone (a CSV, or the zip with its images).
+    fn read_file(self, paths: Vec<PathBuf>) {
         let Some(path) = paths.into_iter().next() else { return };
         let file = path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned());
-        busy.set(true);
+        self.busy.set(true);
         spawn(async move {
-            let read = blocking(move || notion::read_file(&path)).await;
-            batch(|| {
-                busy.set(false);
-                report.set(None);
-                match read {
-                    Ok(Ok(plan)) => {
-                        failure.set(None);
-                        account.set(DEFAULT_ACCOUNT.to_owned());
-                        preview.set(Some(Rc::new(Preview { file, plan })));
-                    }
-                    Ok(Err(error)) => {
-                        preview.set(None);
-                        failure.set(Some(format!("{file}: {error}")));
-                    }
-                    Err(error) => {
-                        preview.set(None);
-                        failure.set(Some(format!("Luồng đọc file bị dừng: {error}")));
-                    }
-                }
+            let read = blocking(move || notion::read_source(&path)).await;
+            self.read(match read {
+                Ok(Ok((plan, archive))) => Ok(Preview { file, plan, archive }),
+                Ok(Err(error)) => Err(format!("{file}: {error}")),
+                Err(error) => Err(format!("Luồng đọc file bị dừng: {error}")),
             });
         });
-    };
-    let import_now = move || {
-        let Some(shown) = preview.get_untracked() else { return };
+    }
+
+    /// Stores what the preview shows: the images out of the zip first (one copy of each picture, in the
+    /// data folder), then the trades and their journals, all in one write.
+    fn import(self, write: Writer, attachments: Option<PathBuf>) {
+        let Some(shown) = self.preview.get_untracked() else { return };
         let mut plan = shown.plan.clone();
-        let chosen = account.get_untracked().parse::<i64>().ok();
-        busy.set(true);
-        failure.set(None);
+        let archive = shown.archive.clone();
+        let chosen = self.account.get_untracked().parse::<i64>().ok();
+        self.busy.set(true);
+        self.failure.set(None);
         write.run(
             move |db| {
                 if let Some(id) = chosen
@@ -222,52 +250,283 @@ fn notion_import_card() -> impl IntoElement {
                 {
                     plan.use_account(&target);
                 }
-                db.import_notion(&plan)
+                let images = match (&archive, &attachments) {
+                    (Some(archive), Some(folder)) => Some(
+                        archive
+                            .attach_images(&mut plan, folder, chrono::Utc::now().timestamp_millis())
+                            .map_err(|error| DbError::Invalid(error.to_string()))?,
+                    ),
+                    _ => None,
+                };
+                let mut done = db.import_notion(&plan)?;
+                if let Some(counts) = images {
+                    done.images_attached = counts.attached;
+                    done.images_missing = counts.missing;
+                }
+                Ok(done)
             },
             move |result| {
-                busy.set(false);
+                self.busy.set(false);
                 match result {
                     Ok(done) => batch(|| {
-                        preview.set(None);
-                        report.set(Some(Rc::new(done)));
+                        self.preview.set(None);
+                        self.report.set(Some(Rc::new(done)));
                     }),
-                    Err(message) => failure.set(Some(message)),
+                    Err(message) => self.failure.set(Some(message)),
                 }
             },
         );
-    };
-    let import_now = Rc::new(import_now);
+    }
+}
+
+fn notion_import_card() -> impl IntoElement {
+    let store = store();
+    let write = writer();
+    let attachments = data_dir().map(|dir| dir.join("attachments"));
+    let flow = Flow::new();
+    let import_now: Rc<dyn Fn()> = Rc::new(move || flow.import(write, attachments.clone()));
     card(
         "Import từ Notion",
         view()
             .gap_3()
             .child(
                 view().flex_row().items_center().gap_2().child(chip("Tự động", Tone::Primary)).child(
-                    text("Database → ••• → Export → Markdown & CSV, giải nén rồi thả file .csv vào đây. Không cần ghép cột.")
+                    text("Database → ••• → Export → Markdown & CSV, rồi thả file .zip (hoặc file .csv đã giải nén) vào đây. Không cần ghép cột: app tự nhận ra cột nào là gì từ nội dung.")
                         .text_sm()
                         .flex_1()
                         .text_color(move || theme().muted_foreground),
                 ),
             )
             .child(dropzone(
-                "Kéo thả file CSV của Notion vào đây",
-                "Chỉ nhận file .csv",
+                "Kéo thả file ZIP hoặc CSV của Notion vào đây",
+                "Nhận file .zip (kèm ảnh) hoặc .csv",
                 NOTION_FILES,
                 Pick::One,
-                read,
+                move |paths| flow.read_file(paths),
             ))
-            .child(dynamic(move || busy.get().then(|| text("Đang xử lý…").text_sm().text_color(move || theme().muted_foreground))))
-            .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss()))))
+            .child(notion_api_section(flow))
+            .child(dynamic(move || flow.busy.get().then(|| text("Đang xử lý…").text_sm().text_color(move || theme().muted_foreground))))
+            .child(dynamic(move || flow.failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss()))))
             .child(dynamic(move || {
-                let shown = preview.get()?;
+                let shown = flow.preview.get()?;
                 let import_now = Rc::clone(&import_now);
-                Some(untracked(|| preview_view(&shown, store, account, busy, import_now).into_element()))
+                Some(untracked(|| preview_view(&shown, store, flow.account, flow.busy, import_now).into_element()))
             }))
             .child(dynamic(move || {
-                let done = report.get()?;
+                let done = flow.report.get()?;
                 Some(untracked(|| summary_view(&done).into_element()))
             })),
     )
+}
+
+/// The message when a Notion call is made with no token kept.
+const NO_TOKEN: &str = "Chưa có token Notion: dán token rồi bấm «Lưu token & tải danh sách».";
+
+/// What the API section of the card holds: the token, the databases shared with the integration and
+/// the one chosen.
+#[derive(Clone, Copy)]
+struct Api {
+    flow: Flow,
+    state: Signal<app_cloud::State>,
+    /// The token as typed, until it is kept.
+    token: Signal<String>,
+    has_token: Signal<bool>,
+    databases: Signal<Vec<NotionDatabase>>,
+    chosen: Signal<String>,
+    /// The list was asked for, so that "no database" can be told from "not asked yet".
+    listed: Signal<bool>,
+}
+
+impl Api {
+    fn env(self) -> app_cloud::Env {
+        self.state.with(|s| s.env.clone())
+    }
+
+    /// Asks whether a token is kept already (the demo keeps it in memory).
+    fn look_for_token(self) {
+        let env = self.env();
+        spawn(async move {
+            let found = blocking(move || env.load_secret(TOKEN_SECRET)).await;
+            self.has_token.set(matches!(found, Ok(Ok(Some(_)))));
+        });
+    }
+
+    /// Lists the databases shared with the integration: with `new_token` after keeping it, else with
+    /// the kept one.
+    fn list(self, new_token: Option<String>) {
+        let env = self.env();
+        self.flow.busy.set(true);
+        self.flow.failure.set(None);
+        spawn(async move {
+            let result = blocking(move || -> Result<Vec<NotionDatabase>, String> {
+                let token = match new_token {
+                    Some(token) => {
+                        env.save_secret(TOKEN_SECRET, &token)?;
+                        token
+                    }
+                    None => env.load_secret(TOKEN_SECRET)?.ok_or_else(|| NO_TOKEN.to_owned())?,
+                };
+                env.notion_client(&token).databases().map_err(|error| error.to_string())
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("Luồng Notion bị dừng: {error}")));
+            batch(|| {
+                self.flow.busy.set(false);
+                match result {
+                    Ok(found) => {
+                        self.has_token.set(true);
+                        self.token.set(String::new());
+                        self.chosen.set(found.first().map_or_default(|d| d.id.clone()));
+                        self.listed.set(true);
+                        self.databases.set(found);
+                    }
+                    Err(message) => self.flow.failure.set(Some(message)),
+                }
+            });
+        });
+    }
+
+    /// Reads the chosen database into the preview.
+    fn preview_chosen(self) {
+        let id = self.chosen.get_untracked();
+        let title = self.databases.with_untracked(|all| all.iter().find(|d| d.id == id).map(|d| d.title.clone()));
+        let env = self.env();
+        self.flow.busy.set(true);
+        self.flow.failure.set(None);
+        spawn(async move {
+            let result = blocking(move || -> Result<notion::NotionPlan, String> {
+                let token = env.load_secret(TOKEN_SECRET)?.ok_or_else(|| NO_TOKEN.to_owned())?;
+                env.notion_client(&token).plan(&id).map_err(|error| error.to_string())
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("Luồng Notion bị dừng: {error}")));
+            self.flow.read(result.map(|plan| Preview {
+                file: format!("{} (Notion API)", title.unwrap_or_default()),
+                plan,
+                archive: None,
+            }));
+        });
+    }
+
+    /// Forgets the kept token and the list that came with it.
+    fn forget(self) {
+        let env = self.env();
+        spawn(async move {
+            match blocking(move || env.clear_secret(TOKEN_SECRET)).await {
+                Ok(Ok(())) => batch(|| {
+                    self.has_token.set(false);
+                    self.listed.set(false);
+                    self.databases.set(Vec::new());
+                    self.chosen.set(String::new());
+                }),
+                Ok(Err(message)) => self.flow.failure.set(Some(message)),
+                Err(error) => self.flow.failure.set(Some(format!("Luồng Notion bị dừng: {error}"))),
+            }
+        });
+    }
+}
+
+/// Importing from Notion without exporting a file: the integration's token (kept in the operating
+/// system's credential store), the databases shared with it, and the one chosen, read into the same
+/// preview as a file.
+fn notion_api_section(flow: Flow) -> impl IntoElement {
+    let api = Api {
+        flow,
+        state: app_cloud::cloud().state,
+        token: signal(String::new()),
+        has_token: signal(false),
+        databases: signal(Vec::new()),
+        chosen: signal(String::new()),
+        listed: signal(false),
+    };
+    // A token may be kept already: asked once the settings are read.
+    effect(move || {
+        if api.state.with(|s| s.ready) {
+            untracked(|| api.look_for_token());
+        }
+    });
+    view()
+        .gap_3()
+        .p_4()
+        .rounded(move || theme().radius)
+        .border_1()
+        .border_color(move || theme().border)
+        .bg(move || theme().background)
+        .child(text("Kết nối Notion (API)").text_sm().font_weight(FontWeight::MEDIUM))
+        .child(
+            text(
+                "Không cần xuất file: tạo integration nội bộ tại notion.so/my-integrations (chỉ cần quyền đọc nội dung), \
+                 chia sẻ database nhật ký cho nó (••• → Connections), rồi dán token vào đây. Token chỉ nằm trong kho khoá \
+                 của hệ điều hành, không nằm trong file dữ liệu.",
+            )
+            .text_xs()
+            .text_color(move || theme().muted_foreground),
+        )
+        .child(text_field(
+            "Token tích hợp Notion",
+            None,
+            "ntn_… hoặc secret_…",
+            move || api.token.get(),
+            move |value| api.token.set(value.to_owned()),
+        ))
+        .child(api_buttons(api))
+        .child(databases_list(api))
+}
+
+fn api_buttons(api: Api) -> impl IntoElement {
+    let idle = move || !api.flow.busy.get();
+    view()
+        .flex_row()
+        .flex_wrap()
+        .gap_2()
+        .child(action_when(
+            "Lưu token & tải danh sách",
+            Variant::Secondary,
+            move || !api.token.get().trim().is_empty() && idle(),
+            move || api.list(Some(api.token.get_untracked().trim().to_owned())),
+        ))
+        .child(action_when(
+            "Tải lại danh sách",
+            Variant::Ghost,
+            move || api.has_token.get() && idle(),
+            move || api.list(None),
+        ))
+        .child(action_when("Xoá token", Variant::Ghost, move || api.has_token.get() && idle(), move || api.forget()))
+}
+
+/// The databases the integration can see, to choose one from.
+fn databases_list(api: Api) -> impl IntoElement {
+    dynamic(move || {
+        let found = api.databases.get();
+        let asked = api.listed.get();
+        untracked(|| {
+            if found.is_empty() {
+                return view()
+                    .children(asked.then(|| {
+                        text("Không thấy database nào: mở database nhật ký trong Notion → ••• → Connections → thêm integration vừa tạo.")
+                            .text_xs()
+                            .text_color(crate::ui::theme::warning())
+                    }))
+                    .into_element();
+            }
+            let choices: Vec<Choice> = found.iter().map(|d| Choice::new(d.id.clone(), d.title.clone())).collect();
+            view()
+                .gap_2()
+                .child(select_field(
+                    "Database Notion",
+                    move || choices.clone(),
+                    move || SharedString::from(api.chosen.get()),
+                    move |value| api.chosen.set(value.to_string()),
+                ))
+                .child(view().flex_row().child(action_when(
+                    "Xem trước database",
+                    Variant::Primary,
+                    move || !api.flow.busy.get() && !api.chosen.get().is_empty(),
+                    move || api.preview_chosen(),
+                )))
+                .into_element()
+        })
+    })
 }
 
 /// The short preview of a Notion file: what was found, what will be created, what is odd, and
@@ -291,15 +550,29 @@ fn preview_view(
         plan.issues.len()
     );
     let period = plan.period().map(|(first, last)| {
-        format!(
-            "Từ {} đến {} · tổng lãi/lỗ trong file {}",
-            naive(first).format("%d/%m/%Y"),
-            naive(last).format("%d/%m/%Y"),
-            format::money(plan.net_total(), Sign::Always, &currency)
-        )
+        let total = if plan.is_in_r() {
+            let (wins, losses, even) = plan.verdicts();
+            format!(
+                "tổng kết quả trong file {} · {wins} thắng, {losses} thua, {even} hòa vốn",
+                format::r_text(Some(plan.total_r()))
+            )
+        } else {
+            format!("tổng lãi/lỗ trong file {}", format::money(plan.net_total(), Sign::Always, &currency))
+        };
+        format!("Từ {} đến {} · {total}", naive(first).format("%d/%m/%Y"), naive(last).format("%d/%m/%Y"))
     });
-    let fields: Vec<String> =
-        plan.mapping.columns.iter().map(|(field, column)| format!("{} ← {column}", field.label())).collect();
+    let images = shown.archive.as_ref().map(|archive| {
+        let counts = archive.count(plan);
+        format!("Ảnh: {} tìm thấy trong file zip, {} không có trong zip", counts.attached, counts.missing)
+    });
+    // What each column was taken for: found from what the column holds, shown so it can be checked.
+    let mut fields: Vec<String> =
+        plan.mapping.columns.iter().map(|(field, column)| format!("Cột «{column}» → {}", field.label())).collect();
+    if let Some(outcome) = &plan.outcome {
+        let values: Vec<String> =
+            outcome.values.iter().map(|(value, verdict)| format!("{value} = {}", verdict.label())).collect();
+        fields.push(format!("Cột «{}» → thắng/thua ({})", outcome.column, values.join(", ")));
+    }
     let properties: Vec<String> = plan
         .properties
         .iter()
@@ -316,9 +589,10 @@ fn preview_view(
         .child(text(found).text_sm().font_weight(FontWeight::MEDIUM))
         .children(period.map(&muted))
         .child(section(
-            "Trường tự nhận ra",
-            if fields.is_empty() { vec!["Không có.".to_owned()] } else { vec![fields.join("  ·  ")] },
+            "Cột tự nhận ra (từ nội dung, không cần ghép tay)",
+            if fields.is_empty() { vec!["Không có.".to_owned()] } else { fields },
         ))
+        .children(images.map(&muted))
         .when(!properties.is_empty(), |v| {
             v.child(section("Thuộc tính sẽ tạo trong form lệnh (dùng lại nếu đã có cùng tên)", properties))
         })
@@ -393,6 +667,12 @@ fn summary_lines(report: &notion::NotionImportReport) -> Vec<String> {
     }
     if report.options_added > 0 {
         lines.push(format!("{} lựa chọn mới đã thêm vào danh sách tag, lỗi, cảm xúc…", report.options_added));
+    }
+    if report.images_attached + report.images_missing > 0 {
+        lines.push(format!(
+            "Ảnh gắn vào lệnh: {} · không có trong file zip: {}",
+            report.images_attached, report.images_missing
+        ));
     }
     lines
 }

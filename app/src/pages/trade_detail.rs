@@ -411,7 +411,7 @@ fn title_row(row: Memo<Option<TradeRow>>) -> impl IntoElement {
                 .gap_2()
                 .child(pnl_text(move || {
                     from_row(row, |r| {
-                        if r.trade.is_closed() {
+                        if r.trade.is_closed() && r.trade.money_known() {
                             format::money(r.trade.net(), Sign::Always, &r.currency)
                         } else {
                             "—".to_owned()

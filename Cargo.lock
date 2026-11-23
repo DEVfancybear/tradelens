@@ -3072,8 +3072,10 @@ dependencies = [
  "nsh-platform-macos",
  "nsh-platform-windows",
  "nsh-testing",
+ "serde_json",
  "tempfile",
  "thiserror",
+ "tiny_http",
  "tradelens-cloud",
  "tradelens-core",
  "url",
@@ -5718,6 +5720,7 @@ dependencies = [
  "thiserror",
  "ttf-parser",
  "unicode-normalization",
+ "zip",
 ]
 
 [[package]]

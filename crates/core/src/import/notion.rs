@@ -13,11 +13,14 @@ use crate::model::{AccountInfo, Deal, DealBatch};
 
 use super::ImportError;
 
+mod archive;
 mod cells;
 mod detect;
 mod properties;
 mod rows;
 mod sheet;
+
+pub use archive::{ImageCounts, NotionArchive, read_archive};
 
 /// The trade fields a Notion column can fill.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -32,6 +35,7 @@ pub enum Field {
     StopLoss,
     TakeProfit,
     Profit,
+    ResultR,
     Commission,
     Swap,
     Setup,
@@ -51,7 +55,7 @@ pub enum Field {
 
 impl Field {
     /// Every field, in the order the summary lists them.
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 26] = [
         Self::OpenTime,
         Self::CloseTime,
         Self::Symbol,
@@ -62,6 +66,7 @@ impl Field {
         Self::StopLoss,
         Self::TakeProfit,
         Self::Profit,
+        Self::ResultR,
         Self::Commission,
         Self::Swap,
         Self::Setup,
@@ -91,6 +96,7 @@ impl Field {
             Self::StopLoss => "Stop loss",
             Self::TakeProfit => "Take profit",
             Self::Profit => "Lãi/lỗ",
+            Self::ResultR => "Kết quả (R)",
             Self::Commission => "Phí",
             Self::Swap => "Swap",
             Self::Setup => "Setup",
@@ -183,6 +189,9 @@ impl Field {
                 "lợi nhuận",
                 "kết quả",
             ],
+            Self::ResultR => {
+                &["r", "rr", "r r", "r multiple", "risk reward", "result r", "realized r", "realised r", "kết quả r"]
+            }
             Self::Commission => &["commission", "fee", "fees", "phí", "hoa hồng", "phí giao dịch"],
             Self::Swap => &["swap", "rollover", "phí qua đêm"],
             Self::Setup => &["setup", "strategy", "pattern", "playbook", "model", "chiến lược", "mô hình"],
@@ -280,6 +289,33 @@ impl std::fmt::Display for RowIssue {
     }
 }
 
+/// How a trade ended, as the file says it: by the sign of its result, or by its status column.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verdict {
+    Win,
+    Loss,
+    BreakEven,
+}
+
+impl Verdict {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Win => "thắng",
+            Self::Loss => "thua",
+            Self::BreakEven => "hòa vốn",
+        }
+    }
+}
+
+/// A status column (win, loss, breakeven…) and what each of its values was learned to mean: the
+/// values that go with positive results are wins, those with negative results losses, those with
+/// results of zero breakeven. No word list is involved.
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutcomeColumn {
+    pub column: String,
+    pub values: Vec<(String, Verdict)>,
+}
+
 /// A column that is not a trade field, to become a property of the trade form.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlannedProperty {
@@ -314,6 +350,10 @@ pub struct PlannedJournal {
     pub notes: String,
     /// Links or file names of the screenshots column.
     pub screenshots: Vec<String>,
+    /// Images found for the file names above (see [`NotionPlan::attach_images`]).
+    pub attachments: Vec<crate::attachments::Attachment>,
+    /// Of the file names above, those no image was found for.
+    pub missing_files: Vec<String>,
     /// Values of the planned properties, by [`PlannedProperty::key`].
     pub custom: CustomValues,
 }
@@ -331,6 +371,8 @@ pub struct PlannedRow {
     pub position_id: i64,
     pub entry: Deal,
     pub exit: Deal,
+    /// Won, lost or broke even: by the status column when there is one, else by the result.
+    pub verdict: Option<Verdict>,
     pub journal: PlannedJournal,
 }
 
@@ -338,6 +380,11 @@ impl PlannedRow {
     /// Profit after commission and swap, as the CSV states them.
     pub fn net(&self) -> f64 {
         self.exit.profit + self.exit.commission + self.exit.swap
+    }
+
+    /// The result in R when the file states it in R and has no money.
+    pub fn result_r(&self) -> Option<f64> {
+        self.exit.result_r
     }
 }
 
@@ -352,6 +399,8 @@ pub struct NotionPlan {
     pub mapping: NotionMapping,
     /// The title column (`Name`), when there is one.
     pub title_column: Option<String>,
+    /// The status column and what its values mean, when one was recognised.
+    pub outcome: Option<OutcomeColumn>,
     /// Columns that are not imported: empty ones and Notion's own (`Created time`, …).
     pub ignored_columns: Vec<String>,
     /// The properties the other columns become.
@@ -388,9 +437,62 @@ impl NotionPlan {
         }
     }
 
+    /// Stores the images the rows name, reading each one with `read` (given the name as the file
+    /// writes it, percent-encoded) and keeping them in `store`, the data folder's `attachments/`.
+    /// A name `read` finds nothing for, or whose image is refused, is listed as missing on its row.
+    ///
+    /// # Errors
+    ///
+    /// [`ImportError::Io`] when the store cannot be written.
+    pub fn attach_images(
+        &mut self,
+        read: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
+        store: &Path,
+        now_ms: i64,
+    ) -> Result<ImageCounts, ImportError> {
+        use crate::attachments::{self, AttachError};
+        let mut counts = ImageCounts::default();
+        for row in &mut self.rows {
+            row.journal.attachments.clear();
+            row.journal.missing_files.clear();
+            for name in row.journal.screenshots.clone() {
+                let decoded = cells::percent_decode(&name);
+                let stored = read(&name).map(|bytes| attachments::import_bytes(&decoded, &bytes, store, now_ms));
+                match stored {
+                    Some(Ok(image)) => {
+                        attachments::append(&mut row.journal.attachments, [image]);
+                        counts.attached += 1;
+                    }
+                    Some(Err(AttachError::Io { source, .. })) => return Err(ImportError::Io(source)),
+                    Some(Err(_)) | None => {
+                        row.journal.missing_files.push(name);
+                        counts.missing += 1;
+                    }
+                }
+            }
+        }
+        Ok(counts)
+    }
+
     /// The sum of the trades' profit after costs, to check against the file.
     pub fn net_total(&self) -> f64 {
         self.rows.iter().map(PlannedRow::net).sum()
+    }
+
+    /// Whether the file states its results in R only: the trades have no money.
+    pub fn is_in_r(&self) -> bool {
+        self.rows.iter().any(|row| row.result_r().is_some())
+    }
+
+    /// The sum of the results in R of the trades that state one.
+    pub fn total_r(&self) -> f64 {
+        self.rows.iter().filter_map(PlannedRow::result_r).sum()
+    }
+
+    /// How many trades won, lost and broke even.
+    pub fn verdicts(&self) -> (usize, usize, usize) {
+        let count = |wanted: Verdict| self.rows.iter().filter(|row| row.verdict == Some(wanted)).count();
+        (count(Verdict::Win), count(Verdict::Loss), count(Verdict::BreakEven))
     }
 
     /// The first open time and the last close time, in server milliseconds.
@@ -421,6 +523,10 @@ pub struct NotionImportReport {
     /// Tags, mistakes, emotions, setup grades, exit reasons and market states the file used
     /// that the option lists did not have yet.
     pub options_added: usize,
+    /// Images stored on the imported trades (from a Notion export archive), and file names of the
+    /// files column that the archive did not hold.
+    pub images_attached: usize,
+    pub images_missing: usize,
     /// The rows of the file that were not imported, with the reason.
     pub skipped: Vec<RowIssue>,
     pub warnings: Vec<String>,
@@ -500,6 +606,21 @@ fn plan_sheet(sheet: &sheet::Sheet, overrides: &NotionMapping) -> Result<NotionP
 /// [`ImportError::Io`] when the file cannot be read, else as [`infer`].
 pub fn read_file(path: &Path) -> Result<NotionPlan, ImportError> {
     infer(&std::fs::read(path)?)
+}
+
+/// Reads a Notion export, a bare CSV or the `.zip` Notion writes: the plan, and for a zip the
+/// archive the rows' images are read from (see [`NotionArchive::attach_images`]).
+///
+/// # Errors
+///
+/// As [`read_file`] and [`read_archive`].
+pub fn read_source(path: &Path) -> Result<(NotionPlan, Option<NotionArchive>), ImportError> {
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip")) {
+        let (plan, archive) = read_archive(path)?;
+        Ok((plan, Some(archive)))
+    } else {
+        Ok((read_file(path)?, None))
+    }
 }
 
 #[cfg(test)]

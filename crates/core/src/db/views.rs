@@ -266,7 +266,7 @@ fn load_deal(conn: &Connection, key: &str) -> Result<Option<Fields>> {
     let Some(account_id) = account_row(conn, login, server)? else { return Ok(None) };
     let row = conn
         .prepare_cached(&format!("SELECT {DEAL_COLUMNS}, source FROM deals WHERE account_id = ?1 AND ticket = ?2"))?
-        .query_row(rusqlite::params![account_id, ticket], |r| Ok((deal_from_row_at(r, 0)?, r.get::<_, String>(19)?)))
+        .query_row(rusqlite::params![account_id, ticket], |r| Ok((deal_from_row_at(r, 0)?, r.get::<_, String>(20)?)))
         .optional()?;
     row.map(|(deal, source)| {
         let mut object = to_map(&deal)?;

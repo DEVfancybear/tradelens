@@ -141,6 +141,10 @@ có tem thì ghi, tem = `updated_at` của journal, các thứ khác tem 0 để
   `MemoryDrive`: sửa khác trường, cùng trường, tag thêm/bớt, deal import cả hai máy, playbook xoá/sửa, khôi phục máy mới,
   ảnh, sync bị ngắt, file hỏng, và 8 phiên sửa ngẫu nhiên trên 3 máy phải hội tụ. So sánh bằng `Db::portable_state()`.
 
+- `app/tests/cloud_screens.rs`: màn Đăng nhập & sync không đầu, hai app (hai thư mục dữ liệu) trên một ổ chế độ thử:
+  đăng nhập, Sync ngay, sửa nhật ký ở máy này hiện ở máy kia, khôi phục sang máy mới (có bản sao dữ liệu cũ), đăng xuất
+  có hỏi, thông báo thiếu client id, công tắc tự động sync, sync khi bấm đóng cửa sổ.
+
 ## Để làm sau
 
 - Mã hóa đầu cuối bằng passphrase (XChaCha20-Poly1305, khóa từ Argon2id).
@@ -175,6 +179,41 @@ let me = source.sign_in(&SignInOptions::default(), |url| open_in_browser(url))?;
 let drive = GoogleDrive::new(Arc::clone(&source)); // hoặc OneDrive::new(source)
 let engine = SyncEngine { drive: &drive, device_id };
 ```
+
+## Trong app (`app/src/cloud.rs`, `app/src/pages/cloud.rs`)
+
+Màn **Đăng nhập & sync** (route `Route::Cloud`) và dòng trạng thái ở chân sidebar ("Cloud: chưa đăng nhập",
+"Google Drive · đã sync 14:02", "đang sync…", "sync lỗi") đọc cùng một trạng thái (`cloud::State`, một signal).
+
+- **Đăng nhập:** nút "Đăng nhập với Google / Microsoft" chạy `TokenSource::sign_in` trên luồng nền, mở trình duyệt
+  hệ thống (`rundll32 url.dll,FileProtocolHandler` / `open` / `xdg-open`), có nút Huỷ. Chưa cấu hình client id thì thẻ
+  của nhà cung cấp hiện câu tiếng Việt nêu khoá cài đặt (`cloud.google.client_id`), biến môi trường
+  (`TRADELENS_GOOGLE_CLIENT_ID`) và mục "Client id đọc ở đâu" của tài liệu này, nút đăng nhập tắt. Đăng xuất hỏi
+  xác nhận; dữ liệu trên Drive còn nguyên.
+- **Sync ngay**, **tự động mỗi 15 phút** (công tắc "Tự động sync", cài đặt `cloud.auto_sync`, chỉ của máy này) và
+  **khi đóng app**: NSH chỉ chờ 200 ms cho việc làm lúc thoát (`on_app_quit`), quá ít cho mạng, nên cửa sổ chính đặt
+  `close_on_press: false`; bấm đóng thì app sync xong rồi mới đóng (bấm đóng lần nữa trong lúc đang sync thì đóng
+  ngay). Không bật tự động sync, hoặc chưa đăng nhập, thì đóng ngay như thường.
+- **Luồng nền:** mỗi việc là một `spawn` chờ một `blocking` với kết nối `Db` riêng của nó (WAL, `busy_timeout`
+  5 giây) rồi mới đổi signal trên luồng giao diện; sync xong gọi `data_changed()` nên mọi trang đọc lại trong một
+  nhịp poll (400 ms). Luồng nền không bao giờ chạm signal. Việc chạy dưới owner của root (`Cloud::owner`), không
+  phải của nút đã bấm: nút bị dựng lại khi trạng thái đổi (đang đăng nhập, đang sync) sẽ huỷ tác vụ của nó.
+- **Khôi phục sang máy này:** hộp thoại xác nhận mạnh (thay toàn bộ dữ liệu, không hoàn tác). `Store::replace_database`
+  chép DB đang mở sang `tradelens.before-restore.db` cạnh file dữ liệu, đóng nó (các đọc/ghi khác chờ khoá), để
+  `SyncEngine::restore` ghi DB mới và sync, rồi mở lại; lỗi giữa chừng thì mở lại file đang có. Cài đặt của máy
+  (`cloud.*`, `appearance`) được ghi lại sau khi khôi phục, không lấy từ snapshot của máy cũ.
+- **Cài đặt của máy** (không đồng bộ, tiền tố `cloud.`): `cloud.provider` (nhà cung cấp đang dùng),
+  `cloud.auto_sync`, `cloud.device_name` (tên máy trên danh sách thiết bị, mặc định tên máy tính),
+  `cloud.<google|microsoft>.client_id` / `client_secret` / `redirect_host`.
+
+### Chế độ thử (không cần tài khoản)
+
+Đặt `TRADELENS_CLOUD=memory` (hoặc cài đặt `cloud.mode = memory`) để màn dùng `MemoryDrive` thay cho Google/Microsoft:
+"Đăng nhập" xong ngay với tài khoản `demo@tradelens.local`, Sync ngay đẩy/nhận qua một ổ đĩa nằm trong bộ nhớ của
+tiến trình, token Notion cũng giữ trong bộ nhớ (không chạm kho khoá của hệ điều hành). Hai máy (hai cửa sổ test) cùng
+tên ổ (`cloud.demo_drive`, mặc định "mặc định") dùng chung ổ, nên thử được sync và khôi phục giữa hai thư mục dữ liệu.
+Ổ đĩa mất khi đóng app. Cài đặt `cloud.notion.base_url` (hoặc `TRADELENS_NOTION_URL`) đổi địa chỉ Notion API, để test
+bằng server giả.
 
 ### Client id đọc ở đâu
 

@@ -5,38 +5,30 @@
 
 use std::{path::Path, time::Duration};
 
-use nsh_core::{Size, prelude::px};
-use nsh_engine::{EngineConfig, Root};
 use nsh_testing::Headless;
 use tradelens_core::{Db, Deal, DealBatch, DealEntry, DealKind, model::AccountInfo};
 
-const WAIT: Duration = Duration::from_secs(10);
+mod support;
+use support::{WAIT, wait_until};
 
-/// A data directory with a database in it, and the engine's view of it.
-struct Fixture {
-    dir: tempfile::TempDir,
+/// The shared fixture with this file's window.
+struct Fixture(support::Fixture);
+
+impl std::ops::Deref for Fixture {
+    type Target = support::Fixture;
+
+    fn deref(&self) -> &support::Fixture {
+        &self.0
+    }
 }
 
 impl Fixture {
     fn new() -> Self {
-        let dir = tempfile::tempdir().expect("a temp dir");
-        Db::open(dir.path().join("tradelens.db")).expect("the database opens");
-        Self { dir }
-    }
-
-    fn db(&self) -> Db {
-        Db::open(self.dir.path().join("tradelens.db")).expect("the database opens")
+        Self(support::Fixture::new())
     }
 
     fn start(&self) -> Headless {
-        let config = EngineConfig {
-            viewport: Size::new(px(1400.0), px(1000.0)),
-            data_dir: Some(self.dir.path().to_path_buf()),
-            ..EngineConfig::new(Root::of::<nsh_app_tradelens::Workspace>())
-        };
-        let mut app = Headless::start(config).expect("the app starts");
-        app.wait_for("Tổng quan").expect("the app opens");
-        app
+        self.0.start(1400.0, 1000.0, |_| {})
     }
 }
 
@@ -80,6 +72,7 @@ fn deal(
         sl: 0.0,
         tp: 0.0,
         risk: None,
+        result_r: None,
         reason: None,
     }
 }
@@ -126,16 +119,10 @@ fn shows_text_containing(app: &mut Headless, what: &str, needle: &str) {
 
 /// Waits until the file exists with something in it.
 fn wait_for_file(path: &Path) -> Vec<u8> {
-    let started = std::time::Instant::now();
-    loop {
-        if let Ok(bytes) = std::fs::read(path)
-            && !bytes.is_empty()
-        {
-            return bytes;
-        }
-        assert!(started.elapsed() < WAIT, "{} was not written within {WAIT:?}", path.display());
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    wait_until(&format!("{} being written", path.display()), || {
+        std::fs::read(path).is_ok_and(|bytes| !bytes.is_empty())
+    });
+    std::fs::read(path).expect("the file was just read")
 }
 
 #[test]

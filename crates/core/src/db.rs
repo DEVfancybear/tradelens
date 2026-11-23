@@ -53,6 +53,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0008_search.sql"),
     include_str!("../migrations/0009_day_note_custom.sql"),
     include_str!("../migrations/0010_sync_uids.sql"),
+    include_str!("../migrations/0011_result_r.sql"),
 ];
 
 /// One line of the import log: what an import or a sync stored, and when.
@@ -376,6 +377,7 @@ impl Db {
             sl: trade.sl,
             tp: trade.tp,
             risk: None,
+            result_r: None,
             reason: None,
         };
         let entry = deal(entry_ticket, entry_kind, DealEntry::In, trade.open_time, trade.open_price);
@@ -726,6 +728,8 @@ impl Db {
             let uid: String = tx.query_row("SELECT uid FROM playbooks WHERE id = ?1", [id], |r| r.get(0))?;
             Ok((uid, id))
         })?;
+        // The index entry goes in with the row: a reader that sees the setup finds it by search.
+        write_index(&tx, &search::playbook_document(&Playbook { id, ..playbook.clone() }))?;
         tx.commit()?;
         Ok(id)
     }
@@ -802,6 +806,7 @@ impl Db {
     pub fn save_missed_trade(&mut self, missed: &MissedTrade) -> Result<i64> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let id = save_missed_on(&tx, missed)?;
+        write_index(&tx, &search::missed_document(&MissedTrade { id, ..missed.clone() }))?;
         tx.commit()?;
         Ok(id)
     }
@@ -843,6 +848,7 @@ impl Db {
     pub fn save_review(&mut self, review: &PeriodReview) -> Result<i64> {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let id = save_review_on(&tx, review)?;
+        write_index(&tx, &search::review_document(review))?;
         tx.commit()?;
         Ok(id)
     }
@@ -871,8 +877,9 @@ impl Db {
 
     // --- search ---------------------------------------------------------------------
 
-    /// Indexes `doc`, replacing what was indexed for the same thing. Called by every
-    /// write of a review, missed trade or setup; journal and day note writes index themselves.
+    /// Indexes `doc`, replacing what was indexed for the same thing. Every write of a review,
+    /// missed trade, setup, journal or day note indexes itself in the same transaction; this is
+    /// for documents that have no such write.
     ///
     /// # Errors
     ///
@@ -1248,7 +1255,7 @@ const ACCOUNT_COLUMNS: &str = "id, login, server, broker, name, currency, initia
      server_offset_min, last_sync";
 
 const DEAL_COLUMNS: &str = "ticket, order_id, position_id, time_msc, symbol, kind, entry, volume, price, commission,
-     swap, fee, profit, magic, comment, sl, tp, risk, reason";
+     swap, fee, profit, magic, comment, sl, tp, risk, reason, result_r";
 
 /// A row count as SQLite stores it.
 fn count(n: usize) -> i64 {
@@ -1302,6 +1309,7 @@ fn deal_from_row_at(r: &Row<'_>, first: usize) -> rusqlite::Result<Deal> {
         tp: r.get(first + 16)?,
         risk: r.get(first + 17)?,
         reason: r.get(first + 18)?,
+        result_r: r.get(first + 19)?,
     })
 }
 
@@ -1318,8 +1326,8 @@ fn write_deal(conn: &Connection, account_id: i64, deal: &Deal, source: &str) -> 
 fn write_deal_raw(conn: &Connection, account_id: i64, deal: &Deal, source: &str) -> Result<()> {
     conn.prepare_cached(
         "INSERT OR REPLACE INTO deals (account_id, ticket, order_id, position_id, time_msc, symbol, kind, entry,
-             volume, price, commission, swap, fee, profit, magic, comment, sl, tp, risk, reason, source)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+             volume, price, commission, swap, fee, profit, magic, comment, sl, tp, risk, reason, result_r, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
     )?
     .execute(rusqlite::params![
         account_id,
@@ -1342,6 +1350,7 @@ fn write_deal_raw(conn: &Connection, account_id: i64, deal: &Deal, source: &str)
         deal.tp,
         deal.risk,
         deal.reason,
+        deal.result_r,
         source
     ])?;
     Ok(())
@@ -1599,6 +1608,24 @@ mod tests {
         assert_eq!(db.missed_trades(0, i64::MAX).unwrap().len(), 0, "the missed trade is gone");
         assert_eq!(db.search("pullback", 10).unwrap().len(), 0, "its index entry is gone");
         assert_eq!(db.search("khong tin", 10).unwrap().len(), 0, "its index entry is gone");
+    }
+
+    #[test]
+    fn a_saved_setup_review_or_missed_trade_is_searchable_as_soon_as_it_is_stored() {
+        use crate::review::{Period, PeriodReview};
+        let mut db = Db::in_memory().unwrap();
+        db.save_playbook(&Playbook { name: "Pullback EMA20".into(), ..Playbook::default() }, 0).unwrap();
+        assert_eq!(db.search("pullback", 10).unwrap().len(), 1, "the setup is indexed by the write that stores it");
+        let day = chrono::NaiveDate::from_ymd_opt(2026, 11, 20).unwrap();
+        let template = db.review_template(Period::Week).unwrap();
+        let mut review = PeriodReview::blank(&template, day, None);
+        review.answers[0].1 = "Giữ đúng ba lệnh mỗi ngày".into();
+        db.save_review(&review).unwrap();
+        assert_eq!(db.search("ba lenh", 10).unwrap().len(), 1, "the review is indexed by its write");
+        let renamed = Playbook { id: db.playbooks().unwrap()[0].id, name: "Breakout".into(), ..Playbook::default() };
+        db.save_playbook(&renamed, 0).unwrap();
+        assert_eq!(db.search("pullback", 10).unwrap().len(), 0, "a rename replaces the index entry");
+        assert_eq!(db.search("breakout", 10).unwrap().len(), 1);
     }
 
     #[test]

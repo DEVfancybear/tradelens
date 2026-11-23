@@ -214,6 +214,7 @@ mod tests {
             sl: 1.09,
             tp: 0.0,
             risk: Some(50.0),
+            result_r: None,
             reason: None,
         }
     }

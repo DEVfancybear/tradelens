@@ -181,6 +181,10 @@ pub struct Deal {
     /// `ENUM_DEAL_REASON`, what triggered the deal (an exit's reason pre-fills the journal's).
     #[serde(default)]
     pub reason: Option<String>,
+    /// The result of the exit in R, for a trade whose money is not known (a journal kept in R,
+    /// imported from Notion): `profit` is then 0 and this is the result. `None` for a trade with money.
+    #[serde(default)]
+    pub result_r: Option<f64>,
 }
 
 fn entry_none() -> DealEntry {
@@ -307,6 +311,8 @@ pub struct Trade {
     pub risk: Option<f64>,
     pub magic: i64,
     pub comment: String,
+    /// The result in R of a trade whose money is not known (see [`Deal::result_r`]).
+    pub result_r: Option<f64>,
     pub manual: bool,
 }
 
@@ -324,9 +330,23 @@ impl Trade {
         self.close_time.map(|c| (c - self.open_time) / 1000)
     }
 
+    /// Whether the trade's money is known. A trade imported with only its result in R has no
+    /// money: statistics count it by its R, and money figures show a dash for it.
+    pub fn money_known(&self) -> bool {
+        self.result_r.is_none()
+    }
+
+    /// What decides whether the trade won or lost: its money, or its R when it has no money.
+    pub fn score(&self) -> f64 {
+        self.result_r.unwrap_or_else(|| self.net())
+    }
+
     /// The trade's result in R: money over the money at risk when known, else the
     /// price move over the stop distance.
     pub fn r_multiple(&self, planned_risk: Option<f64>) -> Option<f64> {
+        if let Some(r) = self.result_r {
+            return Some(r);
+        }
         let risk = planned_risk.filter(|r| *r > 0.0).or(self.risk.filter(|r| *r > 0.0));
         if let Some(risk) = risk {
             return Some(self.net() / risk);

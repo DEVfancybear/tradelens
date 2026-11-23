@@ -7,7 +7,7 @@
 //! timer compares with the last one seen; a change reloads the snapshot.
 
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicU64, Ordering},
@@ -164,6 +164,95 @@ impl Store {
                 Ok(Err(error)) => self.load.set(Load::Failed(format!("Không đọc được dữ liệu: {error}"))),
                 Err(error) => self.load.set(Load::Failed(format!("Luồng đọc dữ liệu bị dừng: {error}"))),
             }
+        });
+    }
+
+    /// Whether the database is open: what waits for it (`query`, [`Store::read`]) starts then (tracked).
+    pub(crate) fn is_ready(&self) -> bool {
+        self.ready.get()
+    }
+
+    /// The database file, `None` when the app has no data directory (it then keeps the data in
+    /// memory and nothing else can open it).
+    pub(crate) fn database_path() -> Option<PathBuf> {
+        data_dir().map(|dir| dir.join(DB_FILE))
+    }
+
+    /// Reads the database once on a blocking thread, and tells the UI thread the result (the
+    /// failure in Vietnamese). Unlike a [`Reading`] it does not follow the revision.
+    ///
+    /// # Panics
+    ///
+    /// On the reading thread, when another thread panicked while holding the database lock.
+    pub(crate) fn read<T: Send + 'static>(
+        self,
+        op: impl FnOnce(&Db) -> Result<T, DbError> + Send + 'static,
+        done: impl FnOnce(Result<T, String>) + 'static,
+    ) {
+        let Some(db) = self.db.get() else {
+            return done(Err("Chưa mở được cơ sở dữ liệu.".to_owned()));
+        };
+        spawn(async move {
+            let read = blocking(move || {
+                let db = db.lock().expect("database lock poisoned");
+                op(&db)
+            })
+            .await;
+            done(match read {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(error)) => Err(format!("Không đọc được dữ liệu: {error}")),
+                Err(error) => Err(format!("Luồng đọc dữ liệu bị dừng: {error}")),
+            });
+        });
+    }
+
+    /// Replaces the database file with another one, for restoring a backup. The open database is
+    /// first copied to `backup` (a file that must not exist yet), then closed: every other reader
+    /// and writer waits on the lock meanwhile. `replace` gets the file's path, which nothing has
+    /// open, and returns the database that now lives there, or fails; either way the file is
+    /// opened again afterwards, so the app goes on with a database. The pages read again when it
+    /// is done.
+    ///
+    /// # Panics
+    ///
+    /// On the working thread, when another thread panicked while holding the database lock.
+    pub(crate) fn replace_database<T: Send + 'static>(
+        self,
+        backup: PathBuf,
+        replace: impl FnOnce(&Path) -> Result<(Db, T), String> + Send + 'static,
+        done: impl FnOnce(Result<T, String>) + 'static,
+    ) {
+        let (Some(db), Some(path)) = (self.db.get(), Self::database_path()) else {
+            return done(Err("Chưa mở được tệp dữ liệu trên máy này.".to_owned()));
+        };
+        spawn(async move {
+            let worked = blocking(move || {
+                let mut guard = db.lock().expect("database lock poisoned");
+                guard.snapshot_to(&backup).map_err(|error| format!("Không sao lưu được dữ liệu hiện tại: {error}"))?;
+                let stand_in = Db::in_memory().map_err(|error| format!("Không đóng được dữ liệu hiện tại: {error}"))?;
+                // Closing the file: nothing may hold it while it is replaced.
+                drop(std::mem::replace(&mut *guard, stand_in));
+                match replace(&path) {
+                    Ok((fresh, value)) => {
+                        *guard = fresh;
+                        Ok(value)
+                    }
+                    Err(message) => {
+                        match Db::open(&path) {
+                            Ok(reopened) => *guard = reopened,
+                            Err(error) => log::error!("database: cannot be reopened after a restore: {error}"),
+                        }
+                        Err(message)
+                    }
+                }
+            })
+            .await;
+            let outcome = worked.unwrap_or_else(|error| Err(format!("Luồng khôi phục bị dừng: {error}")));
+            if outcome.is_ok() {
+                data_changed();
+                self.revision.set(revision().get());
+            }
+            done(outcome);
         });
     }
 

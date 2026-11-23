@@ -12,7 +12,6 @@ use tradelens_core::{
     attachments::Attachment,
     catalog::{CatalogItem, CatalogKind, CustomValues},
     missed::{self, MissedSummary, MissedTrade},
-    search,
     time::{naive, to_ms},
 };
 
@@ -409,11 +408,7 @@ fn form(
         error.set(None);
         busy.set(true);
         write.run(
-            move |db| {
-                let saved = db.save_missed_trade(&trade)?;
-                db.index_document(&search::missed_document(&MissedTrade { id: saved, ..trade }))?;
-                Ok(saved)
-            },
+            move |db| db.save_missed_trade(&trade),
             move |result| {
                 busy.set(false);
                 match result {

@@ -8,7 +8,6 @@ use tradelens_core::{
     TradeKey,
     report::Privacy,
     review::{self, Period, PeriodReview, QueueReason, ReviewTemplate},
-    search,
 };
 
 use super::{
@@ -543,11 +542,7 @@ fn answers_form(source: Source) -> impl IntoElement {
         failure.set(None);
         let stored = review.clone();
         write.run(
-            move |db| {
-                let id = db.save_review(&review)?;
-                db.index_document(&search::review_document(&review))?;
-                Ok(id)
-            },
+            move |db| db.save_review(&review),
             move |result| {
                 busy.set(false);
                 match result {

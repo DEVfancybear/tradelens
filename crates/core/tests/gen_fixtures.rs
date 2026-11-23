@@ -699,7 +699,59 @@ fn regenerate_fixtures() -> Result<(), Box<dyn Error>> {
 
     let vietnamese = document(&VIETNAMESE);
     fs::write(dir.join("mt5_vi_hedge.html"), html(&vietnamese, &VIETNAMESE, Markup::Sloppy))?;
+
+    fs::write(dir.join("notion_r_journal.zip"), notion_r_journal_zip()?)?;
     Ok(())
+}
+
+/// The CSV of a small journal kept in R, as Notion exports it (UTF-8 with a BOM; the date has no time):
+/// five invented trades, six columns that say nothing about money and one that lists the images.
+const R_JOURNAL_CSV: &str = "\u{feff}Tên giao dịch,Cặp tiền,Ghi chú,Loại lệnh,Nhóm,Có chờ?,Ngày giao dịch,Đủ điều kiện?,Nhận định,Risk/Reward,Lưu ý,Bối cảnh,Đúng giờ?,Trạng thái,Ảnh\n\
+BTC/USD LONG,BTC/USD,Ghi chú mẫu một,Buy (Long),Bitcoin,No,\"April 16, 2026\",Yes,Phân tích mẫu,2,Rủi ro mẫu,Thuận trend,Yes,Thắng,image.png\n\
+XAU/USD SHORT,XAU/USD,,Sell (Short),XAU,Yes,\"April 16, 2026\",No,,-1,,Ngược trend,No,Thua,image%201.png\n\
+USD/JPY LONG,USD/JPY,,Buy (Long),Forex,No,\"April 15, 2026\",Yes,,0,,Thuận trend,Yes,Hòa,\n\
+EUR/USD LONG,EUR/USD,,Buy (Long),Forex,No,\"April 14, 2026\",Yes,,0.6,,Thuận trend,No,Thắng,\"image.png, image%201.png\"\n\
+BTC/USD SHORT,BTC/USD,,Sell (Short),Bitcoin,No,\"April 13, 2026\",No,,-0.2,,Ngược trend,Yes,Thua,image%202.png\n";
+
+/// Two different pictures: one pixel each, differing in the colour byte.
+const PICTURE_ONE: &[u8] = &[
+    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00,
+    0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49,
+    0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xF8, 0xFF, 0xFF, 0x3F, 0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59, 0xE7,
+    0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+];
+
+/// The archive as Notion writes it: the database's CSV twice (with and without the `_all` suffix: the
+/// second has fewer rows), the two pictures at the root, and file names that are not flagged as UTF-8,
+/// so a reader that trusts the decoded name finds nothing it expects.
+fn notion_r_journal_zip() -> Result<Vec<u8>, Box<dyn Error>> {
+    use std::io::{Cursor, Write};
+    use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
+
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    let one_row: String = R_JOURNAL_CSV.lines().take(2).collect::<Vec<_>>().join("\n");
+    let mut other = PICTURE_ONE.to_vec();
+    other[41] ^= 0x01;
+    let mut zip = ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, bytes) in [
+        ("Nhat ky giao dich 0000.csv", one_row.as_bytes()),
+        ("Nhat ky giao dich 0000_all.csv", R_JOURNAL_CSV.as_bytes()),
+        ("image.png", PICTURE_ONE),
+        ("image 1.png", other.as_slice()),
+    ] {
+        zip.start_file(name, options)?;
+        zip.write_all(bytes)?;
+    }
+    let mut archive = zip.finish()?.into_inner();
+    // Replace the first "a" of the CSV names by 0x85 (`à` in code page 437): the names are no longer
+    // valid UTF-8 and the archive does not say they are UTF-8, as Notion's does not.
+    let marker = b"Nhat ky giao dich 0000";
+    let mut at = 0;
+    while let Some(found) = archive[at..].windows(marker.len()).position(|w| w == marker) {
+        archive[at + found + 2] = 0x85;
+        at += found + marker.len();
+    }
+    Ok(archive)
 }
 
 /// The scenario's constants are the sums of its rows, so a typo shows up here.

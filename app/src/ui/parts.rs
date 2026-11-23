@@ -139,20 +139,6 @@ pub(crate) fn empty_state(
         .child(text(hint).text_sm().text_color(move || theme().muted_foreground))
 }
 
-/// What a page will hold, until it is built: one line per block.
-pub(crate) fn planned(blocks: &'static [&'static str]) -> impl IntoElement {
-    card(
-        "Sẽ có ở bản tới",
-        view().gap_2().children(blocks.iter().map(|line| {
-            view()
-                .flex_row()
-                .gap_2()
-                .child(text("•").text_color(move || theme().primary))
-                .child(text(*line).text_sm().flex_1().text_color(move || theme().muted_foreground))
-        })),
-    )
-}
-
 /// A line of warning on a tinted ground: a rule about to be, or already, broken.
 pub(crate) fn warning_banner(message: impl IntoReactive<SharedString>) -> impl IntoElement {
     view()

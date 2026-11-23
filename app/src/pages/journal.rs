@@ -47,6 +47,8 @@ struct DayTrade {
     side: Side,
     closed: bool,
     net: f64,
+    /// The money is known (a trade imported in R has none).
+    money: bool,
     r: Option<f64>,
     currency: String,
     /// The rule it broke, when it broke one.
@@ -129,6 +131,7 @@ fn trades_of_day(own: &AccountTrades, day: NaiveDate, violations: &[Violation], 
                 side: trade.side,
                 closed: trade.is_closed(),
                 net: trade.net(),
+                money: trade.money_known(),
                 r: None,
                 currency: own.account.currency.clone(),
                 violation: violations.iter().find(|v| v.trade.as_ref() == Some(&trade.key)).map(|v| v.kind.label()),
@@ -397,6 +400,9 @@ pub(crate) fn journal() -> impl IntoElement {
     session.follow(data);
     set_interval(AUTOSAVE, move || session.save_now());
     let (fields, dirty, status, busy) = (session.fields, session.dirty, session.status, session.busy);
+    // The form is only offered once the day has been read: text typed before would be replaced by
+    // what was read, and a press of "Ngày trước" would have nothing to save it under.
+    let loaded = computed(move || session.context.get().is_some());
     let save_now = move || session.save_now();
 
     let go = move |to: NaiveDate| {
@@ -462,7 +468,7 @@ pub(crate) fn journal() -> impl IntoElement {
                     .flex_wrap()
                     .items_start()
                     .gap_6()
-                    .child(view().flex_1().min_w(px(520.0)).gap_6().child(form_card(data, write, fields)))
+                    .child(view().flex_1().min_w(px(520.0)).gap_6().child(form_card(data, write, fields, loaded)))
                     .child(
                         view()
                             .flex_1()
@@ -524,7 +530,7 @@ fn week_strip(
 
 /// The form of the day: the built-in plan, review and mood, and the trader's own properties,
 /// arranged the way the trader set the form up.
-fn form_card(data: Reading<DayData>, write: Writer, fields: Fields) -> impl IntoElement {
+fn form_card(data: Reading<DayData>, write: Writer, fields: Fields, loaded: Memo<bool>) -> impl IntoElement {
     let on_layout = move |layout: FormLayout| {
         fields.layout.set(layout.clone());
         write.run(move |db: &mut Db| db.save_form_layout(&layout), |_| {});
@@ -567,55 +573,66 @@ fn form_card(data: Reading<DayData>, write: Writer, fields: Fields) -> impl Into
         );
     };
     let moods = move || data.value().map_or_default(|d| d.moods.clone());
-    let list = PropertyList::new(
-        move || fields.layout.get(),
-        move || fields.defs.get(),
-        move || fields.values.get(),
-        PropertyEdits::new(on_layout, on_value, on_def),
+    let list = move || {
+        PropertyList::new(
+            move || fields.layout.get(),
+            move || fields.defs.get(),
+            move || fields.values.get(),
+            PropertyEdits::new(on_layout, on_value, on_def),
+        )
+        .builtin(move |field| match field {
+            BuiltinField::DayPlan => Some(
+                textarea(
+                    "Kế hoạch ngày",
+                    "Xu hướng chính, vùng giá cần chú ý, tin trong ngày, cam kết hôm nay",
+                    6,
+                    move || fields.plan.get(),
+                    move |t| fields.plan.set(t.to_owned()),
+                )
+                .into_element(),
+            ),
+            BuiltinField::DayReview => Some(
+                textarea(
+                    "Tổng kết cuối ngày",
+                    "Điều làm tốt, điều cần sửa, bài học cho ngày mai",
+                    6,
+                    move || fields.review.get(),
+                    move |t| fields.review.set(t.to_owned()),
+                )
+                .into_element(),
+            ),
+            BuiltinField::DayMood => Some(
+                select_value(
+                    "Tâm trạng",
+                    move || {
+                        let mut choices = vec![Choice::new("", "Chưa chọn")];
+                        let known = moods();
+                        let current = fields.mood.get_untracked();
+                        // A mood whose option was removed since stays readable.
+                        if !current.is_empty() && known.iter().all(|(key, _)| *key != current) {
+                            choices.push(Choice::new(current.clone(), current));
+                        }
+                        choices.extend(known.into_iter().map(|(key, label)| Choice::new(key, label)));
+                        choices
+                    },
+                    move || SharedString::from(fields.mood.get()),
+                    move |v| fields.mood.set(v.to_string()),
+                )
+                .into_element(),
+            ),
+            _ => None,
+        })
+    };
+    card(
+        "Kế hoạch và tổng kết",
+        dynamic(move || {
+            if loaded.get() {
+                untracked(|| property_list(list()).into_element())
+            } else {
+                untracked(|| text("Đang tải…").text_sm().text_color(move || theme().muted_foreground).into_element())
+            }
+        }),
     )
-    .builtin(move |field| match field {
-        BuiltinField::DayPlan => Some(
-            textarea(
-                "Kế hoạch ngày",
-                "Xu hướng chính, vùng giá cần chú ý, tin trong ngày, cam kết hôm nay",
-                6,
-                move || fields.plan.get(),
-                move |t| fields.plan.set(t.to_owned()),
-            )
-            .into_element(),
-        ),
-        BuiltinField::DayReview => Some(
-            textarea(
-                "Tổng kết cuối ngày",
-                "Điều làm tốt, điều cần sửa, bài học cho ngày mai",
-                6,
-                move || fields.review.get(),
-                move |t| fields.review.set(t.to_owned()),
-            )
-            .into_element(),
-        ),
-        BuiltinField::DayMood => Some(
-            select_value(
-                "Tâm trạng",
-                move || {
-                    let mut choices = vec![Choice::new("", "Chưa chọn")];
-                    let known = moods();
-                    let current = fields.mood.get_untracked();
-                    // A mood whose option was removed since stays readable.
-                    if !current.is_empty() && known.iter().all(|(key, _)| *key != current) {
-                        choices.push(Choice::new(current.clone(), current));
-                    }
-                    choices.extend(known.into_iter().map(|(key, label)| Choice::new(key, label)));
-                    choices
-                },
-                move || SharedString::from(fields.mood.get()),
-                move |v| fields.mood.set(v.to_string()),
-            )
-            .into_element(),
-        ),
-        _ => None,
-    });
-    card("Kế hoạch và tổng kết", property_list(list))
 }
 
 /// The day's trades with their result and the rules they broke.
@@ -672,8 +689,13 @@ fn trades_card(data: Reading<DayData>) -> impl IntoElement {
 
 fn trade_row(trade: &DayTrade) -> impl IntoElement + use<> {
     let key = trade.key.clone();
-    let net =
-        if trade.closed { format::money(trade.net, Sign::Always, &trade.currency) } else { "đang mở".to_owned() };
+    let net = if !trade.closed {
+        "đang mở".to_owned()
+    } else if trade.money {
+        format::money(trade.net, Sign::Always, &trade.currency)
+    } else {
+        "—".to_owned()
+    };
     view()
         .py_2()
         .gap_1()
@@ -800,6 +822,7 @@ mod tests {
             sl: 0.0,
             tp: 0.0,
             risk: None,
+            result_r: None,
             reason: None,
         }
     }

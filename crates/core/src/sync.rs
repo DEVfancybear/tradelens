@@ -560,6 +560,7 @@ mod tests {
             sl,
             tp: 0.0,
             risk,
+            result_r: None,
             reason: None,
         }
     }

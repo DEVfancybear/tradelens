@@ -215,7 +215,11 @@ fn day_card(selected: Signal<Option<NaiveDate>>) -> impl IntoElement {
                 let rows = trades.iter().map(|row| {
                     let key = row.key().clone();
                     let symbol = row.trade.symbol.clone();
-                    let net = format::money(row.trade.net(), Sign::Always, &row.currency);
+                    let net = if row.trade.money_known() {
+                        format::money(row.trade.net(), Sign::Always, &row.currency)
+                    } else {
+                        "—".to_owned()
+                    };
                     let side = row.trade.side.label().to_owned();
                     let tone = if side == "Buy" { Tone::Profit } else { Tone::Loss };
                     let time = row.closed().map_or_else(String::new, |t| t.format("%H:%M").to_string());

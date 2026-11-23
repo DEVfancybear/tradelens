@@ -21,6 +21,11 @@ impl Sample<'_> {
     pub fn net(&self) -> f64 {
         self.trade.net()
     }
+
+    /// What decides whether the trade won: its money, or its R when it has no money.
+    pub fn score(&self) -> f64 {
+        self.trade.score()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -82,25 +87,36 @@ pub fn stats(samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)], cl
     ordered.sort_by_key(|x| x.trade.close_time.unwrap_or(x.trade.open_time));
 
     let (mut win_streak, mut loss_streak) = (0, 0);
+    // Trades without money (imported in R) are won or lost by their R, but add nothing to money.
+    let (mut money_trades, mut money_wins, mut money_losses) = (0_usize, 0_usize, 0_usize);
     let mut hold_total = 0_i64;
     for x in &ordered {
         let t = x.trade;
         let net = x.net();
+        let score = x.score();
+        let money = t.money_known();
+        money_trades += usize::from(money);
         s.net += net;
         s.commission += t.commission + t.fee;
         s.swap += t.swap;
         s.volume += t.volume;
         hold_total += t.duration_secs().unwrap_or(0);
-        if net > FLAT {
+        if score > FLAT {
             s.wins += 1;
-            s.gross_profit += net;
-            s.largest_win = s.largest_win.max(net);
+            if money {
+                money_wins += 1;
+                s.gross_profit += net;
+                s.largest_win = s.largest_win.max(net);
+            }
             win_streak += 1;
             loss_streak = 0;
-        } else if net < -FLAT {
+        } else if score < -FLAT {
             s.losses += 1;
-            s.gross_loss += net;
-            s.largest_loss = s.largest_loss.min(net);
+            if money {
+                money_losses += 1;
+                s.gross_loss += net;
+                s.largest_loss = s.largest_loss.min(net);
+            }
             loss_streak += 1;
             win_streak = 0;
         } else {
@@ -116,36 +132,51 @@ pub fn stats(samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)], cl
             crate::model::Side::Long => {
                 s.long_trades += 1;
                 s.long_net += net;
-                s.long_wins += usize::from(net > FLAT);
+                s.long_wins += usize::from(score > FLAT);
             }
             crate::model::Side::Short => {
                 s.short_trades += 1;
                 s.short_net += net;
-                s.short_wins += usize::from(net > FLAT);
+                s.short_wins += usize::from(score > FLAT);
             }
         }
     }
     if s.trades > 0 {
         s.win_rate = real(s.wins) / real(s.trades);
-        s.expectancy = s.net / real(s.trades);
+        s.expectancy = s.net / real(money_trades.max(1));
         s.avg_hold_secs = hold_total / i64::try_from(s.trades).unwrap_or(i64::MAX);
     }
-    if s.wins > 0 {
-        s.avg_win = s.gross_profit / real(s.wins);
+    if money_wins > 0 {
+        s.avg_win = s.gross_profit / real(money_wins);
     }
-    if s.losses > 0 {
-        s.avg_loss = s.gross_loss / real(s.losses);
+    if money_losses > 0 {
+        s.avg_loss = s.gross_loss / real(money_losses);
     }
     if s.gross_loss < -FLAT {
         s.profit_factor = Some(s.gross_profit / -s.gross_loss);
     }
-    if s.avg_loss < -FLAT && s.wins > 0 {
+    if s.avg_loss < -FLAT && money_wins > 0 {
         s.payoff = Some(s.avg_win / -s.avg_loss);
     }
     if s.r_trades > 0 {
         s.avg_r = Some(s.total_r / real(s.r_trades));
     }
 
+    add_balance_figures(&mut s, samples, start_balance, cash);
+
+    let days = daily(samples, clock);
+    s.trading_days = days.len();
+    s.green_days = days.values().filter(|d| d.net > FLAT).count();
+    s.best_day =
+        days.iter().filter(|(_, d)| d.net > FLAT).max_by(|a, b| a.1.net.total_cmp(&b.1.net)).map(|(k, d)| (*k, d.net));
+    s.worst_day =
+        days.iter().filter(|(_, d)| d.net < -FLAT).min_by(|a, b| a.1.net.total_cmp(&b.1.net)).map(|(k, d)| (*k, d.net));
+    s
+}
+
+/// The figures that come from the balance curve and the cash movements: drawdown, end balance,
+/// deposits and withdrawals, recovery factor.
+fn add_balance_figures(s: &mut Stats, samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)]) {
     let curve = equity_curve(samples, start_balance, cash);
     for p in &curve {
         if p.drawdown > s.max_drawdown {
@@ -164,15 +195,6 @@ pub fn stats(samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)], cl
     if s.max_drawdown > FLAT {
         s.recovery_factor = Some(s.net / s.max_drawdown);
     }
-
-    let days = daily(samples, clock);
-    s.trading_days = days.len();
-    s.green_days = days.values().filter(|d| d.net > FLAT).count();
-    s.best_day =
-        days.iter().filter(|(_, d)| d.net > FLAT).max_by(|a, b| a.1.net.total_cmp(&b.1.net)).map(|(k, d)| (*k, d.net));
-    s.worst_day =
-        days.iter().filter(|(_, d)| d.net < -FLAT).min_by(|a, b| a.1.net.total_cmp(&b.1.net)).map(|(k, d)| (*k, d.net));
-    s
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -233,7 +255,7 @@ pub fn daily(samples: &[Sample<'_>], clock: Clock) -> BTreeMap<NaiveDate, DaySta
         let d = days.entry(day).or_default();
         d.net += x.net();
         d.trades += 1;
-        d.wins += usize::from(x.net() > FLAT);
+        d.wins += usize::from(x.score() > FLAT);
         if let Some(r) = x.r {
             d.r += r;
             d.r_trades += 1;
@@ -424,8 +446,10 @@ pub fn breakdown<K: Ord + Clone>(
             let net = x.net();
             g.trades += 1;
             g.net += net;
-            if net > FLAT {
+            if x.score() > FLAT {
                 g.wins += 1;
+            }
+            if net > FLAT {
                 g.gross_profit += net;
             } else if net < -FLAT {
                 g.gross_loss += net;

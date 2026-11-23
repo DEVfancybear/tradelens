@@ -524,6 +524,7 @@ mod tests {
             sl: 2645.0,
             tp: 0.0,
             risk: Some(100.0),
+            result_r: None,
             reason: None,
         }
     }

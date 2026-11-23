@@ -501,9 +501,49 @@ pub(super) fn split_files(raw: &str) -> Vec<String> {
         .collect()
 }
 
+/// `%20` and the like decoded; text that is not valid percent-encoding is returned as it is.
+pub(super) fn percent_decode(raw: &str) -> String {
+    let bytes = raw.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        let hex = |i: usize| bytes.get(i).and_then(|b| char::from(*b).to_digit(16));
+        if bytes[at] == b'%'
+            && let (Some(high), Some(low)) = (hex(at + 1), hex(at + 2))
+            && let Ok(byte) = u8::try_from(high * 16 + low)
+        {
+            out.push(byte);
+            at += 3;
+        } else {
+            out.push(bytes[at]);
+            at += 1;
+        }
+    }
+    String::from_utf8(out).unwrap_or_else(|_| raw.to_owned())
+}
+
+/// Whether a part of a files cell names an image: a file name or a link whose path ends in an
+/// image extension (a query string is ignored).
+pub(super) fn is_image_name(part: &str) -> bool {
+    let path = part.split(['?', '#']).next().unwrap_or(part).trim().to_ascii_lowercase();
+    crate::attachments::IMAGE_EXTENSIONS.iter().any(|extension| {
+        path.len() > extension.len() + 1
+            && path.ends_with(extension)
+            && path.as_bytes()[path.len() - extension.len() - 1] == b'.'
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn decodes_percent_escapes_and_spots_images() {
+        assert_eq!(percent_decode("image%20295.png"), "image 295.png");
+        assert_eq!(percent_decode("a%2Fb%zz"), "a/b%zz");
+        assert!(is_image_name("image 1.PNG") && is_image_name("https://x.test/a/b.jpg?w=2"));
+        assert!(!is_image_name("notes.txt") && !is_image_name("png") && !is_image_name(".png"));
+    }
 
     fn moment(text: &str, order: DateOrder) -> Option<String> {
         parse_datetime(text, order).map(|m| m.format("%Y-%m-%d %H:%M:%S").to_string())

@@ -23,7 +23,7 @@ fn the_sidebar_switches_pages() {
     app.press("role:button[Lệnh]").expect("the trades row is a button");
     app.wait_for("Gom từ deal MT5 theo position; bấm một lệnh để mở nhật ký").expect("the trades page opens");
     app.press("role:button[Đăng nhập & sync]").expect("the cloud row is a button");
-    app.wait_for("Đăng nhập Google hoặc Microsoft để sync lên Google Drive / OneDrive.").expect("the cloud page opens");
+    app.wait_for("Dùng TradeLens trên nhiều máy và không lo mất nhật ký").expect("the cloud page opens");
 }
 
 #[test]

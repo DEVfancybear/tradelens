@@ -23,8 +23,10 @@ const PROVIDER: &str = "Memory";
 
 /// A machine: a database in its own folder (the image folder is next to it).
 struct Machine {
-    dir: TempDir,
+    // Fields drop in order: the database closes before its folder is removed. The other way
+    // round, Windows cannot delete the open file and the folder is left in the temp directory.
     db: Db,
+    dir: TempDir,
     name: &'static str,
 }
 
@@ -32,7 +34,7 @@ impl Machine {
     fn new(name: &'static str) -> Self {
         let dir = tempfile::tempdir().expect("a temp dir");
         let db = Db::open(dir.path().join("tradelens.db")).expect("opens");
-        Self { dir, db, name }
+        Self { db, dir, name }
     }
 
     fn images(&self) -> std::path::PathBuf {
@@ -106,6 +108,7 @@ fn deal(ticket: i64, position: i64, entry: DealEntry, profit: f64) -> Deal {
         sl: 0.0,
         tp: 0.0,
         risk: None,
+        result_r: None,
         reason: None,
     }
 }

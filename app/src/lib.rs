@@ -13,6 +13,7 @@
 //! - `ui`         the app's styled components and tokens; pages use only these
 //! - `pages`      one module per screen
 
+mod cloud;
 mod format;
 mod insight;
 mod journal_draft;
@@ -53,6 +54,7 @@ pub fn App() -> impl IntoElement {
 pub fn Workspace() -> impl IntoElement {
     ui::theme::install();
     store::provide();
+    cloud::provide();
     pages::follow_appearance();
     view().flex_1().bg(move || theme().background).text_color(move || theme().foreground).child(shell::shell())
 }

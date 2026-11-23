@@ -35,6 +35,7 @@ impl Building {
                 fee: 0.0,
                 profit: 0.0,
                 risk: None,
+                result_r: None,
                 magic: deal.magic,
                 comment: deal.comment.clone(),
                 manual: deal.ticket < 0,
@@ -78,6 +79,9 @@ impl Building {
         self.exit_value += deal.price * volume;
         self.exit_volume += volume;
         self.trade.profit += profit;
+        if let Some(r) = deal.result_r {
+            self.trade.result_r = Some(self.trade.result_r.unwrap_or(0.0) + r);
+        }
         self.trade.close_price = Some(self.exit_value / self.exit_volume.max(EPS));
         if self.open_volume <= EPS {
             self.trade.close_time = Some(deal.time_msc);

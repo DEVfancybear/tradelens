@@ -405,12 +405,18 @@ fn journal_values(
         .then(|| playbooks.iter().find(|p| fold_name(&p.name) == setup_name).map(|p| p.id))
         .flatten();
     let mut notes = planned.notes.clone();
-    if !planned.screenshots.is_empty() {
+    // Names that no image was found for stay in the notes, so the trader can find them again.
+    let unplaced: &[String] = if planned.attachments.is_empty() && planned.missing_files.is_empty() {
+        &planned.screenshots
+    } else {
+        &planned.missing_files
+    };
+    if !unplaced.is_empty() {
         if !notes.is_empty() {
             notes.push_str("\n\n");
         }
         notes.push_str("Ảnh: ");
-        notes.push_str(&planned.screenshots.join("\n"));
+        notes.push_str(&unplaced.join("\n"));
     }
     let mut custom = crate::catalog::CustomValues::new();
     for (planned_key, value) in &planned.custom {
@@ -435,6 +441,7 @@ fn journal_values(
         custom,
         followed_plan: planned.followed_plan,
         notes,
+        screenshots: planned.attachments.clone(),
         ..JournalEntry::default()
     })
 }
@@ -469,6 +476,9 @@ fn fill_empty(entry: &mut JournalEntry, planned: JournalEntry) {
     entry.review_later |= planned.review_later;
     if entry.notes.is_empty() {
         entry.notes = planned.notes;
+    }
+    if entry.screenshots.is_empty() {
+        entry.screenshots = planned.screenshots;
     }
     for (key, value) in planned.custom {
         entry.custom.entry(key).or_insert(value);
