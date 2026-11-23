@@ -599,7 +599,6 @@ fn plan_card(key: &Rc<TradeKey>) -> impl IntoElement {
     let store = store();
     let key = Rc::clone(key);
     let plan_key = Rc::clone(&key);
-    let write = writer();
     let view_of = move || {
         let snapshot = store.snapshot();
         let trade = snapshot.row(&plan_key)?;
@@ -610,7 +609,7 @@ fn plan_card(key: &Rc<TradeKey>) -> impl IntoElement {
         let snapshot = store.snapshot_now();
         if let Some(row) = snapshot.row(&key) {
             let entry = snapshot.journal(&key);
-            entry_plan::enqueue(entry_plan::PlanRequest::of_row(row, entry.plan, entry.playbook_id), write);
+            entry_plan::enqueue(entry_plan::PlanRequest::of_row(row, entry.plan, entry.playbook_id));
         }
     };
     plan_vs_actual(view_of, write_plan)

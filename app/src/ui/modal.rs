@@ -16,13 +16,14 @@
 //! - the keyboard focus moved onto the panel when it opens, and kept in the layer by two sentinels
 //!   at its ends, so that Tab and Shift+Tab do not go on into the page behind.
 //!
-//! Escape is bound with the layer's own owner: the binding goes with the layer when the modal closes,
+//! Escape is bound with the layer's own owner, to fire wherever the focus is (in a text field of the
+//! panel too, which the default binding would skip): the binding goes with the layer when the modal closes,
 //! and nothing is bound while no modal is open.
 
 use std::{cell::Cell, rc::Rc};
 
 use nsh_base::{button, theme};
-use nsh_core::prelude::*;
+use nsh_core::{keymap::When, prelude::*};
 
 use super::{
     controls::{Variant, icon_action},
@@ -43,7 +44,6 @@ const SENTINEL: f32 = 1.0;
 pub(crate) struct Modal {
     id: String,
     title: SharedString,
-    close_label: SharedString,
     width: f32,
     scrim_dismisses: bool,
     body: Rc<dyn Fn() -> AnyElement>,
@@ -63,7 +63,6 @@ impl Modal {
         Self {
             id: id.into(),
             title: title.into(),
-            close_label: SharedString::from("Đóng"),
             width: DEFAULT_WIDTH,
             scrim_dismisses: true,
             body: Rc::new(move || body().into_element()),
@@ -74,12 +73,6 @@ impl Modal {
     /// The panel's width in points.
     pub(crate) fn width(mut self, width: f32) -> Self {
         self.width = width;
-        self
-    }
-
-    /// What the close button is called to a screen reader (and a test).
-    pub(crate) fn close_label(mut self, label: impl Into<SharedString>) -> Self {
-        self.close_label = label.into();
         self
     }
 
@@ -133,7 +126,10 @@ pub(crate) fn host() -> impl IntoElement {
 /// The scrim, the panel and the sentinels of one modal.
 fn layer(modal: &Modal) -> impl IntoElement + use<> {
     let dismiss = Rc::clone(&modal.on_dismiss);
-    on_key("escape", {
+    // `When::Always`: with the default, a binding of a key a text input uses (Escape is one) does
+    // not fire while a field of the panel has the focus, which is where the trader is when
+    // they want out of a form.
+    on_key_with("escape", KeyOptions { when: When::Always, ..KeyOptions::default() }, {
         let dismiss = Rc::clone(&dismiss);
         move |_| dismiss()
     });
@@ -219,7 +215,7 @@ fn panel(modal: &Modal, dismiss: &Rc<dyn Fn()>, panel_ref: ElementRef) -> impl I
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(move || theme().popover_foreground),
                 )
-                .child(icon_action(Icon::Close, modal.close_label.clone(), Variant::Ghost, move || close())),
+                .child(icon_action(Icon::Close, "Đóng", Variant::Ghost, move || close())),
         )
         .child(scroll().min_h(px(0.0)).child(view().px_5().pb_5().child((modal.body)())))
 }
@@ -232,7 +228,7 @@ mod tests {
     use nsh_testing::Headless;
 
     use super::*;
-    use crate::ui::controls::{action, commit_field};
+    use crate::ui::controls::{action, commit_field, textarea};
 
     /// A page with a field, two buttons that open modals, and the layer on top; what the modals
     /// were asked is shown as text.
@@ -272,6 +268,26 @@ mod tests {
                 .keeps_open_on_scrim(),
             );
         };
+        let third = move || {
+            open(Modal::new(
+                "third",
+                "Hộp thứ ba",
+                || {
+                    let draft = signal(String::new());
+                    view().gap_2().child(text("nội dung ba")).child(textarea(
+                        "Vùng chữ trong hộp",
+                        "Gõ ở đây",
+                        3,
+                        move || draft.get(),
+                        move |t| draft.set(t.to_owned()),
+                    ))
+                },
+                move || {
+                    note("third dismissed");
+                    close("third");
+                },
+            ));
+        };
         view()
             .flex_1()
             .child(
@@ -281,6 +297,7 @@ mod tests {
                     .child(commit_field("Ô sau hộp", "Ô sau hộp", String::new, |_| {}))
                     .child(action("Mở một", Variant::Secondary, first))
                     .child(action("Mở hai", Variant::Secondary, second))
+                    .child(action("Mở ba", Variant::Secondary, third))
                     .child(action("Mở cả hai", Variant::Secondary, move || {
                         first();
                         second();
@@ -333,6 +350,26 @@ mod tests {
         app.press_key("escape").expect("Escape after it closed");
         app.wait(Duration::from_millis(300)).expect("the app runs");
         assert!(app.screen().shows("log first dismissed"), "nothing more was asked");
+    }
+
+    /// The trader is typing when they want out: Escape must close the modal from inside a text
+    /// field of the panel as it does from the panel itself.
+    #[test]
+    fn escape_dismisses_the_modal_from_inside_a_text_field() {
+        let mut app = start();
+        app.press("Mở một").expect("opens");
+        app.wait_for("nội dung một").expect("the body shows");
+        app.type_text("label:Ô trong hộp", "đang gõ").expect("types in it");
+        app.press_key("escape").expect("Escape in an input");
+        app.wait_for("log first dismissed").expect("Escape asked to dismiss");
+        app.wait_for_gone("nội dung một", Duration::from_secs(5)).expect("closed");
+
+        app.press("Mở ba").expect("opens the one with a text area");
+        app.wait_for("nội dung ba").expect("the body shows");
+        app.type_text("label:Vùng chữ trong hộp", "đang gõ nhiều dòng").expect("types in it");
+        app.press_key("escape").expect("Escape in a text area");
+        app.wait_for("text:/third dismissed/").expect("Escape asked to dismiss");
+        app.wait_for_gone("nội dung ba", Duration::from_secs(5)).expect("closed");
     }
 
     #[test]

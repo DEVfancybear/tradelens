@@ -11,6 +11,7 @@ use nsh_core::prelude::*;
 use super::{
     icons::{Icon, icon},
     motion,
+    theme::destructive_foreground,
 };
 
 /// The size of the icon in a sidebar row.
@@ -25,6 +26,8 @@ pub(crate) enum Variant {
     Secondary,
     /// Actions in toolbars and rows.
     Ghost,
+    /// An action that deletes or throws something away.
+    Destructive,
 }
 
 /// Whether a button can be pressed, read again whenever it is asked.
@@ -189,6 +192,7 @@ impl Variant {
             Self::Primary => theme().primary_foreground,
             Self::Secondary => theme().secondary_foreground,
             Self::Ghost => theme().foreground,
+            Self::Destructive => destructive_foreground(),
         }
     }
 
@@ -203,6 +207,7 @@ impl Variant {
             Self::Primary => theme().primary,
             Self::Secondary => theme().secondary,
             Self::Ghost => AdaptiveColor::TRANSPARENT,
+            Self::Destructive => theme().destructive,
         }
     }
 }
@@ -228,7 +233,7 @@ fn button_shell(variant: Variant, enabled: Enabled, on_press: impl Fn() + 'stati
         // A button with no fill of its own shows the hover as a fill.
         .hover(move |s| match variant {
             Variant::Ghost => s.bg(move || theme().accent),
-            Variant::Primary | Variant::Secondary => s.opacity(0.9),
+            Variant::Primary | Variant::Secondary | Variant::Destructive => s.opacity(0.9),
         })
         .active(|s| s.scale(motion::PRESS_SCALE))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
@@ -236,7 +241,7 @@ fn button_shell(variant: Variant, enabled: Enabled, on_press: impl Fn() + 'stati
             let s = s.opacity(DISABLED_OPACITY).cursor(nsh_core::Cursor::Default);
             match variant {
                 Variant::Ghost => s.bg(AdaptiveColor::TRANSPARENT),
-                Variant::Primary | Variant::Secondary => s.bg(move || theme().muted),
+                Variant::Primary | Variant::Secondary | Variant::Destructive => s.bg(move || theme().muted),
             }
         })
 }

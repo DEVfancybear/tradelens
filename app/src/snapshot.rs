@@ -263,7 +263,8 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
                     origin: origins
                         .get(&(account_id, trade.key.position_id))
                         .copied()
-                        .unwrap_or_else(|| trade.origin()),
+                        // Every trade has deals, so this is only the safe answer (not editable).
+                        .unwrap_or(Origin::Mt5),
                     digits: digits.get(&trade.symbol).copied().unwrap_or(MIN_DIGITS),
                 };
                 make_row(trade, deals, &journals, &playbooks, (&title, &currency), (clock, server_offset_min), looks)

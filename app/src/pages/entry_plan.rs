@@ -1,7 +1,7 @@
-//! Popup ghi kế hoạch: a dialog over any screen that writes the plan of a trade (the reason,
-//! entry, stop, target, risk, chart, setup). "Ghi sau" keeps the trade in the review queue
-//! instead; several plans wait their turn, one dialog at a time. Opened from a trade's page
-//! ("Sửa kế hoạch"); the MT5 connection of v0.4 is to open it for positions that just opened.
+//! Popup ghi kế hoạch: a modal over any screen that writes the plan of a trade (the reason,
+//! entry, stop, target, risk, chart, setup). Only the trader opens it, from a trade's page
+//! ("Viết kế hoạch" / "Sửa kế hoạch"); closing it (✕, Escape) writes nothing. Several plans
+//! wait their turn, one modal at a time.
 //! Design: `docs/design/screens/entry-plan-prompt.html`.
 
 use nsh_base::theme;
@@ -19,10 +19,10 @@ use crate::{
     format,
     journal_draft::{key_of_choice, key_or_empty, ticked, unticked},
     snapshot::TradeRow,
-    store::{Reading, Writer, query, query_with, store, writer},
+    store::{Reading, query, query_with, store, writer},
     ui::{
         chips::{Tone, chip},
-        controls::{Choice, Variant, action, action_icon, select_value, textarea},
+        controls::{Choice, Variant, action_icon, select_value, textarea},
         forms::{NumberRange, checklist, number_field},
         icons::Icon,
         modal::{self, Modal},
@@ -40,7 +40,8 @@ pub(crate) struct PlanRequest {
     pub(crate) target: TradeKey,
     pub(crate) symbol: String,
     pub(crate) side: Side,
-    pub(crate) volume: f64,
+    /// The lot size when the source gave one: a journal kept in R has none.
+    pub(crate) volume: Option<f64>,
     /// The first line under the title: where it came from and how it stands.
     pub(crate) origin: String,
     /// The plan the dialog starts from: the MT5 levels, or the plan already written.
@@ -59,8 +60,8 @@ impl PlanRequest {
             target: trade.key.clone(),
             symbol: trade.symbol.clone(),
             side: trade.side,
-            volume: trade.volume,
-            origin: match trade.origin() {
+            volume: trade.volume_known().then_some(trade.volume),
+            origin: match row.origin {
                 tradelens_core::Origin::Mt5 => format!("{} · lệnh {}", row.account, trade.key.position_id),
                 other => format!("{} · {}", row.account, other.label()),
             },
@@ -80,15 +81,14 @@ impl PlanRequest {
 struct Queue(Vec<PlanRequest>);
 
 /// Puts a plan in line: it shows at once when no modal is on screen, else after the one that
-/// is. A plan for a trade that is already in line is not added twice. `write` is the handle
-/// "Ghi sau" and Escape write with, made while building the screen that asks.
-pub(crate) fn enqueue(request: PlanRequest, write: Writer) {
+/// is. A plan for a trade that is already in line is not added twice.
+pub(crate) fn enqueue(request: PlanRequest) {
     let queue = global::<Queue>();
     if queue.with_untracked(|queue| queue.0.iter().any(|waiting| waiting.target == request.target)) {
         return;
     }
     queue.update(|queue| queue.0.push(request.clone()));
-    modal::open(modal_of(request, write));
+    modal::open(modal_of(request));
 }
 
 /// Takes the plan for `target` out of line, so that a second press of the same button cannot
@@ -103,40 +103,20 @@ fn modal_id(target: &TradeKey) -> String {
     format!("entry-plan:{}:{}:{}", target.account_id, target.position_id, target.segment)
 }
 
-/// The modal of a plan. Escape and the close button both mean "Ghi sau"; a press on the scrim
-/// does nothing, since what was typed in the form is not saved.
-fn modal_of(request: PlanRequest, write: Writer) -> Modal {
+/// The modal of a plan. Escape and the close button just close it and show the next plan, writing
+/// nothing; a press on the scrim does nothing, since what was typed in the form is not saved.
+fn modal_of(request: PlanRequest) -> Modal {
     let target = request.target.clone();
     Modal::new(
         modal_id(&request.target),
         "Kế hoạch vào lệnh",
         move || panel(&request).into_element(),
-        move || later(write, &target),
-    )
-    .width(PANEL_WIDTH)
-    .close_label("Đóng và ghi kế hoạch sau")
-    .keeps_open_on_scrim()
-}
-
-/// What "Ghi sau" and Escape do: flag the trade for review, then show the next plan. The
-/// dialog stays until the flag is written: the write runs in the dialog's own scope, which
-/// closing it would cancel.
-fn later(write: Writer, target: &TradeKey) {
-    let target = target.clone();
-    let key = target.clone();
-    write.run(
-        move |db| {
-            let mut entry = db.journal(&key)?.unwrap_or_default();
-            entry.review_later = true;
-            db.save_journal(&key, &entry)
-        },
-        move |result| {
-            if let Err(error) = result {
-                log::warn!("entry plan: {error}");
-            }
+        move || {
             finish(&target);
         },
-    );
+    )
+    .width(PANEL_WIDTH)
+    .keeps_open_on_scrim()
 }
 
 /// Planned reward over planned risk as the dialog shows it: `1 : 3.2`.
@@ -177,7 +157,7 @@ fn plan_warnings(
         side: request.side,
         open_time: server_time(now_utc_ms, own.account.server_offset_min),
         close_time: None,
-        volume: request.volume,
+        volume: request.volume.unwrap_or_default(),
         open_price: request.seed.entry.unwrap_or_default(),
         close_price: None,
         sl: request.seed.stop_loss.unwrap_or_default(),
@@ -282,8 +262,6 @@ fn save_plan(db: &mut Db, key: &TradeKey, draft: &Draft, now_utc_ms: i64) -> Res
     if entry.planned_risk.is_none() {
         entry.planned_risk = draft.risk;
     }
-    // The plan is written: nothing is waiting for it in the review queue any more.
-    entry.review_later = false;
     db.save_journal(key, &entry)
 }
 
@@ -458,13 +436,12 @@ fn rule_warnings(request: PlanRequest, risk: Signal<Option<f64>>) -> Memo<Vec<St
 fn panel(request: &PlanRequest) -> impl IntoElement {
     let write = writer();
     let choices = query(load_choices);
-    let target = request.target.clone();
     let fields = Fields::of(request);
     let busy = signal(false);
     let failure = signal(None::<String>);
     let waiting = computed(move || global::<Queue>().with(|q| q.0.len().saturating_sub(1)));
     let save = {
-        let target = target.clone();
+        let target = request.target.clone();
         move || {
             if busy.get_untracked() {
                 return;
@@ -485,7 +462,6 @@ fn panel(request: &PlanRequest) -> impl IntoElement {
             );
         }
     };
-    let skip = move || later(write, &target);
     let thesis = fields.thesis;
     let warnings = rule_warnings(request.clone(), fields.risk);
     view()
@@ -508,7 +484,7 @@ fn panel(request: &PlanRequest) -> impl IntoElement {
         .child(levels(fields.entry, fields.stop, fields.take, fields.risk))
         .child(setup_fields(fields, choices))
         .child(dynamic(move || failure.get().map(|error| text(error).text_sm().text_color(tokens::loss()))))
-        .child(footer(busy, skip, save))
+        .child(footer(busy, save))
 }
 
 /// The title block: where the position came from, what it is, and how many wait behind it.
@@ -525,7 +501,14 @@ fn header(request: &PlanRequest, waiting: Memo<usize>) -> impl IntoElement {
     .into_iter()
     .flatten()
     .collect();
-    let entry = seed.entry.map_or_else(String::new, |p| format!(" @ {}", format::price(p)));
+    // A trade with no known lot (a journal kept in R) shows no lot, as the trade's page does.
+    let figures: Vec<String> = [
+        request.volume.map(|v| format!("{} lot", format::lots(v))),
+        seed.entry.map(|p| format!("@ {}", format::price(p))),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
     view().flex_row().items_start().justify_between().gap_3().child(
         view()
             .gap_1()
@@ -539,11 +522,9 @@ fn header(request: &PlanRequest, waiting: Memo<usize>) -> impl IntoElement {
                     .gap_2()
                     .child(text(request.symbol.clone()).text_xl().font_weight(FontWeight::SEMIBOLD))
                     .child(chip(side.label(), tone))
-                    .child(
-                        text(format!("{} lot{entry}", format::lots(request.volume)))
-                            .font_family(tokens::mono)
-                            .tabular_nums()
-                            .text_sm(),
+                    .children(
+                        (!figures.is_empty())
+                            .then(|| text(figures.join(" ")).font_family(tokens::mono).tabular_nums().text_sm()),
                     ),
             )
             .child(
@@ -604,7 +585,7 @@ fn levels(
         )
 }
 
-fn footer(busy: Signal<bool>, skip: impl Fn() + 'static, save: impl Fn() + 'static) -> impl IntoElement {
+fn footer(busy: Signal<bool>, save: impl Fn() + 'static) -> impl IntoElement {
     view()
         .flex_row()
         .flex_wrap()
@@ -618,13 +599,11 @@ fn footer(busy: Signal<bool>, skip: impl Fn() + 'static, save: impl Fn() + 'stat
                 .text_xs()
                 .text_color(move || theme().muted_foreground),
         )
-        .child(view().flex_row().items_center().gap_2().child(action("Ghi sau", Variant::Ghost, skip)).child(
-            action_icon(Icon::Check, "Lưu kế hoạch", Variant::Primary, move || {
-                if !busy.get_untracked() {
-                    save();
-                }
-            }),
-        ))
+        .child(action_icon(Icon::Check, "Lưu kế hoạch", Variant::Primary, move || {
+            if !busy.get_untracked() {
+                save();
+            }
+        }))
 }
 
 #[cfg(test)]
@@ -639,7 +618,7 @@ mod tests {
             target: TradeKey { account_id, position_id: 77, segment: 0 },
             symbol: "XAUUSD".into(),
             side: Side::Long,
-            volume: 0.5,
+            volume: Some(0.5),
             origin: String::new(),
             seed: EntryPlan { entry: Some(2648.2), stop_loss: Some(2644.3), ..EntryPlan::default() },
             playbook_id: None,
@@ -751,14 +730,14 @@ mod tests {
         assert_eq!(plan_warnings(&db, &stranger, Some(5_000.0), at_noon()).expect("reads"), no_warnings());
     }
     #[test]
-    fn saving_a_plan_writes_it_and_takes_the_trade_out_of_the_review_queue() {
+    fn saving_a_plan_writes_it_and_leaves_the_review_flag_as_it_was() {
         use tradelens_core::AccountInfo;
         let mut db = Db::in_memory().expect("opens");
         let account = db
             .upsert_account(&AccountInfo { login: "52012345".into(), server: "S".into(), ..AccountInfo::default() })
             .expect("account");
         let key = TradeKey { account_id: account, position_id: 77, segment: 0 };
-        // "Ghi sau" first: the trade is flagged.
+        // The trader flagged the trade for review in its journal: writing a plan leaves that alone.
         let mut flagged = db.journal(&key).expect("reads").unwrap_or_default();
         flagged.review_later = true;
         db.save_journal(&key, &flagged).expect("saves");
@@ -783,7 +762,7 @@ mod tests {
         assert_eq!(plan.written_at, 5_000);
         assert_eq!(entry.setup_grade.as_deref(), Some("a"));
         assert_eq!(entry.planned_risk, Some(150.0));
-        assert!(!entry.review_later);
+        assert!(entry.review_later, "the flag the trader set is theirs to clear");
         assert_eq!(entry.checklist, [1]);
     }
 }

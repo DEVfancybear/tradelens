@@ -4,7 +4,9 @@
 //! typed in a field, prices keep their decimals, and the figures of the list fit their columns.
 
 use nsh_core::{ApproxTextEngine, TextEngine};
-use nsh_testing::Headless;
+use std::time::Duration;
+
+use nsh_testing::{DialogAnswer, Headless};
 use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, Gaps, JournalEntry, ManualTrade, Origin, Side, TradeKey, import::notion,
     model::AccountInfo, time::parse_mt5_time, trades::build_trades,
@@ -12,6 +14,9 @@ use tradelens_core::{
 
 mod support;
 use support::{Fixture, WAIT, wait_until};
+
+/// How long the app runs to show that a question left unanswered, or cancelled, did nothing.
+const QUIET: Duration = Duration::from_millis(500);
 
 fn time(text: &str) -> i64 {
     parse_mt5_time(text).expect("fixture times parse")
@@ -88,9 +93,9 @@ fn start(fixture: &Fixture) -> Headless {
 }
 
 fn open_first(app: &mut Headless, symbol: &str) {
-    app.wait_for(&format!("role:button[Mở nhật ký lệnh {symbol}]")).expect("the list shows the trade");
+    app.wait_for_within(&format!("role:button[Mở nhật ký lệnh {symbol}]"), WAIT).expect("the list shows the trade");
     app.press(&format!("role:button[Mở nhật ký lệnh {symbol}] >> nth=0")).expect("the trade opens");
-    app.wait_for("Chi tiết lệnh").expect("the trade's page");
+    app.wait_for_within("Chi tiết lệnh", WAIT).expect("the trade's page");
 }
 
 /// Replaces what a number field holds.
@@ -116,12 +121,13 @@ fn a_trade_the_trader_typed_is_edited_and_shows_its_new_facts_everywhere() {
     open_first(&mut app, "EURUSD");
 
     // 5-digit prices keep their decimals, and the symbol is told apart from the account in "nguồn".
-    app.wait_for("1.08500").expect("the entry price has the symbol's five decimals");
-    app.wait_for("1.08505").expect("so does the exit price");
-    app.wait_for("text:/nguồn: Nhập tay$/").expect("the source comes from how the trade was written");
+    app.wait_for_within("1.08500", WAIT).expect("the entry price has the symbol's five decimals");
+    app.wait_for_within("1.08505", WAIT).expect("so does the exit price");
+    app.wait_for_within("text:/nguồn: Nhập tay$/", WAIT).expect("the source comes from how the trade was written");
 
     app.press("role:button[Sửa lệnh]").expect("the edit button");
-    app.wait_for("Số liệu của lệnh; nhật ký, ảnh và liên kết của lệnh giữ nguyên").expect("the form opens");
+    app.wait_for_within("Số liệu của lệnh; nhật ký, ảnh và liên kết của lệnh giữ nguyên", WAIT)
+        .expect("the form opens");
     wait_until("the form being filled", || {
         app.screen().input_text("label:Symbol").is_ok_and(|text| text == Some("EURUSD"))
     });
@@ -135,7 +141,7 @@ fn a_trade_the_trader_typed_is_edited_and_shows_its_new_facts_everywhere() {
     app.press_key("enter").expect("the time is kept");
     wait_until("the time being read", || app.screen().input_text("label:Giờ ra").is_ok_and(|t| t == Some("11:30")));
     app.press("role:button[Lưu thay đổi]").expect("saves");
-    app.wait_for("Chi tiết lệnh").expect("back on the trade's page");
+    app.wait_for_within("Chi tiết lệnh", WAIT).expect("back on the trade's page");
 
     let db = fixture.db();
     wait_until("the edit being stored", || {
@@ -148,11 +154,11 @@ fn a_trade_the_trader_typed_is_edited_and_shows_its_new_facts_everywhere() {
     assert_eq!(db.journal(&key).expect("reads").map(|j| j.notes).as_deref(), Some("vào theo trend"));
 
     // The page, the list and the overview read the new facts.
-    app.wait_for("1.091").expect("the page shows the new exit price");
-    app.wait_for("+2.5R").expect("and the R that was typed");
+    app.wait_for_within("1.091", WAIT).expect("the page shows the new exit price");
+    app.wait_for_within("+2.5R", WAIT).expect("and the R that was typed");
     app.press("role:button[‹ Lệnh]").expect("back to the list");
-    app.wait_for("+2.5R").expect("the list shows the R");
-    app.wait_for("text:/^19\\/11 11:30$/").expect("and the new closing time");
+    app.wait_for_within("+2.5R", WAIT).expect("the list shows the R");
+    app.wait_for_within("text:/^19\\/11 11:30$/", WAIT).expect("and the new closing time");
 }
 
 #[test]
@@ -164,9 +170,10 @@ fn ctrl_e_opens_the_edit_form_of_a_trade_the_trader_owns() {
     let mut app = start(&fixture);
     open_first(&mut app, "EURUSD");
     app.press_key("mod+e").expect("the shortcut");
-    app.wait_for("Số liệu của lệnh; nhật ký, ảnh và liên kết của lệnh giữ nguyên").expect("the form opens");
+    app.wait_for_within("Số liệu của lệnh; nhật ký, ảnh và liên kết của lệnh giữ nguyên", WAIT)
+        .expect("the form opens");
     app.press("role:button[Huỷ]").expect("cancels");
-    app.wait_for("Chi tiết lệnh").expect("back on the trade");
+    app.wait_for_within("Chi tiết lệnh", WAIT).expect("back on the trade");
 }
 
 #[test]
@@ -177,8 +184,8 @@ fn a_trade_of_the_terminal_has_no_edit_button_and_says_why() {
     drop(db);
     let mut app = start(&fixture);
     open_first(&mut app, "XAUUSD");
-    app.wait_for("text:/nguồn: MT5/").expect("the source");
-    app.wait_for("Số liệu của lệnh lấy từ MT5 nên không sửa được; nhật ký và ảnh chart vẫn sửa được.")
+    app.wait_for_within("text:/nguồn: MT5/", WAIT).expect("the source");
+    app.wait_for_within("Số liệu của lệnh lấy từ MT5 nên không sửa được; nhật ký và ảnh chart vẫn sửa được.", WAIT)
         .expect("the one-line note");
     assert!(!app.screen().matches("role:button[Sửa lệnh]").expect("a selector"), "no button to edit the facts");
     app.press_key("mod+e").expect("the shortcut is pressed");
@@ -207,21 +214,35 @@ fn deleting_a_trade_asks_first_and_takes_its_journal_with_it() {
     let mut app = start(&fixture);
     open_first(&mut app, "EURUSD");
 
-    // "Huỷ" leaves everything where it is.
+    // The question is the system's alert: it is answered through the headless dialog API.
+    // Never answered, it waits and nothing is deleted.
+    app.answer_dialogs_myself();
     app.press("role:button[Xoá lệnh]").expect("the delete button");
-    app.wait_for("Xoá lệnh EURUSD cùng nhật ký và ảnh chart của nó. Không hoàn tác được.").expect("the question");
-    app.press("label:Xoá lệnh? >> role:button[Huỷ]").expect("cancels");
-    app.wait_for_gone("Xoá lệnh EURUSD cùng nhật ký", WAIT).expect("the question closes");
+    app.wait(QUIET).expect("the app runs");
+    let question = app.pending_dialog().expect("the question is asked and waits");
+    assert_eq!(question.title.as_deref(), Some("Xoá lệnh?"));
+    assert_eq!(
+        question.message.as_deref(),
+        Some("Xoá lệnh EURUSD cùng nhật ký và ảnh chart của nó. Không hoàn tác được."),
+        "the question names the trade"
+    );
+    assert_eq!(deal_count(&fixture.db()), 4, "an unanswered question deletes nothing");
+
+    // "Huỷ" leaves everything where it is.
+    app.answer_dialog(DialogAnswer::Press("Huỷ".to_owned())).expect("cancels");
+    app.wait(QUIET).expect("the app runs");
     assert_eq!(deal_count(&fixture.db()), 4, "nothing was deleted");
+    assert!(app.pending_dialog().is_none(), "the question is closed");
+    assert!(app.screen().shows("Chi tiết lệnh"), "the trade stays open");
 
     app.press("role:button[Xoá lệnh]").expect("the delete button again");
-    app.press("label:Xoá lệnh? >> role:button[Xoá lệnh]").expect("confirms");
-    app.wait_for("Hiển thị 1 / 1 lệnh").expect("back on the list, which reloads");
+    app.answer_dialog(DialogAnswer::Press("Xoá lệnh".to_owned())).expect("confirms");
+    app.wait_for_within("Hiển thị 1 / 1 lệnh", WAIT).expect("back on the list, which reloads");
     let db = fixture.db();
     wait_until("the trade being deleted", || deal_count(&db) == 2);
     assert_eq!(db.journal(&key).expect("reads"), None, "the journal went with it");
     assert!(db.manual_trade(&other).expect("reads").is_some(), "the other trade stays");
-    app.wait_for("GBPUSD").expect("the list shows what is left");
+    app.wait_for_within("GBPUSD", WAIT).expect("the list shows what is left");
 }
 
 #[test]
@@ -232,9 +253,14 @@ fn the_question_about_a_trade_of_the_terminal_says_that_importing_again_brings_i
     drop(db);
     let mut app = start(&fixture);
     open_first(&mut app, "XAUUSD");
+    app.answer_dialogs_myself();
     app.press("role:button[Xoá lệnh]").expect("the delete button");
-    app.wait_for("text:/import lại cùng báo cáo sẽ đưa lệnh trở lại/").expect("the warning");
-    app.press("label:Xoá lệnh? >> role:button[Xoá lệnh]").expect("confirms");
+    let question = app.pending_dialog().expect("the question is asked");
+    assert!(
+        question.message.as_deref().is_some_and(|said| said.contains("import lại cùng báo cáo sẽ đưa lệnh trở lại")),
+        "the warning: {question:?}"
+    );
+    app.answer_dialog(DialogAnswer::Press("Xoá lệnh".to_owned())).expect("confirms");
     wait_until("the trade being deleted", || deal_count(&fixture.db()) == 0);
 }
 
@@ -248,25 +274,35 @@ fn several_trades_are_ticked_and_deleted_with_one_question() {
     }
     drop(db);
     let mut app = start(&fixture);
-    app.wait_for("Hiển thị 5 / 5 lệnh").expect("five trades");
+    app.wait_for_within("Hiển thị 5 / 5 lệnh", WAIT).expect("five trades");
     // Newest first: NZDUSD, AUDUSD, USDJPY, GBPUSD, EURUSD. Tick one, then Shift-tick two further down.
     app.press("label:Chọn lệnh NZDUSD 19/11 09:00").expect("a box");
-    app.wait_for("Đã chọn 1 lệnh").expect("the bar counts");
+    app.wait_for_within("Đã chọn 1 lệnh", WAIT).expect("the bar counts");
     app.hold_keys("shift", true).expect("shift goes down");
     app.press("label:Chọn lệnh GBPUSD 16/11 09:00").expect("a box with shift");
     app.hold_keys("shift", false).expect("shift goes up");
-    app.wait_for("Đã chọn 4 lệnh").expect("the range between them is ticked");
+    app.wait_for_within("Đã chọn 4 lệnh", WAIT).expect("the range between them is ticked");
     // Unticking one by a plain press.
     app.press("label:Chọn lệnh AUDUSD 18/11 09:00").expect("a box");
-    app.wait_for("Đã chọn 3 lệnh").expect("one fewer");
+    app.wait_for_within("Đã chọn 3 lệnh", WAIT).expect("one fewer");
 
+    app.answer_dialogs_myself();
     app.press("role:button[Xoá]").expect("the bar's delete");
-    app.wait_for("Xoá 3 lệnh cùng nhật ký và ảnh chart của chúng. Không hoàn tác được.").expect("one question for all");
-    app.press("label:Xoá 3 lệnh? >> role:button[Huỷ]").expect("cancels");
+    app.wait(QUIET).expect("the app runs");
+    let question = app.pending_dialog().expect("one question for all, and it waits");
+    assert_eq!(question.title.as_deref(), Some("Xoá 3 lệnh?"));
+    assert_eq!(
+        question.message.as_deref(),
+        Some("Xoá 3 lệnh cùng nhật ký và ảnh chart của chúng. Không hoàn tác được.")
+    );
+    assert_eq!(deal_count(&fixture.db()), 10, "an unanswered question deletes nothing");
+    app.answer_dialog(DialogAnswer::Press("Huỷ".to_owned())).expect("cancels");
+    app.wait(QUIET).expect("the app runs");
     assert_eq!(deal_count(&fixture.db()), 10, "cancelling deletes nothing");
+    assert!(app.screen().shows("Đã chọn 3 lệnh"), "the selection stays");
     app.press("role:button[Xoá]").expect("the bar's delete again");
-    app.press("label:Xoá 3 lệnh? >> role:button[Xoá lệnh]").expect("confirms");
-    app.wait_for("Hiển thị 2 / 2 lệnh").expect("the list reloads");
+    app.answer_dialog(DialogAnswer::Press("Xoá lệnh".to_owned())).expect("confirms");
+    app.wait_for_within("Hiển thị 2 / 2 lệnh", WAIT).expect("the list reloads");
     let db = fixture.db();
     wait_until("three trades being deleted", || deal_count(&db) == 4);
     let left: Vec<String> = db.deals(None).expect("deals").into_iter().map(|(_, d)| d.symbol).collect();
@@ -286,10 +322,11 @@ fn a_journal_kept_in_r_is_typed_in_r_with_a_symbol_in_order_and_its_own_source()
     drop(db);
     let mut app = fixture.start(1400.0, 1300.0, |_| {});
     app.press("role:button[Lệnh]").expect("the trades row");
-    app.wait_for("BTCUSD").expect("the journal's trades");
+    app.wait_for_within("BTCUSD", WAIT).expect("the journal's trades");
     app.press("role:button[Thêm lệnh]").expect("the add button");
-    app.wait_for("Nhập lệnh & nhật ký thủ công").expect("the form opens");
-    app.wait_for("text:/^Nhật ký ghi bằng R: lot, giá và lãi\\/lỗ không bắt buộc/").expect("the form leads with R");
+    app.wait_for_within("Nhập lệnh & nhật ký thủ công", WAIT).expect("the form opens");
+    app.wait_for_within("text:/^Nhật ký ghi bằng R: lot, giá và lãi\\/lỗ không bắt buộc/", WAIT)
+        .expect("the form leads with R");
 
     app.type_text("label:Symbol", "eth/usd").expect("a symbol as it is written by hand");
     let this_month = |day: u32| {
@@ -304,10 +341,10 @@ fn a_journal_kept_in_r_is_typed_in_r_with_a_symbol_in_order_and_its_own_source()
     app.press("label:Thời gian ra").expect("the calendar");
     app.press(&format!("role:button[{}]", this_month(3))).expect("a day");
     app.press("role:button[Lưu lệnh]").expect("saves with nothing to say how it went");
-    app.wait_for("text:/Nhập kết quả \\(R\\) của lệnh/").expect("the form says what is missing");
+    app.wait_for_within("text:/Nhập kết quả \\(R\\) của lệnh/", WAIT).expect("the form says what is missing");
 
     app.type_text("label:Kết quả (R)", "1.5").expect("the result in R");
-    app.wait_for("text:/^Tự tính: R nhập tay \\+1\\.5R$/").expect("the line follows");
+    app.wait_for_within("text:/^Tự tính: R nhập tay \\+1\\.5R$/", WAIT).expect("the line follows");
     app.press("role:button[Lưu lệnh]").expect("saves");
 
     let db = fixture.db();
@@ -320,9 +357,10 @@ fn a_journal_kept_in_r_is_typed_in_r_with_a_symbol_in_order_and_its_own_source()
     assert_eq!(origin, Origin::Manual, "typed by hand, though filed in the journal's account");
     let trade = &build_trades(deals[0].0, &deals.iter().map(|(_, d)| d.clone()).collect::<Vec<_>>())[0];
     assert!(!trade.money_known() && !trade.volume_known() && !trade.prices_known() && !trade.time_known());
-    app.wait_for("Chi tiết lệnh").expect("the new trade opens");
-    app.wait_for("text:/nguồn: Nhập tay$/").expect("its source is told by how it was written, not by the account");
-    app.wait_for("+1.5R").expect("its result");
+    app.wait_for_within("Chi tiết lệnh", WAIT).expect("the new trade opens");
+    app.wait_for_within("text:/nguồn: Nhập tay$/", WAIT)
+        .expect("its source is told by how it was written, not by the account");
+    app.wait_for_within("+1.5R", WAIT).expect("its result");
 }
 
 #[test]
@@ -332,7 +370,7 @@ fn a_time_is_typed_in_its_own_field_and_a_wrong_one_is_said_in_words() {
     let mut app = fixture.start(1400.0, 1300.0, |_| {});
     app.press("role:button[Lệnh]").expect("the trades row");
     app.press("role:button[Thêm lệnh]").expect("the add button");
-    app.wait_for("Nhập lệnh & nhật ký thủ công").expect("the form opens");
+    app.wait_for_within("Nhập lệnh & nhật ký thủ công", WAIT).expect("the form opens");
 
     app.type_text("label:Giờ vào", "9:30").expect("a time with a colon");
     app.press_key("enter").expect("kept");
@@ -340,7 +378,7 @@ fn a_time_is_typed_in_its_own_field_and_a_wrong_one_is_said_in_words() {
     app.clear("label:Giờ vào").expect("clears");
     app.type_text("label:Giờ vào", "2599").expect("a time that is not one");
     app.press_key("enter").expect("kept");
-    app.wait_for("text:/^Giờ không hợp lệ: gõ 0930 hoặc 9:30/").expect("the reason, in Vietnamese");
+    app.wait_for_within("text:/^Giờ không hợp lệ: gõ 0930 hoặc 9:30/", WAIT).expect("the reason, in Vietnamese");
     app.clear("label:Giờ vào").expect("clears");
     app.type_text("label:Giờ vào", "0715").expect("a time without a colon");
     app.press_key("enter").expect("kept");
@@ -376,8 +414,8 @@ fn the_figures_of_the_list_fit_their_columns_and_their_titles() {
     drop(db);
     let mut app = fixture.start(1280.0, 900.0, |_| {});
     app.press("role:button[Lệnh]").expect("the trades row");
-    app.wait_for("Hiển thị 2 / 2 lệnh").expect("the trades");
-    app.wait_for("12g 30p").expect("the hold time");
+    app.wait_for_within("Hiển thị 2 / 2 lệnh", WAIT).expect("the trades");
+    app.wait_for_within("12g 30p", WAIT).expect("the hold time");
 
     let engine = ApproxTextEngine;
     let nodes = app.screen().layout_nodes();
@@ -409,7 +447,7 @@ fn a_price_typed_with_five_decimals_is_stored_whole_and_a_symbol_in_lower_case_i
     let mut app = fixture.start(1400.0, 1300.0, |_| {});
     app.press("role:button[Lệnh]").expect("the trades row");
     app.press("role:button[Thêm lệnh]").expect("the add button");
-    app.wait_for("Nhập lệnh & nhật ký thủ công").expect("the form opens");
+    app.wait_for_within("Nhập lệnh & nhật ký thủ công", WAIT).expect("the form opens");
     app.type_text("label:Symbol", "eurusd").expect("symbol");
     let today = chrono::Local::now().date_naive();
     let day = chrono::NaiveDate::from_ymd_opt(chrono::Datelike::year(&today), chrono::Datelike::month(&today), 3)
@@ -427,7 +465,7 @@ fn a_price_typed_with_five_decimals_is_stored_whole_and_a_symbol_in_lower_case_i
     app.type_text("label:Giá ra", "1.08505").expect("close price");
     app.type_text("label:Lãi/lỗ", "25").expect("profit");
     app.press("role:button[Lưu lệnh]").expect("saves");
-    app.wait_for("Chi tiết lệnh").expect("the trade opens");
+    app.wait_for_within("Chi tiết lệnh", WAIT).expect("the trade opens");
 
     let db = fixture.db();
     let position_id = db.deals(None).expect("deals").iter().map(|(_, d)| d.position_id).next().expect("a deal");
@@ -436,6 +474,6 @@ fn a_price_typed_with_five_decimals_is_stored_whole_and_a_symbol_in_lower_case_i
     assert_eq!(trade.symbol, "EURUSD");
     assert_eq!((trade.open_price, trade.close_price), (Some(1.0850), Some(1.08505)), "no price is rounded");
     assert_eq!(tradelens_core::time::naive(trade.open_time).format("%H:%M").to_string(), "09:00");
-    app.wait_for("1.08500").expect("shown with the five decimals the symbol has");
-    app.wait_for("1.08505").expect("both prices line up");
+    app.wait_for_within("1.08500", WAIT).expect("shown with the five decimals the symbol has");
+    app.wait_for_within("1.08505", WAIT).expect("both prices line up");
 }

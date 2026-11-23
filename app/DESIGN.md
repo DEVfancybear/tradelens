@@ -19,7 +19,7 @@ chuẩn mà code trong `src/ui/` phải theo.
 | Nhấn | `primary` (teal) | hành động chính, mục đang chọn, đường equity |
 | Lãi / lỗ | `profit`, `loss` (+ `-soft` làm nền ô) | số P/L, ô lịch, thanh phân tích |
 | Cảnh báo | `warning` | quy tắc sắp chạm ngưỡng |
-| Phá huỷ | `destructive` | màu chữ báo lỗi / phá huỷ (hộp xác nhận là alert hệ thống nên không dùng token) |
+| Phá huỷ | `destructive` (+ `destructive-foreground` là chữ trên nền đó) | nền nút `Variant::Destructive` ("Xoá lệnh", thanh xoá nhiều lệnh), màu chữ báo lỗi; hộp xác nhận là alert hệ thống nên không dùng token |
 | Biểu đồ | `chart-1…5` | chuỗi dữ liệu không mang nghĩa lãi/lỗ |
 
 Không viết mã màu trong code; thiếu vai trò thì thêm token trước.
@@ -41,7 +41,7 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 |---|---|---|
 | `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `empty_state`, `warning_banner(message)` (một dòng cảnh báo quy tắc, `role` Alert) | `parts.rs` | có |
 | `parts::property_row(label, control)` (hàng nhãn + điều khiển đơn giản, khác `properties`) | `parts.rs` | có |
-| `action` / `action_when` (Primary / Secondary / Ghost); nút tắt có một dáng chung (nền `muted`, chữ `muted-foreground`, mờ, không hover) | `controls.rs` | có |
+| `action` / `action_when` (Primary / Secondary / Ghost / Destructive: nền `destructive`, chữ `destructive-foreground`, hover mờ 0.9, tắt như các nút khác); nút tắt có một dáng chung (nền `muted`, chữ `muted-foreground`, mờ, không hover) | `controls.rs` | có |
 | `link(label, on_press)` (liên kết chữ `primary`, gạch chân khi rê chuột: "Xem tất cả", "Mở lịch"…) | `controls.rs` | có |
 | `confirm_then(owner, tiêu đề, mô tả, nhãn, then)` (hỏi bằng `alert_dialog` hệ thống; `then` chạy dưới `owner`, chỉ khi bấm `nhãn`) | `controls.rs` | có |
 | `Modal`, `modal::open`, `modal::close`, `modal::host()` (một hộp thoại trong cửa sổ mỗi lúc: nền, panel, tiêu đề, ✕, Escape, giữ Tab; gắn một lần trong `shell`) | `modal.rs` | có |
@@ -159,14 +159,14 @@ khác do `on_def` của màn xử lý (màn Tuỳ biến form).
   (cửa sổ tối đi, không có nội dung); `app/tests/no_native_dialog.rs` quét mã nguồn để chặn. Modal là một lớp `absolute` của root
   như bảng tìm: nền `background` mờ 72% (bấm vào nền gọi `on_dismiss`, trừ khi `keeps_open_on_scrim` khi form có chữ chưa lưu),
   panel `popover` ở giữa, tiêu đề + nút ✕, thân cuộn khi cao hơn cửa sổ; Escape và ✕ gọi `on_dismiss`, nó tự `modal::close`
-  khi xong việc. Mỗi lúc chỉ một modal hiện, modal sau xếp hàng. Escape gắn bằng `on_key` của chính lớp nên mất cùng lớp, và không
+  khi xong việc. Mỗi lúc chỉ một modal hiện, modal sau xếp hàng. Escape gắn bằng `on_key_with(.., When::Always)` của chính lớp nên mất cùng lớp và vẫn chạy khi focus đang ở ô chữ (`When::Auto` bỏ qua Escape vì ô nhập "dùng" phím đó), và không
   có phím Enter toàn cục. Focus chuyển vào panel khi mở; hai "lính canh" ở hai đầu lớp giữ Tab / Shift+Tab trong modal (test
   `tab_does_not_leave_the_modal` chạy với `Os::Windows`). Chưa trả focus về nút đã mở modal vì NSH không cho đọc phần tử đang giữ focus.
   Câu hỏi phá huỷ vẫn dùng `confirm_then` (alert hệ thống), không dùng modal. Trong test không đầu, bấm nền bằng
   `press_at("label:Đóng hộp thoại", điểm góc)` vì `press` thường bỏ qua việc nền che trang.
-- **Popup ghi kế hoạch**: `pages::entry_plan::enqueue(PlanRequest, Writer)` xếp một yêu cầu vào hàng đợi (chi tiết lệnh dùng
-  cho "Viết / Sửa kế hoạch"; kết nối MT5 của v0.4 sẽ đưa lệnh vừa mở vào); mỗi yêu cầu là một `Modal` (`Writer` để "Ghi sau" và
-  Escape ghi cờ). Một việc chạy bằng `Writer::run` mà chủ của nó là hộp thoại phải xong *trước khi* đóng
+- **Popup ghi kế hoạch**: `pages::entry_plan::enqueue(PlanRequest)` xếp một yêu cầu vào hàng đợi (chỉ chi tiết lệnh gọi, cho "Viết / Sửa kế hoạch";
+  EA đã bỏ nên không có nguồn nào khác); mỗi yêu cầu là một `Modal`. Đóng bằng ✕ hoặc Escape chỉ đóng, không ghi gì (không có "Ghi sau",
+  không đặt `review_later`); `PlanRequest::volume` là `Option` và dòng tiêu đề không ghi lot khi lệnh không có lot. Một việc chạy bằng `Writer::run` mà chủ của nó là hộp thoại phải xong *trước khi* đóng
   hộp thoại (đóng huỷ tác vụ), nên `finish` chỉ gọi trong `done`.
 - **Phím tắt**: Ctrl+N (từ Lệnh) mở nhập lệnh tay, Ctrl+Enter lưu ở đó; Ctrl+E (ở chi tiết lệnh) sửa số liệu của lệnh người dùng gõ.
 - Form nhật ký của lệnh dùng chung: `trade_detail::journal_form(fields, shots, suggestion, failure)` vẽ danh sách

@@ -49,6 +49,6 @@ Phần lõi đã có trong `crates/core` (model, migration 0003–0008, test); c
 
 1. Form tuỳ biến: `FormLayout` + `FieldDef` → `property_list`; màn Tuỳ biến form (`form-editor`), đổi kiểu qua `form::convert` có xác nhận.
 2. Chi tiết lệnh: kế hoạch vs thực tế (`journal::review`), hạng setup, lý do thoát (EA gợi ý từ `DEAL_REASON`), gallery nhiều ảnh (`attachments::import`).
-3. Popup ghi kế hoạch khi `BridgeEvent::PositionOpened` (`entry-plan-prompt`), "Ghi sau" đưa lệnh vào hàng chờ.
+3. Popup ghi kế hoạch (`entry-plan-prompt`), mở bằng "Viết kế hoạch" ở chi tiết lệnh (EA đã bỏ nên không còn sự kiện lệnh vừa mở và không có "Ghi sau").
 4. Playbook (`playbook`) và `metrics::mistake_cost` trên Phân tích.
 5. Lệnh bỏ lỡ (`missed-trades`), tổng kết tuần/tháng + hàng chờ (`review`), tìm kiếm FTS5 (`search`).

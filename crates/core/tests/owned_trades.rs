@@ -126,7 +126,6 @@ fn a_manual_trade_in_a_journal_account_is_still_a_manual_trade() {
     let origins = db.trade_origins(None).expect("origins");
     assert_eq!(origins[&(account, typed_key.position_id)], Origin::Manual);
     assert_eq!(origins[&(account, -(1 << 40) - 11)], Origin::Notion);
-    assert_eq!(Origin::of_ticket(typed_key.position_id), Origin::Manual, "and its tickets say the same");
 }
 
 #[test]

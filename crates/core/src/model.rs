@@ -325,9 +325,8 @@ impl Side {
     }
 }
 
-/// Where a trade came from, told by its entry deal's ticket: MetaTrader's tickets are positive,
-/// the app's own (hand-entered trades, imported journals) are negative, and an imported journal's
-/// start below [`JOURNAL_TICKET_BASE`] so that they never meet a hand-entered one.
+/// Where a trade came from, told by how its deals were written (their `source`, see
+/// [`Origin::of_source`]), never by their tickets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Origin {
     Mt5,
@@ -361,23 +360,11 @@ impl Origin {
     pub const fn is_editable(self) -> bool {
         !matches!(self, Self::Mt5)
     }
-
-    /// The origin of the position whose entry deal has `ticket`, by the range of the ticket.
-    /// Screens that have the deals' `source` use [`Origin::of_source`] instead, which is the fact;
-    /// the range is only what is left when the source is not at hand.
-    pub const fn of_ticket(ticket: i64) -> Self {
-        if ticket > 0 {
-            Self::Mt5
-        } else if ticket <= -JOURNAL_TICKET_BASE {
-            Self::Notion
-        } else {
-            Self::Manual
-        }
-    }
 }
 
 /// Tickets of imported journal trades are at most the negative of this, far from the small
-/// negative tickets that hand-entered trades count down from.
+/// negative tickets that hand-entered trades count down from (MetaTrader's are positive). It only
+/// keeps the app's own tickets apart; what a trade is, is told by [`Origin::of_source`].
 pub const JOURNAL_TICKET_BASE: i64 = 1 << 40;
 
 /// Identifies a trade across rebuilds, and the journal entry kept on it.
@@ -454,11 +441,6 @@ impl Trade {
     /// keeps its money.
     pub fn money_known(&self) -> bool {
         self.result_r.is_none() || self.profit != 0.0
-    }
-
-    /// Where the trade came from.
-    pub fn origin(&self) -> Origin {
-        Origin::of_ticket(self.key.position_id)
     }
 
     /// Whether the lot size is the source's own (not a placeholder).

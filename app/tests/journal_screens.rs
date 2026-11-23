@@ -428,38 +428,36 @@ fn the_plan_prompt_warns_when_the_planned_risk_breaks_the_accounts_rule() {
 }
 
 #[test]
-fn the_plan_prompt_saves_the_plan_or_flags_the_trade_for_later() {
+fn the_plan_prompt_saves_the_plan_and_closing_it_writes_nothing() {
     let fixture = Fixture::new();
     seed(&mut fixture.db());
     let mut app = fixture.start();
     open_trade(&mut app, "XAUUSD");
     let db = fixture.db();
-    let shown = |db: &Db| {
-        [1, 2].into_iter().find(|p| db.journal(&key_of(db, *p)).expect("reads").is_some()).expect("a journal")
+    let journals = |db: &Db| -> Vec<JournalEntry> {
+        [1, 2].into_iter().filter_map(|p| db.journal(&key_of(db, p)).expect("reads")).collect()
     };
+    let before = journals(&db);
 
-    // "Ghi sau" writes no plan and keeps the trade in the review queue.
+    // There is no "Ghi sau": closing writes no plan and flags nothing for review.
     open_plan_prompt(&mut app);
-    app.press("role:button[Ghi sau]").expect("postpones the plan");
-    wait_until("the trade being flagged", || {
-        [1, 2].into_iter().any(|p| db.journal(&key_of(&db, p)).expect("reads").is_some_and(|e| e.review_later))
-    });
+    assert!(!app.screen().matches("role:button[Ghi sau]").expect("a selector"), "no postponing button");
+    app.press("role:button[Đóng]").expect("closes the prompt");
     app.wait_for_gone("Lưu kế hoạch", WAIT).expect("the dialog closes");
+    app.wait(Duration::from_millis(400)).expect("the app runs");
+    assert_eq!(journals(&db), before, "closing wrote nothing");
 
-    // Written, the plan starts from the trade's own levels and takes it out of the queue.
-    let position = shown(&db);
+    // Written, the plan starts from the trade's own levels.
     open_plan_prompt(&mut app);
     app.type_text("label:Lý do vào lệnh", "Phá đỉnh phiên Á").expect("the reason is typed");
     app.press("Lưu kế hoạch").expect("saves the plan");
-    wait_until("the plan being saved", || {
-        db.journal(&key_of(&db, position)).expect("reads").is_some_and(|e| e.plan.is_some())
-    });
-    let entry = db.journal(&key_of(&db, position)).expect("reads").expect("an entry");
+    wait_until("the plan being saved", || journals(&db).iter().any(|e| e.plan.is_some()));
+    let entry = journals(&db).into_iter().find(|e| e.plan.is_some()).expect("an entry with a plan");
     let plan = entry.plan.expect("a plan");
     assert_eq!(plan.thesis, "Phá đỉnh phiên Á");
     assert_eq!(plan.entry, Some(2648.2), "the levels start from the trade's");
     assert_eq!(plan.stop_loss, Some(2640.0));
-    assert!(!entry.review_later, "a written plan leaves the review queue");
+    assert!(!entry.review_later, "saving a plan does not flag the trade either");
 }
 
 /// A point of the scrim that the plan's panel does not cover.
@@ -468,7 +466,7 @@ fn scrim_corner() -> nsh_core::Point<nsh_core::Points> {
 }
 
 #[test]
-fn the_plan_prompt_shows_its_form_and_escape_or_the_close_button_close_it_without_a_plan() {
+fn the_plan_prompt_shows_its_form_and_escape_or_the_close_button_close_it_writing_nothing() {
     let fixture = Fixture::new();
     seed(&mut fixture.db());
     let mut app = fixture.start();
@@ -476,6 +474,9 @@ fn the_plan_prompt_shows_its_form_and_escape_or_the_close_button_close_it_withou
     let db = fixture.db();
     let no_plan = |db: &Db| {
         [1, 2].into_iter().all(|p| db.journal(&key_of(db, p)).expect("reads").is_none_or(|e| e.plan.is_none()))
+    };
+    let no_flag = |db: &Db| {
+        [1, 2].into_iter().all(|p| db.journal(&key_of(db, p)).expect("reads").is_none_or(|e| !e.review_later))
     };
 
     open_plan_prompt(&mut app);
@@ -488,17 +489,18 @@ fn the_plan_prompt_shows_its_form_and_escape_or_the_close_button_close_it_withou
     app.wait(Duration::from_millis(400)).expect("the app runs");
     assert!(app.screen().shows("Lưu kế hoạch"), "the scrim leaves a form with edits open");
 
-    // Escape is "Ghi sau": the trade is flagged and no plan is written.
+    // Escape closes it from inside the text area, where the typing is, and writes nothing: no plan,
+    // and no flag for review either.
     app.press_key("escape").expect("Escape");
     app.wait_for_gone("Lưu kế hoạch", WAIT).expect("the dialog closes");
-    wait_until("the trade being flagged", || {
-        [1, 2].into_iter().any(|p| db.journal(&key_of(&db, p)).expect("reads").is_some_and(|e| e.review_later))
-    });
+    app.wait(Duration::from_millis(400)).expect("the app runs");
     assert!(no_plan(&db), "Escape wrote no plan");
+    assert!(no_flag(&db), "and flagged nothing");
 
     // The close button says the same.
     open_plan_prompt(&mut app);
-    app.press("label:Đóng và ghi kế hoạch sau").expect("the close button");
+    app.press("role:button[Đóng]").expect("the close button");
     app.wait_for_gone("Lưu kế hoạch", WAIT).expect("the dialog closes again");
-    assert!(no_plan(&db), "the close button wrote no plan");
+    app.wait(Duration::from_millis(400)).expect("the app runs");
+    assert!(no_plan(&db) && no_flag(&db), "the close button wrote nothing");
 }
