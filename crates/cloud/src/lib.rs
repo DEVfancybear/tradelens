@@ -7,7 +7,8 @@
 //! - [`token_store`] tokens in the OS credential store, never in the database
 //! - [`drive`]       the [`drive::CloudDrive`] trait: list, upload, download, delete
 //! - [`google`], [`onedrive`] its two implementations
-//! - [`sync`]        push / pull of the change log, snapshots, merging
+//! - [`sync`]        push / pull of the change log, snapshots, restore (the merge rules are the core's)
+//! - [`memory`]      a drive in memory, for tests and the demo
 //! - [`notion`]      the Notion API, to import a trading journal database
 //!
 //! Everything here blocks on the network: call it from a background thread, never from
@@ -22,6 +23,7 @@ pub mod auth;
 pub mod drive;
 pub mod google;
 mod http;
+pub mod memory;
 pub mod notion;
 pub mod onedrive;
 pub mod sync;
@@ -52,6 +54,12 @@ pub enum CloudError {
     Db(#[from] tradelens_core::DbError),
     #[error(transparent)]
     Import(#[from] tradelens_core::import::ImportError),
+    #[error("chưa có bản sao lưu nào trên đám mây")]
+    NoSnapshot,
+    #[error("dữ liệu đồng bộ hỏng: {0}")]
+    Corrupt(String),
+    #[error("lỗi đọc/ghi file: {0}")]
+    Io(#[from] std::io::Error),
     #[error("chưa làm: {0}")]
     NotImplemented(&'static str),
 }

@@ -31,6 +31,7 @@ pub mod report;
 pub mod review;
 pub mod rules;
 pub mod search;
+pub mod sync;
 pub mod time;
 pub mod trades;
 

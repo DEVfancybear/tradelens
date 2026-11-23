@@ -10,7 +10,7 @@ use crate::missed::MissedTrade;
 use crate::model::{JournalEntry, TradeKey};
 use crate::review::PeriodReview;
 
-use super::{Db, Result, field_defs_on, save_field_def_on, save_journal_on};
+use super::{Db, Result, field_defs_on, save_field_def_on, save_journal_on, save_missed_on, save_review_on};
 
 /// What a type change does to the values written under a property.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -53,20 +53,8 @@ impl Stored {
     fn save(&self, conn: &Connection) -> Result<()> {
         match self {
             Self::Journal(key, entry) => save_journal_on(conn, key, entry),
-            Self::Missed(id, missed) => {
-                conn.execute(
-                    "UPDATE missed_trades SET json = ?2 WHERE id = ?1",
-                    rusqlite::params![id, serde_json::to_string(missed)?],
-                )?;
-                Ok(())
-            }
-            Self::Review(id, review) => {
-                conn.execute(
-                    "UPDATE reviews SET json = ?2 WHERE id = ?1",
-                    rusqlite::params![id, serde_json::to_string(review)?],
-                )?;
-                Ok(())
-            }
+            Self::Missed(id, missed) => save_missed_on(conn, &MissedTrade { id: *id, ..(**missed).clone() }).map(drop),
+            Self::Review(id, review) => save_review_on(conn, &PeriodReview { id: *id, ..(**review).clone() }).map(drop),
         }
     }
 }

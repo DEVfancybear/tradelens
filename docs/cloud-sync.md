@@ -12,31 +12,140 @@ dữ liệu nằm trong thư mục ẩn dành riêng cho app trên Drive của c
 
 App chỉ đọc/ghi được file của chính nó, không thấy file khác của người dùng.
 
+
 ## Bố cục thư mục app
 
 ```text
-changes/<device_id>/<seq_from>-<seq_to>.json   các thay đổi của một thiết bị
-snapshots/<YYYY-MM-DD>.db                      bản chụp DB hàng tuần (để khôi phục)
+changes/<device_id>/<seq_from>-<seq_to>.json   các thay đổi của một thiết bị (tối đa 500 dòng/file)
+snapshots/<YYYY-MM-DD>.db                      bản chụp cả DB, mỗi tuần một bản (để khôi phục)
 attachments/<sha256>.<ext>                     ảnh chart, đặt tên theo nội dung
 devices.json                                   tên thiết bị, lần sync cuối
 ```
 
-## Luồng sync
+Mã: lõi gộp nằm trong `crates/core` (`sync`, `db/sync.rs`, `db/views.rs`; thuần Rust, không mạng),
+động cơ đẩy/kéo trong `crates/cloud/src/sync.rs` (`SyncEngine`) trên trait `CloudDrive`;
+`MemoryDrive` (`crates/cloud/src/memory.rs`) là ổ đĩa trong RAM cho test và chế độ demo.
 
-1. Mọi thay đổi cục bộ (deal, journal, rules, checklist, day note, setting) ghi thêm một dòng
-   vào bảng `changes` với `(device_id, seq)` tăng dần.
-2. **Push:** gom các dòng có `seq > pushed_seq` thành một file, upload, cập nhật `pushed_seq`.
-3. **Pull:** liệt kê `changes/` của các thiết bị khác, tải file có `seq` lớn hơn mốc đã áp dụng,
-   áp vào DB theo thứ tự thời gian.
-4. **Gộp:** deal theo `(tài khoản, ticket)`, giống nhau thì không xung đột. Journal và setting
-   lấy giá trị mới nhất theo từng trường (`at`); danh sách (tag, lỗi) gộp hợp.
-5. Chạy khi bấm *Sync ngay*, mỗi 15 phút khi bật tự động, và khi đóng app.
-6. **Khôi phục sang máy mới:** tải snapshot mới nhất rồi áp các thay đổi sau nó.
+## Danh tính liên máy
 
-## Để làm sau v0.1
+`id` trong DB (account_id, rowid, `TradeKey.account_id`) khác nhau giữa các máy, nên mọi thứ được
+đồng bộ có một **khóa di động** (`sync::join_key`: các phần nối bằng `|`, `|` và `\` trong phần được escape).
+
+| Thực thể (`entity`) | Khóa | Trường |
+|---|---|---|
+| `account` | `login\|server` | broker, name, currency, initial_balance, last_balance, last_equity, server_offset_min (không có `last_sync`) |
+| `deal` | `login\|server\|ticket` | cả bản ghi (một trường `deal`, kèm `source`) |
+| `journal` | `login\|server\|position\|segment` | mọi trường của `JournalEntry`, xem dưới |
+| `rules` | `login\|server` | 5 giới hạn |
+| `checklist` | **uid** | text, position, account |
+| `day_note` | `<login\|server hoặc *>`, ngày | plan, review, mood, `custom.<key>` |
+| `setting` | tên setting | value |
+| `catalog` | `kind\|key` | label, color, position, archived |
+| `field_def` | `scope\|key` | label, kind, options, max, required, analysed, position, archived |
+| `form_layout` | scope | `items#<trường>`, `items.order` |
+| `playbook` | **uid** | mọi trường của `Playbook` + position |
+| `missed` | **uid** | mọi trường của `MissedTrade`, account (khóa tài khoản), playbook (uid) |
+| `review` | `<login\|server hoặc *>`, period, start | answers, rating, `custom.<key>` |
+| `attachment` | đường dẫn ảnh trong thư mục dữ liệu | sha256 |
+
+- **uid** (migration `0010_sync_uids.sql`): playbook, lệnh bỏ lỡ và mục checklist không có khóa tự nhiên nên
+  có cột `uid` (128 bit ngẫu nhiên, điền sẵn cho dữ liệu cũ, trigger điền cho dòng mới). Review đã có khóa
+  tự nhiên `(tài khoản, kỳ, ngày bắt đầu)` (UNIQUE) nên **không thêm uid**: hai máy cùng viết tổng kết một
+  tuần là *cùng một* review chứ không phải hai.
+- **Liên kết giữa thực thể** đi bằng khóa di động, không bằng id: `journal.playbook_id` ↔ `playbook` (uid),
+  `journal.checklist` (id mục đã tick) ↔ `checklist#<uid>`, `missed.account_id` ↔ `account` (khóa tài khoản),
+  `missed.playbook_id`. Áp thay đổi theo thứ tự thực thể (tài khoản, setting, catalog, field, form, checklist,
+  playbook, deal, rules, journal, lệnh bỏ lỡ, nhật ký ngày, review, ảnh) nên thứ được tham chiếu luôn có trước.
+  Liên kết tới thứ đã bị xoá (hoặc chưa có trên máy này) bị bỏ khi đồng bộ, đúng như thống kê vốn đọc nó là "setup đã xoá".
+- **Setting không đồng bộ** (`sync::is_device_local`): mọi khóa bắt đầu bằng `sync.` (id thiết bị và sổ sách
+  sync), `device.`, `window.` (trạng thái cửa sổ), `bridge.`, `cloud.`, và `appearance` (sáng/tối theo từng máy),
+  `data_dir`, `data_folder`. `form.layout.*` đồng bộ qua thực thể `form_layout`, không qua `setting`.
+  `time_display`, mẫu tổng kết `review.template.*` đồng bộ như setting thường.
+
+## Ghi nhật ký thay đổi
+
+Mọi ghi cục bộ (qua `Db`: `upsert_batch`, `add_manual_trade`, import Notion, `save_journal`, `save_rules`,
+`save_checklist`, `save_day_note`/`save_day_values`, `set_setting`, danh mục, field, form, playbook, lệnh bỏ lỡ,
+tổng kết, mẫu, xoá, và việc đổi kiểu field kéo theo các entry) đi qua `db::sync::logged`: đọc thực thể
+**trước và sau** dưới dạng trường di động rồi ghi *những trường khác nhau* thành một dòng `changes`
+`(device_id, seq, at, entity, key, value)`; `value` là mảng `{"f": tên trường, "v": giá trị}` (thiếu `v` = bỏ
+trường / xoá phần tử), `NULL` = xoá thực thể. Ghi cùng giá trị thì không ghi gì.
+
+Mỗi trường có **tem** `(at, device_id)` trong `sync_clock`. Một ghi cục bộ lấy `at = max(đồng hồ máy, tem mới nhất
+của thực thể + 1)` để không bao giờ thua một giá trị máy này đã thấy dù đồng hồ máy chạy chậm.
+
+Áp thay đổi của máy khác (`Db::apply_changes`) dùng các thao tác thô (`db/views.rs`), **không bao giờ ghi lại vào
+`changes`** (không vọng). Dữ liệu có trước khi có sync được ghi một lần bởi `Db::log_existing` (trường nào chưa
+có tem thì ghi, tem = `updated_at` của journal, các thứ khác tem 0 để mọi sửa đổi thật ở máy khác đều thắng).
+
+## Gộp: quy tắc
+
+1. **Mỗi trường là một thanh ghi LWW:** ghi có tem lớn hơn thắng; bằng `at` thì **device id lớn hơn thắng**
+   (so sánh tem `(at, device)`; hai máy luôn ra cùng kết quả). Áp lại cùng một thay đổi không làm gì (tem bằng
+   không thắng); thứ tự áp không ảnh hưởng kết quả (các lô được áp theo thứ tự thực thể rồi `(at, device, seq)`).
+2. **Danh sách có thể cùng được thêm** (tag, lỗi, mục checklist đã tick) là **tập phần tử**: mỗi phần tử một
+   trường `tags#london_open`, giá trị `true` hoặc vắng mặt. Mỗi phần tử có tem riêng nên thêm `A` ở máy 1 và
+   bỏ `B` ở máy 2 đều giữ; cùng một phần tử bị thêm ở máy này, xoá ở máy kia thì ai ghi muộn hơn thắng
+   (LWW-element-set). Danh sách luôn được dựng lại **theo thứ tự chữ cái** trên mọi máy.
+3. **Danh sách có thứ tự** (ảnh chụp của lệnh/lệnh bỏ lỡ/setup, lựa chọn của field, mục của form, câu trả lời
+   tổng kết): phần tử là các trường `shots#<id>` (id = đường dẫn ảnh, tên lựa chọn, field của mục form, câu
+   hỏi) cộng một thanh ghi `<tên>.order` giữ thứ tự id. Thêm đồng thời đều giữ; thứ tự = theo `order` (thắng theo
+   LWW), phần tử `order` chưa nhắc tới xếp sau, theo id.
+4. **Giá trị tuỳ biến** (`custom.<key>`) mỗi key một thanh ghi; một field nhiều lựa chọn là *một* thanh ghi (hai
+   máy cùng sửa lựa chọn của cùng field thì bản mới hơn thắng cả danh sách). Tương tự các danh sách còn lại của
+   playbook (`entry_rules`, `exit_rules`, `symbols`...), kế hoạch lúc vào (`plan`) và văn bản dài (`notes`,
+   `plan`/`review` của ngày): bản ghi muộn hơn thắng nguyên trường, **không gộp từng dòng**.
+5. **Deal** gộp theo `(tài khoản, ticket)` như *một bản ghi*: bản có tem lớn hơn thắng; các số đo mà bản kia có
+   (`risk`, `reason`, `sl`, `tp`) và bản thắng thiếu thì được điền vào (`merge_deal`, giống import báo cáo đè lên
+   deal của EA). Hai máy import cùng báo cáo → cùng deal, không trùng.
+6. **Xoá** (chỉ playbook, lệnh bỏ lỡ, mục checklist xoá được): xoá giữ lại nội dung ở `sync_tombstones`.
+   *Xoá thắng mọi sửa đổi cũ hơn nó và thua mọi sửa đổi mới hơn nó.* Sửa mới hơn lệnh xoá (đến trước hay sau)
+   thì thực thể **sống lại đúng như lúc bị xoá cộng với sửa đó**; sửa cũ hơn thì bị bỏ. Lệnh xoá thua một sửa
+   mới hơn thì không xoá gì. Giới hạn đã biết: khi một lệnh xoá đến *sau* hai sửa đổi (một cũ hơn, một mới hơn
+   nó) trên thiết bị đã áp sửa đổi cũ trước, sửa đổi cũ vẫn ở lại (không hoàn tác được); xảy ra ở ba máy cùng
+   sửa/xoá một thực thể.
+7. **Trùng tên playbook:** hai máy cùng tạo "Breakout" thì cả hai được giữ (bảng `playbooks` không còn UNIQUE
+   trên `name`, giữ UNIQUE khi lưu bằng tay: lỗi "đã có setup tên …"); người dùng đổi tên một cái khi thấy.
+8. Thay đổi hỏng hoặc thuộc loại thực thể chưa biết (bản app mới hơn) bị bỏ qua và ghi log, không làm hỏng sync.
+
+## Đẩy và kéo
+
+1. `Db::log_existing()` (một lần), rồi ảnh: ảnh nào journal/lệnh bỏ lỡ/setup nhắc tới và có file trong thư mục dữ
+   liệu thì tính sha256, ghi thực thể `attachment` (đường dẫn → sha) và upload `attachments/<sha256>.<ext>` nếu
+   ổ chưa có.
+2. **Push:** các dòng `seq > pushed_seq` của máy này, tối đa 500 dòng mỗi file `changes/<device>/<từ>-<đến>.json`;
+   upload xong mới ghi `pushed_seq` (bị ngắt giữa chừng thì lần sau gửi lại cùng tên file, ghi đè).
+3. **Pull:** liệt kê `changes/`, bỏ file của chính máy này; mỗi thiết bị khác, tải các file có `đến` ≥ mốc+1
+   theo thứ tự, lấy các dòng `seq` liên tiếp từ mốc+1. Gặp lỗ hổng (thiếu file) thì **dừng ở đó và ghi cảnh báo**
+   chứ không bỏ qua; file hỏng thì báo `CloudError::Corrupt` và không áp gì. Áp tất cả trong một giao dịch cùng với
+   việc nâng mốc `pulled` (bảng `cloud_state`, mỗi nhà cung cấp một dòng), nên sập giữa chừng không lặp, không sót.
+4. Tải ảnh còn thiếu (tải xong đối chiếu sha256; đường dẫn ảnh từ xa không được thoát khỏi thư mục dữ liệu).
+5. Nếu bản snapshot mới nhất đã ≥ 7 ngày (hoặc chưa có): upload snapshot. Ghi `devices.json` (id, tên, lần sync cuối;
+   ghi đè theo kiểu đọc-sửa-ghi, mất một dòng khi hai máy ghi cùng lúc thì lần sync sau tự thêm lại).
+6. Chạy khi bấm *Sync ngay*, mỗi 15 phút khi bật tự động, và khi đóng app.
+
+## Snapshot và khôi phục sang máy mới
+
+- `SyncEngine::snapshot` dùng `VACUUM INTO` (`Db::snapshot_to`): một bản sao nhất quán của cả DB (kể cả bảng
+  `changes`, `sync_clock`, mốc kéo), tải lên `snapshots/<ngày>.db` (chưa nén).
+- `SyncEngine::restore(db_path)`: tải snapshot **mới nhất**, ghi thành DB, rồi `Db::restored_as_new_device`:
+  **device id mới**, xoá bảng `changes` (log đó là của máy cũ, máy cũ tự đẩy), mốc kéo của máy cũ = số thứ tự lớn
+  nhất của nó trong snapshot, `pushed_seq` = 0. Sau đó sync như bình thường: kéo mọi thay đổi sau snapshot của các
+  máy khác (và của máy đã chụp, nếu chúng đến sau) và tải ảnh.
+
+## Kiểm thử
+
+- `crates/core/tests/sync.rs`: quy tắc gộp qua `Db` (hai DB trao log), tem bằng nhau, lặp/đảo thứ tự, xoá và sửa,
+  liên kết theo khóa, dữ liệu có từ trước, migration, snapshot.
+- `crates/cloud/tests/sync.rs`: tiêu chí v0.3 "2 máy sửa cùng lúc, sync xong không mất dữ liệu" với 2–3 DB trên một
+  `MemoryDrive`: sửa khác trường, cùng trường, tag thêm/bớt, deal import cả hai máy, playbook xoá/sửa, khôi phục máy mới,
+  ảnh, sync bị ngắt, file hỏng, và 8 phiên sửa ngẫu nhiên trên 3 máy phải hội tụ. So sánh bằng `Db::portable_state()`.
+
+## Để làm sau
 
 - Mã hóa đầu cuối bằng passphrase (XChaCha20-Poly1305, khóa từ Argon2id).
-- Dọn file `changes/` cũ sau mỗi snapshot.
+- Dọn file `changes/` cũ (và `sync_tombstones`) sau mỗi snapshot; nén snapshot.
+- Gộp văn bản dài theo dòng thay vì ghi đè theo trường; field nhiều lựa chọn như tập phần tử.
 - Dropbox.
 
 ## Đăng nhập: cách hoạt động (crate `tradelens-cloud`)
