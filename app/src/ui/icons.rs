@@ -25,6 +25,8 @@ pub enum Icon {
     // Actions and marks.
     Search,
     Plus,
+    /// A horizontal bar, for "zoom out".
+    Minus,
     Check,
     Close,
     Warning,
@@ -55,7 +57,7 @@ pub enum Icon {
 
 impl Icon {
     /// Every glyph, in declaration order.
-    pub const ALL: [Self; 37] = [
+    pub const ALL: [Self; 38] = [
         Self::Dashboard,
         Self::Trades,
         Self::Calendar,
@@ -70,6 +72,7 @@ impl Icon {
         Self::Settings,
         Self::Search,
         Self::Plus,
+        Self::Minus,
         Self::Check,
         Self::Close,
         Self::Warning,
@@ -114,6 +117,7 @@ impl Icon {
             }
             Self::Search => "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4",
             Self::Plus => "M12 5v14M5 12h14",
+            Self::Minus => "M5 12h14",
             Self::Check => "M5 12l5 5L20 7",
             Self::Close => "M6 6l12 12M18 6L6 18",
             Self::Warning => {

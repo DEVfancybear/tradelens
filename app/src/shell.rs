@@ -13,6 +13,7 @@ use crate::{
         icons::{Icon, icon},
         modal,
         palette::search_trigger,
+        viewer,
     },
 };
 
@@ -46,6 +47,8 @@ pub(crate) fn shell() -> impl IntoElement {
         // The modal that is on screen, one at a time: the plan prompt of a position the EA just
         // reported, and the share dialog opened from a trade's page and from the review.
         .child(modal::host())
+        // The full-size picture viewer opened from a gallery; the search stays above it.
+        .child(viewer::overlay())
         .child(search::overlay())
 }
 

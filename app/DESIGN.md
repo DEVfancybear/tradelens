@@ -50,7 +50,8 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 | `icon(Icon, size)`, `Icon` (bộ icon nét 1.75 của thiết kế) | `icons.rs` (`pub`) | có |
 | `number_field`, `switch_row`, `setting_row`, `check_box`, `checklist`, `progress_rule` | `forms.rs` (`pub`) | có |
 | `dropzone`, `image_slot`, `Accept`, `pick_files`, `pasted_images`, `paths_of_uris` | `files.rs` (`pub`) | có |
-| `gallery` (ảnh, chú thích, kéo/phím đổi thứ tự, Thêm ảnh) | `gallery.rs` (`pub`) | có |
+| `gallery` (ảnh, chú thích, kéo/phím đổi thứ tự, Thêm ảnh; bấm ảnh mở `viewer`; "Xem" và ✕ ở góc ô khi rê chuột / có focus; xoá hoàn tác được 6 giây) | `gallery.rs` (`pub`) | có |
+| `viewer::overlay()` (gắn một lần, cuối `shell`) + `viewer::open(Request)` (trình xem ảnh phủ cả cửa sổ: vừa khung, bộ đếm, trước / sau, phóng to, kéo để di chuyển, mở bằng ứng dụng khác) | `viewer.rs` (`pub`) | có |
 | `drag_handle`, `grid_drop_index`, `list_drop_index` | `reorder.rs` (`pub`) | có |
 | `property_list` + `PropertyList` + `PropertyEdits` (hàng thuộc tính, popover, thêm/ẩn/xoá, đổi kiểu) | `properties.rs` (`pub`) | có |
 | `plan_vs_actual(plan, on_write)`, `plan_rows(&EntryPlan, &Trade, currency)` (kế hoạch lúc vào đặt cạnh thực tế, từ `journal::review`) | `plan_vs_actual.rs` | có |
@@ -194,6 +195,23 @@ Tôn trọng *reduce motion*: chỉ đổi opacity, không dịch chuyển.
 
 Khi một ô nhập bám theo `Reading::value()`, bọc bằng `computed(move || data.value())`: một lần đọc lại đang chạy cũng
 làm `value()` báo đổi (cờ `loading`), và nếu không có memo thì dữ liệu cũ ghi đè lên chỗ người dùng vừa sửa.
+
+### Trình xem ảnh (`ui::viewer`) và ảnh trong `gallery`
+
+- **Là một lớp của cửa sổ, không phải `dialog()`** (lớp cửa sổ gốc của `dialog()` không vẽ đúng trên Windows): `viewer::overlay()` là
+  con cuối của `shell`, `viewer::open(Request::new(nhãn, slides, vị trí, restore))` mở nó. `slides` là closure đọc danh sách ảnh sống,
+  nên trình xem theo danh sách của `gallery`; `restore(vị trí)` đưa focus về ô ảnh khi đóng. `gallery` tự đóng trình xem của nó khi bị
+  huỷ (`cleanup` → `viewer::close_if_from`), vì closure `slides` đọc signal của trang.
+- **Phím là phím của cửa sổ (`on_key`), không phải `on_key_down` của view:** bấm một nút trong trình xem làm focus rời khỏi lớp, và phím
+  trên view sẽ ngừng chạy. Các phím sống đúng bằng đời của lớp (owner của `when`).
+- **Vùng bấm:** các khung bố cục (thanh trên, sân khấu, chân) là `PointerEvents::BoxNone` để nền mờ phía sau vẫn nhận cú bấm ngoài ảnh; ảnh
+  chỉ chiếm đúng hình chữ nhật vừa khung (kích thước thật đọc bằng `image_size`, chưa có thì lấp đầy khung). Con trỏ không theo
+  signal, nên "phóng to" / "kéo" là hai lớp bấm đổi chỗ bằng `when(..).otherwise(..)` chứ không đổi con trỏ của một phần tử.
+- **Hành động ở góc ô ảnh** hiện bằng `.group()` + `.group_hover` / `.group_focus_within` (độ mờ 0 → 1); nút vẫn nằm trong thứ tự Tab. Nút
+  trong nút không có, nên ô ảnh là `button` và các nút góc là anh em của nó, đặt `absolute` lên trên.
+- **Xoá ảnh không hỏi, hoàn tác được:** `on_change` nhận danh sách mới ngay; dòng "Đã xoá ảnh · Hoàn tác" chỉ hiện khi danh sách vẫn đúng
+  là danh sách sau khi xoá (sửa khác hay đổi sang mục khác thì hết cơ hội), hẹn giờ 6 giây chạy dưới owner của gallery (ô ảnh bị dựng
+  lại ngay khi danh sách đổi, hẹn giờ của nó sẽ bị huỷ).
 
 ### Giờ hiển thị và "hôm nay"
 

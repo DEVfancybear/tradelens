@@ -9,6 +9,7 @@ use nsh_core::platform::Os;
 use nsh_testing::{DialogAnswer, Headless};
 use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, TradeKey,
+    attachments::{Attachment, Source},
     catalog::{FieldDef, FieldKind, FieldScope, FieldValue, Requirement},
     journal::EntryPlan,
     model::AccountInfo,
@@ -257,6 +258,45 @@ fn a_picture_added_to_a_trade_is_saved_into_its_journal() {
     });
     let entry = db.journal(&key_of(&db, 2)).expect("reads").expect("an entry");
     assert!(entry.screenshots[0].path.starts_with("images/"), "{}", entry.screenshots[0].path);
+}
+
+#[test]
+fn a_trades_pictures_open_full_size_and_a_removal_can_be_undone() {
+    let fixture = Fixture::new();
+    let mut db = fixture.db();
+    seed(&mut db);
+    let shot = |path: &str, caption: &str| Attachment {
+        path: path.to_owned(),
+        caption: caption.to_owned(),
+        timeframe: Some("h4".to_owned()),
+        source: Source::Upload,
+        added_at: 0,
+    };
+    let pictures = vec![shot("images/one.png", "bối cảnh"), shot("images/two.png", "retest")];
+    let entry = JournalEntry { screenshots: pictures.clone(), ..JournalEntry::default() };
+    db.save_journal(&key_of(&db, 2), &entry).expect("the pictures are stored");
+    let mut app = fixture.start();
+    open_trade(&mut app, "XAUUSD");
+
+    // A picture opens over the whole window (the sidebar is under the scrim), and Escape closes it.
+    app.wait_for("label:Phóng to Ảnh chart 2").expect("the gallery shows both pictures");
+    app.press("label:Phóng to Ảnh chart 2").expect("the second picture");
+    app.wait_for("2 / 2").expect("the viewer opens on it");
+    app.press_key("left").expect("previous");
+    app.wait_for("1 / 2").expect("the first picture");
+    app.press_key("escape").expect("Escape");
+    app.wait_for_gone("1 / 2", WAIT).expect("the viewer closes");
+
+    // The removal is saved at once, and so is its undo, in the same place.
+    press_until(&mut app, "label:Xoá Ảnh chart 1", "Đã xoá ảnh ·");
+    wait_until("the removal being saved", || {
+        db.journal(&key_of(&db, 2)).expect("reads").is_some_and(|e| e.screenshots.len() == 1)
+    });
+    app.wait_for("Đã xoá ảnh ·").expect("the undo line shows");
+    press_until(&mut app, "role:button[Hoàn tác]", "label:Xoá Ảnh chart 2");
+    wait_until("the undo being saved", || {
+        db.journal(&key_of(&db, 2)).expect("reads").is_some_and(|e| e.screenshots == pictures)
+    });
 }
 
 #[test]

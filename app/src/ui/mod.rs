@@ -34,3 +34,4 @@ pub mod selectable_card;
 pub(crate) mod tab_bar;
 pub(crate) mod table;
 pub(crate) mod theme;
+pub mod viewer;
