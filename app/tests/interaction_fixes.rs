@@ -201,6 +201,11 @@ fn the_day_of_the_journal_is_picked_from_a_calendar_and_the_page_follows() {
     let day = fifteenth();
     app.press(&format!("role:button[{}]", day.format("%Y-%m-%d"))).expect("a day of the calendar");
     app.wait_for(&journal_title(day)).expect("the page follows the day that was picked");
+    // Whether the calendar closes on a pick is the platform's; on macOS it stays open, and its own
+    // "Hôm nay" preset would then match too. Escape closes it either way.
+    app.press_key("Escape").expect("Escape closes the calendar");
+    app.wait_until("one today button", WAIT, |screen| screen.count("role:button[Hôm nay]") == Ok(1))
+        .expect("only the page's today button is left");
     app.press("role:button[Hôm nay]").expect("the today button");
     app.wait_for(&journal_title(chrono::Local::now().date_naive())).expect("back to today");
 }

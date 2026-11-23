@@ -184,6 +184,9 @@ fn a_playbook_is_created_edited_and_deleted() {
     app.wait_for("Giá chạm EMA20").expect("the saved setup shows in the detail");
     assert_eq!(fixture.db().search("pullback", 5).expect("searches").len(), 1, "a saved setup is searchable");
 
+    // The detail (and its edit button) shows once the store has read the setup back; the rule
+    // text above may still be the form's own field on a slow runner.
+    app.wait_for_within("role:button[Sửa]", WAIT).expect("the saved setup's detail shows");
     app.press("role:button[Sửa]").expect("the edit button");
     app.type_text("label:Tên playbook", " H1").expect("the name is extended");
     app.press("role:button[Lưu]").expect("the save button");

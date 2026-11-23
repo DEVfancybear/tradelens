@@ -11,6 +11,10 @@ const PRESS_SHOWS_WITHIN: Duration = Duration::from_secs(2);
 /// How many times a lost press is tried again.
 const PRESS_TRIES: usize = 5;
 
+/// How long a toggle may take to appear: its options can come from a database read that a slow
+/// CI runner finishes long after the page is drawn.
+const TOGGLE_APPEARS_WITHIN: Duration = Duration::from_secs(30);
+
 /// Turns the toggle `selector` names on (a tag, a segmented option), pressing again when a press
 /// is lost: a page draws its controls again once its data is read, and a press that lands then
 /// reaches a control that is being replaced. Never presses a toggle that is already on, so an
@@ -21,6 +25,7 @@ const PRESS_TRIES: usize = 5;
 /// When the toggle is not on screen, or does not turn on after a few presses.
 pub(crate) fn toggle_on(app: &mut Headless, selector: &str) {
     let on = |screen: &Screen| screen.accessibility_state(selector).is_ok_and(|s| s.pressed == Some(Checked::True));
+    app.wait_for_within(selector, TOGGLE_APPEARS_WITHIN).expect("the toggle shows");
     for _ in 0..PRESS_TRIES {
         if on(app.screen()) {
             return;
