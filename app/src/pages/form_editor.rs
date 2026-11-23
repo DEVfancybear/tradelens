@@ -19,7 +19,9 @@ use crate::{
     store::{Reading, Writer, query, writer},
     ui::{
         chips::{Tone, chip},
-        controls::{Choice, Variant, action, action_icon, commit_field, confirm, icon_action, select_value},
+        controls::{
+            Choice, Variant, action, action_icon, commit_field, confirm, confirm_then, icon_action, select_value,
+        },
         forms::{NumberRange, number_field, switch_row},
         icons::Icon,
         parts::{empty_state, page_with},
@@ -372,18 +374,14 @@ fn table_card(ops: Ops, rows: Memo<Vec<Property>>) -> impl IntoElement {
                     })
                 }))
                 .child(action("Đặt lại mặc định", Variant::Ghost, move || {
-                    spawn(async move {
-                        let go = confirm(
-                            "Đặt lại thứ tự và tên mặc định?",
-                            "Thứ tự, tên đã đổi và thuộc tính đang ẩn của form này về như ban đầu. \
-                             Thuộc tính riêng và dữ liệu đã ghi được giữ nguyên.",
-                            "Đặt lại",
-                        )
-                        .await;
-                        if go {
-                            ops.arrange(FormLayout::default_for(ops.scope));
-                        }
-                    });
+                    confirm_then(
+                        ops.owner,
+                        "Đặt lại thứ tự và tên mặc định?",
+                        "Thứ tự, tên đã đổi và thuộc tính đang ẩn của form này về như ban đầu. \
+                         Thuộc tính riêng và dữ liệu đã ghi được giữ nguyên.",
+                        "Đặt lại",
+                        move || ops.arrange(FormLayout::default_for(ops.scope)),
+                    );
                 })),
         )
         .child(dynamic(move || restoring.get().then(|| untracked(|| deleted_list(ops, archived)))))
@@ -482,6 +480,7 @@ fn table_row(
                 .role(AccessibilityRole::Button)
                 .label(move || format!("Sửa thuộc tính {}", row.with(|p| p.label.clone())))
                 .focusable(true)
+                .cursor_pointer()
                 .on_press(move || ops.picked.set(Some(row.with_untracked(|p| p.field.clone()))))
                 .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
                 .flex_1()
@@ -683,7 +682,7 @@ fn custom_panel(ops: Ops, key: String) -> impl IntoElement {
         ))
         .child(kind_note())
         .child(action_icon(Icon::Trash, "Xoá thuộc tính", Variant::Secondary, move || {
-            ask_to_delete(ops, def().map_or_default(|d| d.label), key_text());
+            ask_to_delete(ops, &def().map_or_default(|d| d.label), &key_text());
         }))
 }
 
@@ -708,18 +707,16 @@ fn kind_note() -> impl IntoElement {
 }
 
 /// Asks before deleting the property `key` (named `name`): its values stay, and it can be restored.
-fn ask_to_delete(ops: Ops, name: String, key: String) {
-    spawn(async move {
-        let go = confirm(
-            format!("Xoá thuộc tính “{name}”?"),
-            "Giá trị đã ghi ở các lệnh cũ được giữ lại; thuộc tính chỉ biến khỏi form và khôi phục được ở đây.",
-            "Xoá thuộc tính",
-        )
-        .await;
-        if go {
-            ops.delete(&key);
-        }
-    });
+fn ask_to_delete(ops: Ops, name: &str, key: &str) {
+    let key = key.to_owned();
+    // Under the editor's owner: the popover this is asked from is built again as the form changes.
+    confirm_then(
+        ops.owner,
+        format!("Xoá thuộc tính “{name}”?"),
+        "Giá trị đã ghi ở các lệnh cũ được giữ lại; thuộc tính chỉ biến khỏi form và khôi phục được ở đây.",
+        "Xoá thuộc tính",
+        move || ops.delete(&key),
+    );
 }
 
 /// The top of a scale from a number typed in the field.
@@ -820,6 +817,7 @@ fn add_panel(ops: Ops) -> impl IntoElement {
                 .role(AccessibilityRole::Button)
                 .label(format!("Thêm thuộc tính kiểu {}", kind_name(kind)))
                 .focusable(true)
+                .cursor_pointer()
                 .on_press(move || ops.add(kind))
                 .flex_row()
                 .items_center()

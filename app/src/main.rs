@@ -13,11 +13,11 @@ use nsh_platform_windows as platform;
 fn main() -> impl std::process::Termination {
     env_logger::init();
     platform::run_app(
-        platform::AppSource::Rust(platform::Root::of::<nsh_app_tradelens::App>()),
+        platform::AppSource::Rust(nsh_app_tradelens::root()),
         platform::AppOptions {
             title: "TradeLens".to_owned(),
             #[cfg(any(target_os = "linux", target_os = "windows"))]
-            app_id: "vn.dat.tradelens".to_owned(),
+            app_id: nsh_app_tradelens::APP_ID.to_owned(),
             // A packaged runner reads `nsh\icon.ico`; this one is for `cargo run`.
             #[cfg(all(target_os = "windows", debug_assertions))]
             icon: Some(concat!(env!("CARGO_MANIFEST_DIR"), "/icon/icon.ico").into()),

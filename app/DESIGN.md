@@ -202,3 +202,24 @@ Nhật ký ngày đọc `nav::requested_journal_day()` rồi gọi `nav::take_jo
 - Một ghi ở nền mà test đọc DB ngay phải xong **trong một transaction**: `save_playbook`, `save_missed_trade`, `save_review` ghi cả
   chỉ mục tìm kiếm cùng lúc, nên thấy dòng là tìm được dòng.
 - Thứ tự drop trong test: DB mở trước thư mục chứa nó (`struct { db, dir }`, không phải `{ dir, db }`).
+
+### Câu hỏi xác nhận, con trỏ, lịch chọn ngày, dữ liệu không đủ
+
+- **Hỏi rồi mới làm: `controls::confirm_then(owner, tiêu đề, mô tả, nhãn, then)`**, không `spawn(async { confirm(..).await })` trong
+  trình xử lý nút. Tác vụ khởi từ nút thuộc owner của nút; thẻ chứa nút nằm trong `dynamic` bị dựng lại mỗi lần state đổi và
+  huỷ tác vụ trước khi hộp thoại hiện (đăng xuất, khôi phục, xoá thuộc tính, xoá playbook / lệnh bỏ lỡ đều từng bị). `owner` lấy lúc
+  dựng bằng `controls::root_owner()` (Workspace gọi `provide_root_owner()`), hoặc `Cloud::confirm_sign_out` / `confirm_restore`.
+  Việc trong `then` chạm signal của phần có thể đã dựng lại thì dùng `try_set`.
+- **Con trỏ:** mọi thứ bấm được có `.cursor_pointer()` trong component (`button_shell`, `sidebar_row`, `tab`, `toggle`, ô lịch, thẻ chọn,
+  chip chọn, tên thuộc tính, dropzone, ảnh); nút tắt đặt `Cursor::Default` trong `disabled_style`; tay nắm kéo là `Cursor::Grab`.
+  Component mới dùng `button()` / `toggle()` / `tab()` phải thêm `.cursor_pointer()`. Test không đầu đọc con trỏ qua `observe` các
+  `MountItem::ViewStyle` (xem `tests/interaction_fixes.rs`).
+- **Lịch chọn ngày: `ui::date_picker`** (`DatePick::day` / `DatePick::moment` + `date_pick(pick, trigger)` + `date_trigger`), bọc
+  `DatePicker` của `nsh_base`: tuần bắt đầu thứ 2, tên thứ tiếng Việt, tháng / năm, nút "Hôm nay", chấm ở ngày `marking(..)` đánh dấu.
+  Dùng ở Nhật ký ngày, Tổng kết, Lệnh bỏ lỡ, Nhập lệnh tay và thuộc tính kiểu Ngày. Nút ngày có nhãn truy cập là ngày ISO
+  (`role:button[2026-11-15]`). Phím mũi tên / Enter / Escape là của `DatePicker` (NSH có test riêng); test không đầu của app chưa điều khiển được.
+- **Dữ liệu không đủ:** deal mang `Gaps` (`TIME`, `VOLUME`, `PRICE`) do importer ghi; `Trade::money_known / volume_known / prices_known /
+  time_known / hold_secs / origin` là quy tắc duy nhất, màn không tự suy từ giá trị (lot 1, giá 0, 00:00). Số liệu nhiều lệnh đi qua
+  `metrics::Basis` (`unit()` là R khi không lệnh nào có tiền; `money_note()` khi trộn). Màn mới có số tiền phải chọn đơn vị bằng nó.
+- **Gốc ứng dụng:** `nsh_app_tradelens::root()` (id và `window` đọc từ `nsh.json`) là thứ `main.rs` chạy; `App` trả thẳng `Workspace`,
+  không bọc `window()` (sẽ mở cửa sổ thứ hai). Thư mục dữ liệu là `%APPDATA%\vn.dat.tradelens`; `store::adopt_earlier_data` chép bản cũ từ `default`.

@@ -659,7 +659,7 @@ fn month_bounds(day: NaiveDate) -> (NaiveDate, NaiveDate) {
 
 fn layout(report: &MonthlyReport, privacy: Privacy) -> Vec<Vec<Op>> {
     let metrics = Metrics::new();
-    let mut layout = Layout::new(&metrics, privacy, &report.currency);
+    let mut layout = Layout::new(&metrics, privacy.for_unit(report.unit), &report.currency);
     layout.cover(report);
     layout.curve(report);
     layout.calendar(&report.weeks);
@@ -867,8 +867,8 @@ mod tests {
             ..Stats::default()
         };
         let mut days = BTreeMap::new();
-        days.insert(day(3), DayStat { net: 412.5, trades: 2, wins: 2, r: 2.1, r_trades: 2 });
-        days.insert(day(4), DayStat { net: -95.0, trades: 1, wins: 0, r: -1.0, r_trades: 1 });
+        days.insert(day(3), DayStat { net: 412.5, trades: 2, wins: 2, r: 2.1, r_trades: 2, money_trades: 2 });
+        days.insert(day(4), DayStat { net: -95.0, trades: 1, wins: 0, r: -1.0, r_trades: 1, money_trades: 1 });
         let curve: Vec<EquityPoint> = [10_000.0, 10_412.5, 10_317.5, 11_248.6]
             .into_iter()
             .enumerate()
@@ -888,6 +888,8 @@ mod tests {
             gross_loss: -212.35,
             total_r: 4.1,
             r_trades: 12,
+            r_profit: 0.0,
+            r_loss: 0.0,
         };
         let mistake = MistakeCost {
             key: "move_sl".into(),

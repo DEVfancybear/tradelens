@@ -38,11 +38,14 @@ pub(crate) fn cells_of(row: &TradeRow) -> TradeCells {
     let trade = &row.trade;
     let closed = trade.is_closed();
     TradeCells {
-        time: row.closed().map_or_else(|| "đang mở".to_owned(), format::short_stamp),
+        time: row.closed().map_or_else(
+            || "đang mở".to_owned(),
+            |at| if trade.time_known() { format::short_stamp(at) } else { format::short_day(at) },
+        ),
         symbol: trade.symbol.clone(),
         side: trade.side.label().to_owned(),
-        lot: format::lots(trade.volume),
-        hold: trade.duration_secs().map_or_else(|| "—".to_owned(), format_duration),
+        lot: if trade.volume_known() { format::lots(trade.volume) } else { "—".to_owned() },
+        hold: trade.hold_secs().map_or_else(|| "—".to_owned(), format_duration),
         // A trade imported in R has no money: a dash, never "$0.00".
         net: if closed && trade.money_known() {
             format::money(trade.net(), Sign::Always, &row.currency)
@@ -71,16 +74,13 @@ pub(crate) fn summarise(snapshot: &Snapshot, picked: &[usize]) -> Summary {
     let samples: Vec<Sample<'_>> =
         rows.iter().filter(|row| row.trade.is_closed()).map(|row| Sample { trade: &row.trade, r: row.r }).collect();
     let stats = metrics::stats(&samples, 0.0, &[], snapshot.zone.clock());
+    let only_r = metrics::Basis::of(&samples).unit() == metrics::Unit::R;
     Summary {
         trades: rows.len(),
         // Only trades imported in R in the list: there is no money to add up.
-        net: if !samples.is_empty() && samples.iter().all(|x| !x.trade.money_known()) {
-            "—".to_owned()
-        } else {
-            format::money(stats.net, Sign::Always, &snapshot.currency)
-        },
+        net: if only_r { "—".to_owned() } else { format::money(stats.net, Sign::Always, &snapshot.currency) },
         win_rate: if samples.is_empty() { "—".to_owned() } else { format::percent(stats.win_rate) },
-        profit_factor: format::ratio(stats.profit_factor),
+        profit_factor: format::ratio(if only_r { stats.profit_factor_r } else { stats.profit_factor }),
         unjournaled: rows.iter().filter(|row| !row.journaled).count(),
     }
 }
@@ -137,7 +137,7 @@ fn list() -> impl IntoElement {
         }
         Load::Ready => (
             "Chưa có lệnh nào".to_owned(),
-            "Kết nối EA ở Nguồn dữ liệu, hoặc import báo cáo MT5, để thấy lệnh ở đây.".to_owned(),
+            "Import báo cáo MT5 hoặc file Notion ở Nguồn dữ liệu, hoặc thêm lệnh tay, để thấy lệnh ở đây.".to_owned(),
         ),
     };
 
@@ -145,7 +145,7 @@ fn list() -> impl IntoElement {
     on_key_with("mod+n", KeyOptions { pass_through: true, ..KeyOptions::default() }, |_| nav::open_manual_entry());
     page_fill(
         "Lệnh",
-        "Gom từ deal MT5 theo position; bấm một lệnh để mở nhật ký",
+        "Gom từ các deal theo position; bấm một lệnh để mở nhật ký",
         view().flex_row().items_center().gap_3().child(account_picker()).child(action_icon(
             Icon::Plus,
             "Thêm lệnh",
@@ -302,6 +302,7 @@ mod tests {
             tp: 0.0,
             risk: None,
             result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
             reason: None,
         }
     }

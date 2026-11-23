@@ -102,7 +102,8 @@ pub(crate) fn period_figures(snapshot: &Snapshot, period: Period, start: NaiveDa
     let rows = closed_between(snapshot, first, last);
     let all = samples(&rows);
     let net: f64 = all.iter().map(Sample::net).sum();
-    let wins = all.iter().filter(|x| x.net() > 0.0).count();
+    let basis = metrics::Basis::of(&all);
+    let wins = all.iter().filter(|x| x.score() > 0.0).count();
     let gross_profit: f64 = all.iter().map(Sample::net).filter(|n| *n > 0.0).sum();
     let gross_loss: f64 = all.iter().map(Sample::net).filter(|n| *n < 0.0).sum();
     let mut by_setup: BTreeMap<&str, usize> = BTreeMap::new();
@@ -117,7 +118,15 @@ pub(crate) fn period_figures(snapshot: &Snapshot, period: Period, start: NaiveDa
         wins,
         net,
         total_r: (!measured.is_empty()).then(|| measured.iter().sum()),
-        profit_factor: (gross_loss < -1e-6).then(|| gross_profit / -gross_loss),
+        unit: basis.unit(),
+        profit_factor: match basis.unit() {
+            metrics::Unit::Money => (gross_loss < -1e-6).then(|| gross_profit / -gross_loss),
+            metrics::Unit::R => {
+                let (r_won, r_lost): (f64, f64) =
+                    (measured.iter().filter(|r| **r > 0.0).sum(), measured.iter().filter(|r| **r < 0.0).sum());
+                (r_lost < -1e-6).then(|| r_won / -r_lost)
+            }
+        },
         top_setup,
         r_curve: r_curve(&rows),
         currency: snapshot.currency.clone(),
@@ -174,6 +183,7 @@ pub(crate) fn build(snapshot: &Snapshot, account: Option<i64>, month: NaiveDate,
         extras.reasons.iter().find(|item| item.key == key).map_or_else(|| key.to_owned(), |i| i.label.clone())
     };
     MonthlyReport::new(account_name(snapshot, account), snapshot.currency.clone(), first, stats)
+        .with_unit(metrics::Basis::of(&in_month).unit())
         .with_curves(curve, r_curve(&rows))
         .with_calendar(weeks)
         .with_playbooks(by_playbook)
@@ -215,6 +225,7 @@ mod tests {
             tp: 0.0,
             risk: Some(50.0),
             result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
             reason: None,
         }
     }

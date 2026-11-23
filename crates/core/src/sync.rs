@@ -561,6 +561,7 @@ mod tests {
             tp: 0.0,
             risk,
             result_r: None,
+            gaps: crate::model::Gaps::NONE,
             reason: None,
         }
     }

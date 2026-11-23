@@ -243,6 +243,7 @@ fn deal(row: &DealRow<'_>, layout: Layout) -> Result<Deal, ImportError> {
         tp: 0.0,
         risk: None,
         result_r: None,
+        gaps: crate::model::Gaps::NONE,
     })
 }
 

@@ -11,7 +11,7 @@
 use chrono::NaiveDate;
 
 use crate::{
-    metrics::{CalendarWeek, EquityPoint, Group, MistakeCost, Stats},
+    metrics::{CalendarWeek, EquityPoint, Group, MistakeCost, Stats, Unit},
     missed::MissedSummary,
     model::{Side, Trade},
     review::PeriodReview,
@@ -50,6 +50,16 @@ impl Privacy {
     /// Whether results in R may be shown.
     pub fn shows_r(self) -> bool {
         self != Self::NoFigures
+    }
+
+    /// What can be shown of results in `unit`: results that have no money (a journal kept in R)
+    /// show as R whatever the trader chose, never as an amount of zero.
+    #[must_use]
+    pub fn for_unit(self, unit: Unit) -> Self {
+        match (self, unit) {
+            (Self::ShowMoney, Unit::R) => Self::OnlyR,
+            (other, _) => other,
+        }
     }
 }
 
@@ -195,13 +205,15 @@ impl ShareCard {
         privacy: Privacy,
         clock: Clock,
     ) -> Self {
+        // A trade with only its R has no money to show: the card is the R one, and its outcome is its R's.
+        let privacy = privacy.for_unit(if trade.money_known() { Unit::Money } else { Unit::R });
         let net = trade.net();
         let side = match trade.side {
             Side::Long => "Buy",
             Side::Short => "Sell",
         };
         let mut stats = vec![("Chiều".to_owned(), side.to_owned())];
-        if let Some(held) = trade.duration_secs() {
+        if let Some(held) = trade.hold_secs() {
             stats.push(("Thời gian giữ".to_owned(), time::format_duration(held)));
         }
         stats.extend(setup.filter(|s| !s.trim().is_empty()).map(|s| ("Setup".to_owned(), s)));
@@ -212,7 +224,7 @@ impl ShareCard {
             privacy,
             result_r: r.filter(|_| privacy.shows_r()).map_or_default(|r| r_text(r, 2)),
             result_money: privacy.shows_money().then(|| money(net, currency)),
-            outcome: Outcome::of(net),
+            outcome: Outcome::of(trade.score()),
             stats,
             curve: Vec::new(),
             chart,
@@ -221,6 +233,7 @@ impl ShareCard {
 
     /// The card of a week or a month.
     pub fn period(title: String, figures: &PeriodFigures, privacy: Privacy) -> Self {
+        let privacy = privacy.for_unit(figures.unit);
         let mut stats = Vec::new();
         if privacy.shows_r() {
             stats.push(("Lệnh".to_owned(), figures.trades.to_string()));
@@ -241,7 +254,10 @@ impl ShareCard {
             privacy,
             result_r: figures.total_r.filter(|_| privacy.shows_r()).map_or_default(|r| r_text(r, 1)),
             result_money: privacy.shows_money().then(|| money(figures.net, &figures.currency)),
-            outcome: Outcome::of(figures.net),
+            outcome: Outcome::of(match figures.unit {
+                Unit::Money => figures.net,
+                Unit::R => figures.total_r.unwrap_or(0.0),
+            }),
             stats,
             curve: figures.r_curve.clone(),
             chart: None,
@@ -285,6 +301,8 @@ pub struct PeriodFigures {
     pub trades: usize,
     pub wins: usize,
     pub net: f64,
+    /// The unit the period's results are in: R when none of its trades has money.
+    pub unit: Unit,
     /// The period's R; `None` when no trade has one.
     pub total_r: Option<f64>,
     pub profit_factor: Option<f64>,
@@ -303,6 +321,8 @@ pub struct MonthlyReport {
     pub currency: String,
     /// Any day of the month.
     pub month: NaiveDate,
+    /// The unit the month's results are in: R when none of its trades has money.
+    pub unit: Unit,
     pub stats: Stats,
     /// The balance after each closed trade and cash movement of the month.
     pub curve: Vec<EquityPoint>,
@@ -328,6 +348,7 @@ impl MonthlyReport {
             account,
             currency,
             month,
+            unit: Unit::Money,
             stats,
             curve: Vec::new(),
             r_curve: Vec::new(),
@@ -338,6 +359,13 @@ impl MonthlyReport {
             missed_reasons: Vec::new(),
             review: None,
         }
+    }
+
+    /// The unit of the month's results ([`crate::metrics::Basis::unit`]).
+    #[must_use]
+    pub fn with_unit(mut self, unit: Unit) -> Self {
+        self.unit = unit;
+        self
     }
 
     /// The balance curve and the cumulative R curve of the month.
@@ -425,6 +453,7 @@ mod tests {
             profit,
             risk: Some(195.0),
             result_r: None,
+            gaps: crate::model::Gaps::NONE,
             magic: 0,
             comment: String::new(),
             manual: false,
@@ -474,11 +503,52 @@ mod tests {
     }
 
     #[test]
+    fn a_trade_with_only_its_r_never_shows_an_amount_whatever_the_privacy_asks() {
+        use crate::model::Gaps;
+        let mut journal_trade = trade(0.0);
+        journal_trade.result_r = Some(-1.0);
+        journal_trade.gaps = Gaps::TIME.with(Gaps::VOLUME).with(Gaps::PRICE);
+        let card = ShareCard::new(&journal_trade, Some(-1.0), None, None, "USD", Privacy::ShowMoney, Clock::default());
+        assert_eq!(card.privacy, Privacy::OnlyR, "the money level is the R one for it");
+        assert!(card.result_money.is_none());
+        assert_eq!(card.result_r, "\u{2212}1.00R");
+        assert_eq!(card.outcome, Outcome::Loss, "by its R, not by a net of zero");
+        assert!(
+            card.stats.iter().all(|(label, _)| label != "Thời gian giữ"),
+            "a date has no hold time: {:?}",
+            card.stats
+        );
+        assert_eq!(card.headline().main, "\u{2212}1.00R");
+    }
+
+    #[test]
+    fn a_period_without_money_is_a_card_in_r_and_a_report_in_r() {
+        let figures = PeriodFigures {
+            trades: 3,
+            wins: 2,
+            net: 0.0,
+            unit: Unit::R,
+            total_r: Some(1.5),
+            profit_factor: Some(2.0),
+            top_setup: None,
+            r_curve: vec![0.5, 1.5],
+            currency: "USD".into(),
+        };
+        let card = ShareCard::period("Tuần 16".into(), &figures, Privacy::ShowMoney);
+        assert!(card.result_money.is_none() && card.result_r == "+1.5R", "{card:?}");
+        assert_eq!(card.outcome, Outcome::Win);
+        assert_eq!(Privacy::ShowMoney.for_unit(Unit::R), Privacy::OnlyR);
+        assert_eq!(Privacy::ShowMoney.for_unit(Unit::Money), Privacy::ShowMoney);
+        assert_eq!(Privacy::NoFigures.for_unit(Unit::R), Privacy::NoFigures);
+    }
+
+    #[test]
     fn a_period_card_keeps_counts_unless_the_figures_are_hidden() {
         let figures = PeriodFigures {
             trades: 21,
             wins: 13,
             net: 1248.6,
+            unit: Unit::Money,
             total_r: Some(6.4),
             profit_factor: Some(2.314),
             top_setup: Some("Breakout".into()),

@@ -525,6 +525,7 @@ mod tests {
             tp: 0.0,
             risk: Some(100.0),
             result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
             reason: None,
         }
     }

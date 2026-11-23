@@ -92,10 +92,9 @@ fn route_row(route: Route) -> impl IntoElement {
 /// The sync's state, at the sidebar's foot.
 fn status() -> impl IntoElement {
     let state = cloud::cloud().state;
-    view()
-        .px_3()
-        .gap_1()
-        .child(text(move || state.with(status_line)).text_xs().text_color(move || theme().muted_foreground))
+    view().px_3().gap_1().child(
+        text(move || state.with(status_line)).text_xs().number_of_lines(1).text_color(move || theme().muted_foreground),
+    )
 }
 
 /// `Cloud: chưa đăng nhập`, or the account's drive and how the last sync went.

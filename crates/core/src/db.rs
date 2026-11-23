@@ -10,8 +10,8 @@ use crate::catalog::{CatalogItem, CatalogKind, CustomValues, FieldDef, FieldScop
 use crate::form::FormLayout;
 use crate::missed::MissedTrade;
 use crate::model::{
-    Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, DealEntry, DealKind, JournalEntry, ManualTrade,
-    PositionLevels, Rules, Side, TradeKey,
+    Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, DealEntry, DealKind, Gaps, JournalEntry,
+    ManualTrade, PositionLevels, Rules, Side, TradeKey,
 };
 use crate::playbook::Playbook;
 use crate::review::{Period, PeriodReview, ReviewTemplate};
@@ -54,6 +54,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0009_day_note_custom.sql"),
     include_str!("../migrations/0010_sync_uids.sql"),
     include_str!("../migrations/0011_result_r.sql"),
+    include_str!("../migrations/0012_deal_gaps.sql"),
 ];
 
 /// One line of the import log: what an import or a sync stored, and when.
@@ -378,6 +379,7 @@ impl Db {
             tp: trade.tp,
             risk: None,
             result_r: None,
+            gaps: Gaps::NONE,
             reason: None,
         };
         let entry = deal(entry_ticket, entry_kind, DealEntry::In, trade.open_time, trade.open_price);
@@ -546,6 +548,23 @@ impl Db {
             )
             .optional()?;
         Ok(note.unwrap_or_default())
+    }
+
+    /// The days that have a note (a plan, a review, a mood, or values of the trader's own day
+    /// properties) for `account_id` (0: the note of all accounts), oldest first: what a date picker
+    /// marks.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the query fails.
+    pub fn days_with_notes(&self, account_id: i64) -> Result<Vec<chrono::NaiveDate>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT day FROM day_notes
+             WHERE account_id = ?1 AND (plan <> '' OR review <> '' OR mood <> '' OR custom_json NOT IN ('', '{}'))
+             ORDER BY day",
+        )?;
+        let days: Vec<String> = stmt.query_map([account_id], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(days.iter().filter_map(|day| day.parse().ok()).collect())
     }
 
     /// Writes the note of a day and refreshes its full-text index. The index reference
@@ -1255,7 +1274,7 @@ const ACCOUNT_COLUMNS: &str = "id, login, server, broker, name, currency, initia
      server_offset_min, last_sync";
 
 const DEAL_COLUMNS: &str = "ticket, order_id, position_id, time_msc, symbol, kind, entry, volume, price, commission,
-     swap, fee, profit, magic, comment, sl, tp, risk, reason, result_r";
+     swap, fee, profit, magic, comment, sl, tp, risk, reason, result_r, gaps";
 
 /// A row count as SQLite stores it.
 fn count(n: usize) -> i64 {
@@ -1310,6 +1329,7 @@ fn deal_from_row_at(r: &Row<'_>, first: usize) -> rusqlite::Result<Deal> {
         risk: r.get(first + 17)?,
         reason: r.get(first + 18)?,
         result_r: r.get(first + 19)?,
+        gaps: Gaps::from_bits(r.get(first + 20)?),
     })
 }
 
@@ -1326,8 +1346,8 @@ fn write_deal(conn: &Connection, account_id: i64, deal: &Deal, source: &str) -> 
 fn write_deal_raw(conn: &Connection, account_id: i64, deal: &Deal, source: &str) -> Result<()> {
     conn.prepare_cached(
         "INSERT OR REPLACE INTO deals (account_id, ticket, order_id, position_id, time_msc, symbol, kind, entry,
-             volume, price, commission, swap, fee, profit, magic, comment, sl, tp, risk, reason, result_r, source)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+             volume, price, commission, swap, fee, profit, magic, comment, sl, tp, risk, reason, result_r, gaps, source)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
     )?
     .execute(rusqlite::params![
         account_id,
@@ -1351,6 +1371,7 @@ fn write_deal_raw(conn: &Connection, account_id: i64, deal: &Deal, source: &str)
         deal.risk,
         deal.reason,
         deal.result_r,
+        deal.gaps.bits(),
         source
     ])?;
     Ok(())

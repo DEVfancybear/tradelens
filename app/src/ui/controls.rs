@@ -46,7 +46,7 @@ pub(crate) fn action_when(
     button_shell(variant, enabled, on_press)
         .h(px(34.0))
         .px_4()
-        .child(text(label).text_sm().font_weight(FontWeight::MEDIUM).text_color(variant.ink()))
+        .child(text(label).text_sm().number_of_lines(1).font_weight(FontWeight::MEDIUM).text_color(variant.ink()))
 }
 
 /// A button with an icon before its label.
@@ -72,7 +72,7 @@ pub(crate) fn action_icon_when(
         .px_3()
         .gap_2()
         .child(icon(glyph, ICON_SIZE).text_color(variant.ink()))
-        .child(text(label).text_sm().font_weight(FontWeight::MEDIUM).text_color(variant.ink()))
+        .child(text(label).text_sm().number_of_lines(1).font_weight(FontWeight::MEDIUM).text_color(variant.ink()))
 }
 
 /// A square button that holds only an icon. `accessibility_label` is what screen readers say
@@ -107,6 +107,44 @@ pub(crate) async fn confirm(
     matches!(answer, Ok(result) if result.action.as_deref() == Some("confirm"))
 }
 
+/// Asks as [`confirm`] does and runs `then` when the trader confirms, as a task of `owner`, not of
+/// the element that asked.
+///
+/// A task started in a press handler belongs to the owner of the button: when the part of the page the
+/// button is in is built again (the cloud card is, at every change of the sign-in state), the task is
+/// cancelled and the question never appears. `owner` is one that lives as long as the page (the
+/// root's, [`root_owner`]); call this from the handler, take `owner` while building.
+pub(crate) fn confirm_then(
+    owner: Owner,
+    title: impl Into<SharedString> + 'static,
+    description: impl Into<SharedString> + 'static,
+    confirm_label: impl Into<SharedString> + 'static,
+    then: impl FnOnce() + 'static,
+) {
+    owner.run(move || {
+        spawn(async move {
+            if confirm(title, description, confirm_label).await {
+                then();
+            }
+        });
+    });
+}
+
+/// The owner of the whole app, which no rebuilt part of a page disposes; the one a question that must
+/// outlive its button is asked under ([`confirm_then`]). Call while building.
+pub(crate) fn root_owner() -> Owner {
+    use_context::<RootOwner>().map_or_else(Owner::current, |root| root.0)
+}
+
+/// The app's root owner, provided once by the root ([`provide_root_owner`]).
+#[derive(Clone, Copy)]
+struct RootOwner(Owner);
+
+/// Makes the owner the root has the one [`root_owner`] gives. Call once, in the root.
+pub(crate) fn provide_root_owner() {
+    provide_context(RootOwner(Owner::current()));
+}
+
 /// The size of an icon inside a button.
 const ICON_SIZE: f32 = 16.0;
 
@@ -136,6 +174,7 @@ fn button_shell(
     on_press: impl Fn() + 'static,
 ) -> ButtonElement {
     button()
+        .cursor_pointer()
         .on_press(on_press)
         .disabled(move || !enabled())
         .flex_row()
@@ -143,10 +182,14 @@ fn button_shell(
         .justify_center()
         .rounded(move || theme().radius)
         .bg(variant.fill())
-        .hover(|s| s.opacity(0.9))
+        // A button with no fill of its own (a link such as "Xem tất cả") shows the hover as a fill.
+        .hover(move |s| match variant {
+            Variant::Ghost => s.bg(move || theme().accent),
+            Variant::Primary | Variant::Secondary => s.opacity(0.9),
+        })
         .active(|s| s.scale(motion::PRESS_SCALE))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
-        .disabled_style(|s| s.opacity(0.5))
+        .disabled_style(|s| s.opacity(0.5).cursor(nsh_core::Cursor::Default))
 }
 
 /// A row of the sidebar: an icon, a label, and the selection's fill and bar.
@@ -157,6 +200,7 @@ pub(crate) fn sidebar_row(
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
     button()
+        .cursor_pointer()
         .on_press(on_press)
         .accessibility_label(label)
         .h(px(34.0))
@@ -186,6 +230,7 @@ pub(crate) fn sidebar_row(
         )
         .child(
             text(label)
+                .number_of_lines(1)
                 .flex_1()
                 .number_of_lines(1)
                 .text_sm()
@@ -214,6 +259,7 @@ pub(crate) fn segmented<T: Copy + PartialEq + 'static>(
         .children(options.iter().map(move |&option| {
             let on = move || value() == option;
             toggle()
+                .cursor_pointer()
                 .pressed(on)
                 .on_change(move |_: &bool| on_change(option))
                 .accessibility_label(format!("{group}: {}", label(option)))
@@ -316,6 +362,7 @@ fn drop_down(
         })
         .trigger(
             view()
+                .cursor_pointer()
                 .h(px(34.0))
                 .flex_row()
                 .items_center()
@@ -456,6 +503,7 @@ pub(crate) fn tag_picker(
                 };
                 let toggled = key;
                 toggle()
+                    .cursor_pointer()
                     .pressed(is_on.clone())
                     .on_change(move |next: &bool| on_toggle(&toggled, *next))
                     .accessibility_label(format!("{group}: {label}"))
@@ -499,6 +547,7 @@ pub(crate) fn rating_of(
     view().flex_row().gap_1().children((1_u8..=max).map(move |star| {
         let filled = move || value() >= star;
         button()
+            .cursor_pointer()
             .on_press(move || on_change(if value() == star { 0 } else { star }))
             .accessibility_label(format!("{label}: {star} sao"))
             .size(px(28.0))

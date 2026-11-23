@@ -329,6 +329,7 @@ mod tests {
             trades: 3,
             wins: 2,
             net: 90.0,
+            unit: crate::metrics::Unit::Money,
             total_r: Some(1.5),
             profit_factor: None,
             top_setup: Some("A & <B>".into()),

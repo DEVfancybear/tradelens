@@ -33,6 +33,7 @@ fn deal(ticket: i64, entry: DealEntry, kind: DealKind, at: i64, profit: f64) -> 
         tp: 0.0,
         risk: None,
         result_r: None,
+        gaps: tradelens_core::Gaps::NONE,
         reason: None,
     }
 }

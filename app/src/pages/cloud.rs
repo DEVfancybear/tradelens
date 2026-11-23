@@ -10,7 +10,7 @@ use crate::{
     cloud::{self as app_cloud, AutoSync, Cloud, Outcome, Phase, State, Why},
     ui::{
         chips::{Tone, chip},
-        controls::{Variant, action, action_icon_when, confirm},
+        controls::{Variant, action, action_icon_when},
         forms::switch_row,
         icons::{Icon, icon},
         layout::columns,
@@ -18,6 +18,9 @@ use crate::{
         theme::loss,
     },
 };
+
+/// Why "Sync ngay" is off while nobody is signed in.
+const SIGN_IN_TO_SYNC: &str = "Đăng nhập Google Drive hoặc OneDrive để đồng bộ";
 
 /// What a provider is called and how the card describes it.
 fn describe(provider: Provider) -> (&'static str, &'static str, &'static str) {
@@ -101,19 +104,9 @@ fn provider_body(
 ) -> impl IntoElement {
     let (name, _, sign_in_label) = describe(provider);
     if let Some(me) = signed {
-        let sign_out = move || {
-            spawn(async move {
-                let sure = confirm(
-                    format!("Đăng xuất khỏi {name}?"),
-                    "Dữ liệu trên Drive vẫn còn; TradeLens chỉ ngừng sync trên máy này cho tới khi bạn đăng nhập lại.",
-                    "Đăng xuất",
-                )
-                .await;
-                if sure {
-                    cloud.sign_out(provider);
-                }
-            });
-        };
+        // The question is the cloud's task, not this button's: this card is built again whenever the
+        // state changes, and a task of the button would go with it before the alert shows.
+        let sign_out = move || cloud.confirm_sign_out(provider, name);
         return view()
             .gap_3()
             .child(
@@ -237,6 +230,11 @@ fn sync_card(cloud: Cloud) -> impl IntoElement {
                     )),
             )
             .child(dynamic(move || {
+                // The button is off while nobody is signed in: say what turns it on.
+                let signed_out = state.with(|s| s.ready && s.active().is_none());
+                signed_out.then(|| text(SIGN_IN_TO_SYNC).text_sm().text_color(move || theme().muted_foreground))
+            }))
+            .child(dynamic(move || {
                 state
                     .with(|s| s.env.is_demo())
                     .then(|| chip("Chế độ thử: ổ đĩa nằm trong bộ nhớ, không cần tài khoản", Tone::Neutral))
@@ -252,21 +250,7 @@ fn sync_card(cloud: Cloud) -> impl IntoElement {
 
 fn restore_card(cloud: Cloud) -> impl IntoElement {
     let state = cloud.state;
-    let restore = move || {
-        spawn(async move {
-            let sure = confirm(
-                "Thay toàn bộ dữ liệu trên máy này?",
-                "Dữ liệu đang có trên máy này sẽ bị thay bằng bản sao lưu gần nhất trên Drive, cộng các thay đổi sau đó. \
-                 Một bản của dữ liệu cũ được giữ cạnh file dữ liệu (tradelens.before-restore.db). \
-                 Chỉ làm khi đây là máy mới. Không hoàn tác được.",
-                "Thay dữ liệu",
-            )
-            .await;
-            if sure {
-                cloud.restore();
-            }
-        });
-    };
+    let restore = move || cloud.confirm_restore();
     card(
         "Khôi phục & sao lưu",
         view()

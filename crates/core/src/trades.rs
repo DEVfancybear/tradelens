@@ -39,6 +39,7 @@ impl Building {
                 magic: deal.magic,
                 comment: deal.comment.clone(),
                 manual: deal.ticket < 0,
+                gaps: deal.gaps,
             },
             open_volume: 0.0,
             entry_value: 0.0,
@@ -72,6 +73,7 @@ impl Building {
         self.trade.commission += deal.commission;
         self.trade.swap += deal.swap;
         self.trade.fee += deal.fee;
+        self.trade.gaps = self.trade.gaps.with(deal.gaps);
     }
 
     fn exited(&mut self, deal: &Deal, volume: f64, profit: f64) {

@@ -82,6 +82,7 @@ fn deal(
         tp,
         risk: None,
         result_r: None,
+        gaps: tradelens_core::Gaps::NONE,
         reason: None,
     }
 }
@@ -201,7 +202,7 @@ fn the_exit_deals_reason_prefills_the_exit_reason_without_creating_an_entry() {
     db.upsert_batch(&batch(vec![opening, closing]), "test").expect("stored");
     let mut app = fixture.start();
     open_trade(&mut app, "XAUUSD");
-    app.wait_for("EA gợi ý: Chạm SL").expect("the deal's reason is suggested");
+    app.wait_for("Gợi ý từ deal đóng: Chạm SL").expect("the deal's reason is suggested");
     app.wait_for("Đã lưu").expect("nothing is pending");
     assert!(db.journal(&key_of(&db, 1)).expect("reads").is_none(), "opening a trade writes no entry");
 }
@@ -311,14 +312,24 @@ fn a_trade_typed_in_by_hand_is_stored_with_its_journal() {
 
     app.type_text("label:Symbol", "GBPUSD").expect("symbol");
     common::toggle_on(&mut app, "role:button[Chiều: Sell]");
-    app.type_text("label:Thời gian vào", "2026-11-20 16:05").expect("opened");
-    app.type_text("label:Thời gian ra", "2026-11-20 17:40").expect("closed");
+    // The times are chosen from the calendar: the 3rd and the 4th of this month, both at 00:00.
+    let this_month = |day: u32| {
+        let today = chrono::Local::now().date_naive();
+        chrono::NaiveDate::from_ymd_opt(chrono::Datelike::year(&today), chrono::Datelike::month(&today), day)
+            .expect("a day of the month")
+            .format("%Y-%m-%d")
+            .to_string()
+    };
+    app.press("label:Thời gian vào").expect("the opening time opens the calendar");
+    app.press(&format!("role:button[{}]", this_month(3))).expect("opened");
+    app.press("label:Thời gian ra").expect("the closing time opens the calendar");
+    app.press(&format!("role:button[{}]", this_month(4))).expect("closed");
     app.type_text("label:Khối lượng", "0.8").expect("volume");
     app.type_text("label:Giá vào", "1.2684").expect("open price");
     app.type_text("label:Giá ra", "1.2651").expect("close price");
     app.type_text("label:Lãi/lỗ", "264").expect("profit");
     app.type_text("label:Commission", "-5.6").expect("commission");
-    app.wait_for("Tự tính: kết quả ròng +$258.40 · giữ 1g 35p").expect("the computed line follows");
+    app.wait_for("text:/^Tự tính: kết quả ròng [+]\\$258[.]40 · giữ /").expect("the computed line follows");
     common::toggle_on(&mut app, "role:button[Tag: Tin tức]");
     app.type_text("label:Ghi chú", "Vào sớm vì sợ lỡ").expect("notes");
     app.press("role:button[Lưu lệnh]").expect("saves");

@@ -25,6 +25,7 @@ pub(crate) fn tab_bar<T: Copy + PartialEq + 'static>(
         .children(options.iter().map(move |&option| {
             let on = move || value() == option;
             tab()
+                .cursor_pointer()
                 .selected(on)
                 .on_press(move || on_change(option))
                 .accessibility_label(format!("{group}: {}", label(option)))

@@ -31,8 +31,8 @@ fn header(
             view()
                 .gap_1()
                 .min_w(px(0.0))
-                .child(text(title).text_2xl().font_weight(FontWeight::SEMIBOLD))
-                .child(text(summary).text_sm().text_color(move || theme().muted_foreground)),
+                .child(text(title).text_2xl().number_of_lines(1).font_weight(FontWeight::SEMIBOLD))
+                .child(text(summary).text_sm().number_of_lines(1).text_color(move || theme().muted_foreground)),
         )
         .child(view().flex_row().flex_wrap().items_center().gap_3().child(actions))
 }
@@ -77,13 +77,29 @@ pub(crate) fn card(title: &'static str, body: impl IntoElement) -> impl IntoElem
         .border_1()
         .border_color(move || theme().border)
         .bg(move || theme().card)
-        .child(text(title).text_sm().font_weight(FontWeight::SEMIBOLD).text_color(move || theme().card_foreground))
+        .child(
+            text(title)
+                .text_sm()
+                .number_of_lines(1)
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(move || theme().card_foreground),
+        )
         .child(body)
 }
 
 /// A headline number: its label over its value and a note. The value's colour follows its tone.
 pub(crate) fn stat_tile(
     label: &'static str,
+    value: impl Fn() -> (String, Tone) + Clone + 'static,
+    note: impl Fn() -> String + 'static,
+) -> impl IntoElement {
+    stat_tile_with(move || label, value, note)
+}
+
+/// [`stat_tile`] whose label follows the data: a figure that is in money for one set of trades and in
+/// R for another.
+pub(crate) fn stat_tile_with(
+    label: impl Fn() -> &'static str + 'static,
     value: impl Fn() -> (String, Tone) + Clone + 'static,
     note: impl Fn() -> String + 'static,
 ) -> impl IntoElement {
@@ -97,7 +113,7 @@ pub(crate) fn stat_tile(
         .border_1()
         .border_color(move || theme().border)
         .bg(move || theme().card)
-        .child(text(label).text_xs().text_color(move || theme().muted_foreground))
+        .child(text(label).text_xs().number_of_lines(1).text_color(move || theme().muted_foreground))
         .child(
             text(move || shown().0)
                 .text_xl()
@@ -111,7 +127,7 @@ pub(crate) fn stat_tile(
                     Tone::Neutral | Tone::Primary => theme().foreground,
                 }),
         )
-        .child(text(note).text_xs().text_color(move || theme().muted_foreground))
+        .child(text(note).text_xs().number_of_lines(1).text_color(move || theme().muted_foreground))
 }
 
 /// A row of a property list: the property's name, then its control.

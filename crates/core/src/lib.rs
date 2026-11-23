@@ -4,6 +4,7 @@
 //! - [`catalog`] the trader's own option lists and fields
 //! - [`missed`]  setups seen and not taken, and what they would have made
 //! - [`model`]   MT5 accounts, deals, trades, journal entries, rules
+//! - [`legacy`]  moving the data of an earlier version into the app's own folder
 //! - [`journal`] the plan written at entry and how the trade compares with it
 //! - [`trades`]  deals → trades (by position, with partial closes and reversals)
 //! - [`metrics`] statistics, balance curve, drawdown, breakdowns
@@ -23,6 +24,7 @@ pub mod db;
 pub mod form;
 pub mod import;
 pub mod journal;
+pub mod legacy;
 pub mod metrics;
 pub mod missed;
 pub mod model;
@@ -37,6 +39,6 @@ pub mod trades;
 
 pub use db::{Db, DbError};
 pub use model::{
-    Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, DealEntry, DealKind, JournalEntry, ManualTrade,
-    PositionLevels, Rules, Side, Trade, TradeKey,
+    Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, DealEntry, DealKind, Gaps, JournalEntry,
+    ManualTrade, Origin, PositionLevels, Rules, Side, Trade, TradeKey,
 };

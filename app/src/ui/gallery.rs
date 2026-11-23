@@ -174,8 +174,8 @@ struct Tile {
 fn badge_of(source: Source) -> Option<&'static str> {
     match source {
         Source::Upload => None,
-        Source::EaEntry => Some("EA · vào lệnh"),
-        Source::EaExit => Some("EA · ra lệnh"),
+        Source::EaEntry => Some("Tự chụp · vào lệnh"),
+        Source::EaExit => Some("Tự chụp · ra lệnh"),
     }
 }
 
@@ -254,6 +254,7 @@ fn tile(
 /// The tile that adds pictures: press it for the file dialog, or drop files on the gallery.
 fn add_tile(label: &'static str, on_press: impl Fn() + 'static) -> impl IntoElement {
     button()
+        .cursor_pointer()
         .on_press(on_press)
         .accessibility_label(format!("Thêm ảnh vào {label}"))
         .w(px(TILE_WIDTH))
@@ -303,8 +304,8 @@ mod tests {
     #[test]
     fn only_the_eas_shots_carry_a_badge() {
         assert_eq!(badge_of(Source::Upload), None);
-        assert_eq!(badge_of(Source::EaEntry), Some("EA · vào lệnh"));
-        assert_eq!(badge_of(Source::EaExit), Some("EA · ra lệnh"));
+        assert_eq!(badge_of(Source::EaEntry), Some("Tự chụp · vào lệnh"));
+        assert_eq!(badge_of(Source::EaExit), Some("Tự chụp · ra lệnh"));
     }
 
     #[test]
@@ -360,8 +361,8 @@ mod tests {
     #[test]
     fn the_ea_badges_and_captions_are_shown() {
         let (_dir, app) = fixture();
-        assert!(app.screen().shows("EA · vào lệnh"));
-        assert!(app.screen().shows("EA · ra lệnh"));
+        assert!(app.screen().shows("Tự chụp · vào lệnh"));
+        assert!(app.screen().shows("Tự chụp · ra lệnh"));
         assert!(app.screen().shows("H4 · bối cảnh"));
         assert!(app.screen().shows("Thêm ảnh"));
     }

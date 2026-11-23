@@ -61,7 +61,10 @@ impl PlanRequest {
             symbol: trade.symbol.clone(),
             side: trade.side,
             volume: trade.volume,
-            origin: format!("{} · lệnh {}", row.account, trade.key.position_id),
+            origin: match trade.origin() {
+                tradelens_core::Origin::Mt5 => format!("{} · lệnh {}", row.account, trade.key.position_id),
+                other => format!("{} · {}", row.account, other.label()),
+            },
             seed: plan.unwrap_or_else(|| EntryPlan {
                 entry: level(trade.open_price),
                 stop_loss: level(trade.sl),
@@ -181,6 +184,7 @@ fn plan_warnings(
         profit: 0.0,
         risk: None,
         result_r: None,
+        gaps: tradelens_core::Gaps::NONE,
         magic: 0,
         comment: String::new(),
         manual: false,
@@ -634,7 +638,7 @@ fn footer(busy: Signal<bool>, skip: impl Fn() + 'static, save: impl Fn() + 'stat
         .justify_between()
         .gap_3()
         .child(
-            text("Entry, SL, TP lấy từ lệnh MT5 · ảnh chart thêm ở chi tiết lệnh")
+            text("Entry, SL, TP lấy từ lệnh · ảnh chart thêm ở chi tiết lệnh")
                 .flex_1()
                 .min_w(px(200.0))
                 .text_xs()
@@ -704,6 +708,7 @@ mod tests {
             risk: None,
             reason: None,
             result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
         };
         let mut db = Db::in_memory().expect("opens");
         let batch = DealBatch {

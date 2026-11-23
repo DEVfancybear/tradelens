@@ -73,6 +73,7 @@ fn deal(
         tp: 0.0,
         risk: None,
         result_r: None,
+        gaps: tradelens_core::Gaps::NONE,
         reason: None,
     }
 }
@@ -111,7 +112,7 @@ fn seed(db: &mut Db) {
 
 fn open_trades(app: &mut Headless) {
     app.press("role:button[Lệnh]").expect("the trades row is a button");
-    app.wait_for("Gom từ deal MT5 theo position; bấm một lệnh để mở nhật ký").expect("the trades page opens");
+    app.wait_for("Gom từ các deal theo position; bấm một lệnh để mở nhật ký").expect("the trades page opens");
 }
 
 fn trade_button(symbol: &str) -> String {

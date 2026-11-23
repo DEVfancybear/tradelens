@@ -167,6 +167,7 @@ mod tests {
             tp: 0.0,
             risk: None,
             result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
             reason: reason.map(str::to_owned),
         }
     }

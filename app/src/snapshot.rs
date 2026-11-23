@@ -9,7 +9,7 @@ use chrono::{Datelike, NaiveDate, NaiveDateTime};
 use tradelens_core::{
     Account, Db, DbError, Deal, JournalEntry, Trade, TradeKey,
     catalog::{CatalogItem, CatalogKind},
-    metrics::{self, EquityPoint, Sample, Stats},
+    metrics::{self, Basis, EquityPoint, Sample, Stats, Unit},
     playbook::Playbook,
     time::{self, Clock},
     trades::{build_trades, cash_flows},
@@ -179,6 +179,11 @@ pub(crate) struct Snapshot {
     pub(crate) stats: Stats,
     /// The balance after each closed trade and cash movement in the range.
     pub(crate) curve: Vec<EquityPoint>,
+    /// How many of the range's closed trades have money and how many only R: the money figures of
+    /// `stats` and `curve` cover the first, and the screens show R when there is no money.
+    pub(crate) basis: Basis,
+    /// The server time the range starts at (`None`: no limit), for what lists the range's trades.
+    pub(crate) range_from: Option<i64>,
     /// The balance the chosen accounts had before their first trade and cash movement.
     pub(crate) start_balance: f64,
     /// Every deposit and withdrawal of the chosen accounts, oldest first: `(server time, amount)`.
@@ -192,6 +197,16 @@ pub(crate) struct Snapshot {
 impl Snapshot {
     pub(crate) fn row(&self, key: &TradeKey) -> Option<&TradeRow> {
         self.rows.iter().find(|row| row.key() == key)
+    }
+
+    /// The trades of the range (7N, 30N, …), newest first: those closed since it starts, or still open.
+    pub(crate) fn rows_in_range(&self) -> impl Iterator<Item = &TradeRow> {
+        self.rows.iter().filter(|row| self.range_from.is_none_or(|from| row.sort_time() >= from))
+    }
+
+    /// The unit the figures of the range are in: R when none of its trades has money.
+    pub(crate) fn unit(&self) -> Unit {
+        self.basis.unit()
     }
 
     /// The journal entry of a trade, empty when the trader wrote none.
@@ -250,7 +265,7 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
     let zone = summary_zone(&in_view, display, query.local_offset_min);
     let now_server = query.now_utc_ms + zone.server_offset_min.map_or(0, |m| i64::from(m) * 60_000);
     let cutoff = query.range.cutoff(now_server);
-    let (stats, curve) = summarise(&rows, &cash, start_total, cutoff, zone.clock());
+    let (stats, curve, basis) = summarise(&rows, &cash, start_total, cutoff, zone.clock());
 
     let currencies: BTreeSet<&str> = in_view.iter().map(|a| a.currency.as_str()).collect();
     let currency = match currencies.len() {
@@ -269,6 +284,8 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
         catalogs,
         stats,
         curve,
+        basis,
+        range_from: cutoff,
         start_balance: start_total,
         cash,
         currency,
@@ -339,7 +356,7 @@ fn summarise(
     start_total: f64,
     cutoff: Option<i64>,
     clock: Clock,
-) -> (Stats, Vec<EquityPoint>) {
+) -> (Stats, Vec<EquityPoint>, Basis) {
     let all = closed_samples(rows);
     let closed_at = |x: &Sample<'_>| x.trade.close_time.unwrap_or(x.trade.open_time);
     let (samples, flows): (Vec<Sample<'_>>, Vec<(i64, f64)>) = match cutoff {
@@ -357,7 +374,11 @@ fn summarise(
         }
         None => start_total,
     };
-    (metrics::stats(&samples, start, &flows, clock), metrics::equity_curve(&samples, start, &flows))
+    (
+        metrics::stats(&samples, start, &flows, clock),
+        metrics::equity_curve(&samples, start, &flows),
+        Basis::of(&samples),
+    )
 }
 
 #[cfg(test)]
@@ -391,6 +412,7 @@ mod tests {
             tp: 0.0,
             risk: None,
             result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
             reason: None,
         }
     }

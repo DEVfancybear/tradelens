@@ -10,7 +10,7 @@ use tradelens_core::{
     ChecklistItem, DayNote, Db, DbError, Side, TradeKey,
     catalog::{CatalogKind, CustomValues, FieldDef, FieldScope, FieldValue},
     form::{BuiltinField, FormLayout},
-    metrics,
+    metrics::{self, Unit},
     rules::{self, Violation},
     time::{format_day, weekday_vi},
 };
@@ -21,11 +21,12 @@ use super::{
 };
 use crate::{
     format::{self, Sign},
-    nav,
-    store::{AccountFilter, Reading, Writer, query_with, store, writer},
+    insight, nav,
+    store::{AccountFilter, Reading, Writer, query, query_with, store, writer},
     ui::{
         chips::{Tone, chip, figure_text, pnl_text},
         controls::{Choice, Variant, action, action_when, icon_action, select_value, textarea},
+        date_picker::{DatePick, date_pick, date_trigger},
         icons::Icon,
         parts::{card, empty_state, page_with},
         properties::{PropertyEdits, PropertyList, property_list},
@@ -60,6 +61,8 @@ struct DayTrade {
 struct WeekDay {
     day: NaiveDate,
     net: Option<f64>,
+    /// The unit `net` is in: R for a day whose trades have no money.
+    unit: Unit,
     written: bool,
 }
 
@@ -85,8 +88,21 @@ struct DayData {
 }
 
 impl DayData {
-    fn closed_net(&self) -> f64 {
-        self.trades.iter().filter(|t| t.closed).map(|t| t.net).sum()
+    /// What the closed trades of the day made: money, or R when none of them has money.
+    fn closed_result(&self) -> (f64, Unit) {
+        let closed: Vec<&DayTrade> = self.trades.iter().filter(|t| t.closed).collect();
+        if !closed.is_empty() && closed.iter().all(|t| !t.money) {
+            (closed.iter().filter_map(|t| t.r).sum(), Unit::R)
+        } else {
+            (closed.iter().map(|t| t.net).sum(), Unit::Money)
+        }
+    }
+}
+
+impl DayTrade {
+    /// Whether the trade won: by its money, or by its R when it has no money.
+    fn won(&self) -> bool {
+        self.closed && if self.money { self.net > 0.0 } else { self.r.is_some_and(|r| r > 0.0) }
     }
 }
 
@@ -126,7 +142,11 @@ fn trades_of_day(own: &AccountTrades, day: NaiveDate, violations: &[Violation], 
             trade.open_time,
             DayTrade {
                 key: trade.key.clone(),
-                time: own.clock.local(trade.open_time).format("%H:%M").to_string(),
+                time: if trade.time_known() {
+                    own.clock.local(trade.open_time).format("%H:%M").to_string()
+                } else {
+                    "—".to_owned()
+                },
                 symbol: trade.symbol.clone(),
                 side: trade.side,
                 closed: trade.is_closed(),
@@ -148,7 +168,7 @@ fn load(db: &Db, account: Option<i64>, day: NaiveDate) -> Result<DayData, DbErro
 
     let mut listed: Vec<(i64, DayTrade)> = Vec::new();
     let mut day_violations: Vec<String> = Vec::new();
-    let mut per_day: HashMap<NaiveDate, f64> = HashMap::new();
+    let mut per_day: HashMap<NaiveDate, metrics::DayStat> = HashMap::new();
     for own in &owned {
         let rules = db.rules(own.account.id)?;
         let samples = own.samples();
@@ -161,7 +181,11 @@ fn load(db: &Db, account: Option<i64>, day: NaiveDate) -> Result<DayData, DbErro
         day_violations.extend(found.iter().filter(|v| v.trade.is_none()).map(|v| v.kind.label()));
         trades_of_day(own, day, &found, &mut listed);
         for (date, stat) in metrics::daily(&samples, own.clock) {
-            *per_day.entry(date).or_default() += stat.net;
+            let total = per_day.entry(date).or_default();
+            total.net += stat.net;
+            total.r += stat.r;
+            total.trades += stat.trades;
+            total.money_trades += stat.money_trades;
         }
     }
     listed.sort_by_key(|(opened, _)| *opened);
@@ -192,7 +216,13 @@ fn load(db: &Db, account: Option<i64>, day: NaiveDate) -> Result<DayData, DbErro
     let mut week = Vec::new();
     for date in week_of(day) {
         let written = db.day_note(note_account, date)? != DayNote::default();
-        week.push(WeekDay { day: date, net: per_day.get(&date).copied(), written });
+        let stat = per_day.get(&date);
+        week.push(WeekDay {
+            day: date,
+            net: stat.map(metrics::DayStat::result),
+            unit: stat.map_or(Unit::Money, metrics::DayStat::unit),
+            written,
+        });
     }
 
     let currencies: std::collections::BTreeSet<&str> = owned.iter().map(|o| o.account.currency.as_str()).collect();
@@ -435,19 +465,25 @@ pub(crate) fn journal() -> impl IntoElement {
         }
     };
 
+    // The days the calendar marks: those with trades, and those with a note of the account in view.
+    let trade_days = computed(move || {
+        insight::daily_results(&store.snapshot()).keys().copied().collect::<std::collections::BTreeSet<NaiveDate>>()
+    });
+    let noted_days = query(|db, account| db.days_with_notes(account.unwrap_or(0)));
+
     let actions = view()
         .flex_row()
         .flex_wrap()
         .items_center()
         .gap_3()
         .child(icon_action(Icon::ChevronLeft, "Ngày trước", Variant::Secondary, move || step(-1)))
-        .child(
-            text(move || day_title(day.get()))
-                .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
-                .min_w(px(132.0))
-                .text_color(move || theme().foreground),
-        )
+        .child(date_pick(
+            DatePick::day("Chọn ngày của nhật ký", move || Some(day.get()), today, go).marking(move |date| {
+                // A day is marked when it has trades or a note.
+                trade_days.with(|days| days.contains(&date)) || noted_days.value().is_some_and(|d| d.contains(&date))
+            }),
+            date_trigger(move || day_title(day.get())),
+        ))
         .child(icon_action(Icon::ChevronRight, "Ngày sau", Variant::Secondary, move || step(1)))
         .child(action("Hôm nay", Variant::Secondary, move || go(today())))
         .child(account_picker())
@@ -497,11 +533,15 @@ fn week_strip(
                 .map(|date| {
                     let figure = move || data.value().and_then(|d| d.week.iter().find(|w| w.day == date).cloned());
                     let net = move || {
+                        let unit = figure().map_or(Unit::Money, |w| w.unit);
                         figure().and_then(|w| w.net).map_or_else(
                             || "—".to_owned(),
-                            |n| {
-                                let currency = data.value().map_or_default(|d| d.currency.clone());
-                                format::money(n, Sign::Always, &currency)
+                            |n| match unit {
+                                Unit::R => format::r_text(Some(n)),
+                                Unit::Money => {
+                                    let currency = data.value().map_or_default(|d| d.currency.clone());
+                                    format::money(n, Sign::Always, &currency)
+                                }
                             },
                         )
                     };
@@ -638,7 +678,7 @@ fn form_card(data: Reading<DayData>, write: Writer, fields: Fields, loaded: Memo
 /// The day's trades with their result and the rules they broke.
 fn trades_card(data: Reading<DayData>) -> impl IntoElement {
     let currency = move || data.value().map_or_default(|d| d.currency.clone());
-    let net = move || data.value().map_or(0.0, |d| d.closed_net());
+    let net = move || data.value().map_or((0.0, Unit::Money), |d| d.closed_result());
     let count = move || data.value().map_or(0, |d| d.trades.len());
     card(
         "Lệnh trong ngày",
@@ -651,14 +691,16 @@ fn trades_card(data: Reading<DayData>) -> impl IntoElement {
                     .items_end()
                     .gap_3()
                     .child(
-                        pnl_text(move || format::money(net(), Sign::Always, &currency()))
-                            .text_xl()
-                            .font_weight(FontWeight::SEMIBOLD),
+                        pnl_text(move || match net() {
+                            (r, Unit::R) => format::r_text(Some(r)),
+                            (money, Unit::Money) => format::money(money, Sign::Always, &currency()),
+                        })
+                        .text_xl()
+                        .font_weight(FontWeight::SEMIBOLD),
                     )
                     .child(
                         text(move || {
-                            let wins =
-                                data.value().map_or(0, |d| d.trades.iter().filter(|t| t.closed && t.net > 0.0).count());
+                            let wins = data.value().map_or(0, |d| d.trades.iter().filter(|t| t.won()).count());
                             format!("{} lệnh · {wins} thắng", count())
                         })
                         .text_sm()
@@ -694,7 +736,7 @@ fn trade_row(trade: &DayTrade) -> impl IntoElement + use<> {
     } else if trade.money {
         format::money(trade.net, Sign::Always, &trade.currency)
     } else {
-        "—".to_owned()
+        format::r_text(trade.r)
     };
     view()
         .py_2()
@@ -823,6 +865,7 @@ mod tests {
             tp: 0.0,
             risk: None,
             result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
             reason: None,
         }
     }
@@ -862,7 +905,7 @@ mod tests {
         assert_eq!(read.account, 0);
         assert_eq!(read.note.plan, "Chờ tin");
         assert_eq!(read.trades.len(), 2);
-        assert!((read.closed_net() + 35.0).abs() < 1e-9);
+        assert!((read.closed_result().0 + 35.0).abs() < 1e-9);
         assert_eq!(read.currency, "USD");
         assert_eq!(read.checklist.len(), 1);
         assert_eq!(read.checklist[0].1, 1, "one of the two trades confirmed the item");

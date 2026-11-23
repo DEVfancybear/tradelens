@@ -33,7 +33,10 @@ use tradelens_cloud::{
 };
 use tradelens_core::{Db, DbError};
 
-use crate::store::{Store, Writer, data_changed, store, writer};
+use crate::{
+    store::{Store, Writer, data_changed, store, writer},
+    ui::controls::confirm_then,
+};
 
 /// `memory` selects the demo: the drive is in memory and signing in needs no account.
 pub(crate) const MODE_SETTING: &str = "cloud.mode";
@@ -643,6 +646,34 @@ impl Cloud {
                 }
             }
         }
+    }
+
+    /// Asks whether to sign out of `provider` (called `name` on the screen) and signs out when the
+    /// trader says yes. The question is a task of the root, not of the button: the provider's card is
+    /// built again whenever the cloud state changes, which would cancel a task of the button before
+    /// the alert shows.
+    pub(crate) fn confirm_sign_out(self, provider: Provider, name: &'static str) {
+        confirm_then(
+            self.owner,
+            format!("Đăng xuất khỏi {name}?"),
+            "Dữ liệu trên Drive vẫn còn; TradeLens chỉ ngừng sync trên máy này cho tới khi bạn đăng nhập lại.",
+            "Đăng xuất",
+            move || self.sign_out(provider),
+        );
+    }
+
+    /// Asks whether to replace this device's data with the drive's, and restores when the trader says
+    /// yes. A task of the root, like [`Cloud::confirm_sign_out`].
+    pub(crate) fn confirm_restore(self) {
+        confirm_then(
+            self.owner,
+            "Thay toàn bộ dữ liệu trên máy này?",
+            "Dữ liệu đang có trên máy này sẽ bị thay bằng bản sao lưu gần nhất trên Drive, cộng các thay đổi sau đó. \
+             Một bản của dữ liệu cũ được giữ cạnh file dữ liệu (tradelens.before-restore.db). \
+             Chỉ làm khi đây là máy mới. Không hoàn tác được.",
+            "Thay dữ liệu",
+            move || self.restore(),
+        );
     }
 
     /// Replaces this device's data with the newest snapshot on the drive and syncs. The old data

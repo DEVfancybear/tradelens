@@ -9,8 +9,8 @@ use std::path::PathBuf;
 
 use tradelens_core::Db;
 use tradelens_core::import::notion::{self, Field, NotionPlan, Verdict};
-use tradelens_core::metrics::{self, Sample};
-use tradelens_core::model::{Deal, JournalEntry, TradeKey};
+use tradelens_core::metrics::{self, Basis, Sample, Unit};
+use tradelens_core::model::{Deal, Gaps, JournalEntry, Origin, TradeKey};
 use tradelens_core::time::Clock;
 use tradelens_core::trades::build_trades;
 
@@ -314,4 +314,126 @@ fn a_zip_with_several_csv_files_and_none_called_all_is_refused_and_a_single_one_
     assert!(refused.to_string().contains("2 file .csv"), "{refused}");
     let none = notion::read_source(&write("none", &["readme.txt"])).expect_err("no csv at all");
     assert!(none.to_string().contains("không có file .csv"), "{none}");
+}
+
+// --- what the source did not tell: lot, prices and time of day -----------------------------------
+
+fn imported_trades(plan: &NotionPlan) -> (Db, Vec<tradelens_core::Trade>) {
+    let mut db = Db::in_memory().expect("db");
+    db.import_notion(plan).expect("imports");
+    let account = db.accounts().expect("accounts").pop().expect("the account");
+    let deals: Vec<Deal> = db.deals(Some(account.id)).expect("deals").into_iter().map(|(_, d)| d).collect();
+    let trades = build_trades(account.id, &deals);
+    (db, trades)
+}
+
+#[test]
+fn a_journal_in_r_records_that_it_has_no_lot_no_prices_and_no_time_of_day() {
+    let (plan, _) = notion::read_source(&fixture_path(R_ZIP)).expect("the zip is understood");
+    let (_, trades) = imported_trades(&plan);
+    assert_eq!(trades.len(), 5);
+    for trade in &trades {
+        assert_eq!(trade.gaps, Gaps::TIME.with(Gaps::VOLUME).with(Gaps::PRICE), "{trade:?}");
+        assert!(!trade.time_known() && !trade.volume_known() && !trade.prices_known() && !trade.money_known());
+        assert_eq!(trade.hold_secs(), None, "no hold time from two dates");
+        assert_eq!(trade.origin(), Origin::Notion);
+        assert_eq!(trade.origin().label(), "Notion");
+    }
+}
+
+#[test]
+fn the_figures_of_a_journal_in_r_are_in_r_and_leave_out_the_lot_and_the_hold_time() {
+    let (plan, _) = notion::read_source(&fixture_path(R_ZIP)).expect("the zip is understood");
+    let (_, trades) = imported_trades(&plan);
+    let samples: Vec<_> = trades.iter().map(|t| Sample { trade: t, r: t.r_multiple(None) }).collect();
+    let basis = Basis::of(&samples);
+    assert_eq!((basis.money_trades, basis.r_only_trades, basis.unit()), (0, 5, Unit::R));
+    assert!(!basis.is_mixed() && basis.money_note().is_none());
+    let stats = metrics::stats(&samples, 0.0, &[], Clock::default());
+    assert_close(stats.volume, 0.0, "the placeholder lot of 1 is not summed");
+    assert_eq!(stats.avg_hold_secs, 0, "no trade has a hold time to average");
+    assert_close(stats.profit_factor_r.expect("R was lost"), 2.6 / 1.2, "R won over R lost");
+    assert_close(stats.max_drawdown_r, 1.0, "from the peak of +2.4R to +1.4R");
+    assert!(stats.profit_factor.is_none() && stats.max_drawdown.abs() < 1e-9, "no money was invented");
+    let days = metrics::daily(&samples, Clock::default());
+    assert!(days.values().all(|d| d.unit() == Unit::R && d.money_trades == 0), "{days:?}");
+    let april = metrics::month_summary(2026, 4, &days);
+    assert_eq!(april.unit, Unit::R);
+    assert_close(april.result, 1.4, "the month in R");
+    assert_eq!((april.green_days, april.red_days), (2, 1));
+    let weeks = metrics::month_weeks(2026, 4, &days);
+    assert!(weeks.iter().filter(|w| w.trades > 0).all(|w| w.unit == Unit::R));
+    assert_close(weeks.iter().map(|w| w.r).sum::<f64>(), 1.4, "the weeks add up to the month");
+}
+
+#[test]
+fn a_mix_of_money_and_r_counts_the_money_of_the_trades_that_have_it_and_says_so() {
+    let (plan, _) = notion::read_source(&fixture_path(R_ZIP)).expect("the zip is understood");
+    let (_, mut trades) = imported_trades(&plan);
+    let mut with_money = trades[0].clone();
+    with_money.result_r = None;
+    with_money.profit = 125.0;
+    with_money.gaps = Gaps::NONE;
+    trades.push(with_money);
+    let samples: Vec<_> = trades.iter().map(|t| Sample { trade: t, r: t.r_multiple(Some(50.0)) }).collect();
+    let basis = Basis::of(&samples);
+    assert_eq!((basis.money_trades, basis.r_only_trades, basis.unit()), (1, 5, Unit::Money));
+    assert!(basis.is_mixed());
+    assert!(basis.money_note().expect("a mix says so").contains("1 lệnh có tiền, 5 lệnh chỉ có R"));
+    let stats = metrics::stats(&samples, 0.0, &[], Clock::default());
+    assert_close(stats.net, 125.0, "only the trade with money has any");
+    assert_close(stats.expectancy, 125.0, "per trade with money, not per trade");
+    assert_close(stats.volume, 1.0, "only the lot that is known");
+}
+
+#[test]
+fn a_money_export_with_times_lots_and_prices_has_no_gaps() {
+    let plan = notion::infer(&fs::read(fixture_path("notion_en.csv")).expect("fixture")).expect("understood");
+    let (_, trades) = imported_trades(&plan);
+    assert_eq!(trades.len(), 5, "the five trades of the export");
+    for trade in &trades {
+        assert!(trade.gaps.is_none(), "{trade:?}");
+        assert!(trade.money_known() && trade.time_known() && trade.volume_known() && trade.prices_known());
+    }
+}
+
+#[test]
+fn a_journal_dated_by_day_but_with_lots_and_prices_lacks_only_the_time() {
+    let csv = "Name,Date,Pair,Direction,Lot,Entry,Exit,P&L\nA,\"April 16, 2026\",EURUSD,Long,0.2,1.0850,1.0950,$150.00\nB,\"April 17, 2026 9:30 AM\",EURUSD,Long,0.2,1.0850,1.0950,$150.00";
+    let plan = notion::infer(csv.as_bytes()).expect("understood");
+    let (_, trades) = imported_trades(&plan);
+    let by_name = |symbol_day: u32| {
+        trades
+            .iter()
+            .find(|t| tradelens_core::time::naive(t.open_time).format("%d").to_string() == symbol_day.to_string())
+            .expect("the trade")
+    };
+    assert_eq!(by_name(16).gaps, Gaps::TIME, "a date alone: only the time of day is unknown");
+    assert!(by_name(17).gaps.is_none(), "a date with a time of day is complete");
+}
+
+#[test]
+fn the_migration_marks_the_lot_and_prices_of_journal_imports_stored_before_the_gaps_existed() {
+    let (plan, _) = notion::read_source(&fixture_path(R_ZIP)).expect("the zip is understood");
+    let dir = tempfile::tempdir().expect("a temp dir");
+    let path = dir.path().join("tradelens.db");
+    {
+        let mut db = Db::open(&path).expect("opens");
+        db.import_notion(&plan).expect("imports");
+    }
+    let raw = rusqlite::Connection::open(&path).expect("opens raw");
+    // The database as the version before left it: no gaps; then the statements of the migration.
+    raw.execute("UPDATE deals SET gaps = 0", []).expect("clears");
+    let migration = include_str!("../migrations/0012_deal_gaps.sql");
+    for statement in migration.lines().filter(|l| l.starts_with("UPDATE")) {
+        raw.execute(statement, []).expect("the backfill runs");
+    }
+    let gaps: Vec<u8> = raw
+        .prepare("SELECT DISTINCT gaps FROM deals")
+        .expect("prepares")
+        .query_map([], |r| r.get(0))
+        .expect("queries")
+        .collect::<Result<_, _>>()
+        .expect("rows");
+    assert_eq!(gaps, [Gaps::VOLUME.with(Gaps::PRICE).bits()], "what is certain about them, and not the time of day");
 }

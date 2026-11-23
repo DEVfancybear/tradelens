@@ -65,6 +65,7 @@ fn deal(ticket: i64, position: i64, symbol: &str, at_ms: i64, entry: DealEntry, 
         tp: 0.0,
         risk: None,
         result_r: None,
+        gaps: tradelens_core::Gaps::NONE,
         reason: None,
     }
 }
@@ -115,9 +116,13 @@ fn the_calendar_shows_a_days_result_and_moves_between_months() {
     seed_march(&mut fixture.db());
     let mut app = fixture.start();
     app.press("role:button[Lịch P/L]").expect("the calendar row is a button");
+    // The current month has no trades: the calendar opens on the latest month that has some.
+    app.wait_for("Tháng 3, 2026").expect("it opens on March, the month of the latest trades");
+    app.wait_for("Thứ 4, 11/03").expect("with the latest day of trades picked");
+    // "Hôm nay" still goes to today's month, and back to March by the buttons.
     let now = chrono::Local::now();
-    app.wait_for(&format!("Tháng {}, {}", now.month(), now.year())).expect("it opens on the current month");
-
+    app.press("role:button[Hôm nay]").expect("the today button");
+    app.wait_for(&format!("Tháng {}, {}", now.month(), now.year())).expect("it jumps to the current month");
     let back = (now.year() - 2026) * 12 + i32::try_from(now.month()).expect("a month fits") - 3;
     for _ in 0..back {
         app.press("role:button[Tháng trước]").expect("the previous month button");

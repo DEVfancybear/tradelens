@@ -7,7 +7,7 @@ use chrono::{Duration, NaiveDate, NaiveDateTime};
 
 use crate::catalog::{CustomValues, FieldKind, FieldValue};
 use crate::import::ImportError;
-use crate::model::{AccountInfo, Deal, DealEntry, DealKind, Side};
+use crate::model::{AccountInfo, Deal, DealEntry, DealKind, Gaps, JOURNAL_TICKET_BASE, Side};
 use crate::time::to_ms;
 
 use super::cells::{
@@ -21,10 +21,6 @@ use super::{Field, NotionMapping, NotionPlan, PlannedJournal, PlannedProperty, P
 
 /// The login of the account Notion trades go to when the caller names none.
 const DEFAULT_LOGIN: &str = "notion";
-
-/// Tickets of Notion trades start below this, far from the small negative tickets that
-/// hand-entered trades count down from.
-const TICKET_BASE: i64 = 1 << 40;
 
 /// A trade's id is 40 bits of a hash.
 const ID_MASK: u64 = (1 << 40) - 1;
@@ -187,6 +183,8 @@ struct Trade {
     result_r: Option<f64>,
     commission: f64,
     swap: f64,
+    /// What the file did not tell: the lot, the prices, the time of day.
+    gaps: Gaps,
 }
 
 struct Parsed {
@@ -209,7 +207,7 @@ impl Trade {
         verdict: Option<Verdict>,
         journal: PlannedJournal,
     ) -> PlannedRow {
-        let exit_ticket = -(TICKET_BASE + 2 * i64::try_from(id).expect("a 40-bit id fits i64"));
+        let exit_ticket = -(JOURNAL_TICKET_BASE + 2 * i64::try_from(id).expect("a 40-bit id fits i64"));
         let entry_ticket = exit_ticket - 1;
         let (entry_kind, exit_kind) = match self.side {
             Side::Long => (DealKind::Buy, DealKind::Sell),
@@ -236,6 +234,7 @@ impl Trade {
             tp: self.tp,
             risk: None,
             result_r: None,
+            gaps: self.gaps,
             reason: None,
         };
         let entry = deal(entry_ticket, entry_kind, DealEntry::In, self.open, self.open_price);
@@ -280,6 +279,24 @@ fn verdict_of(layout: &Layout, row: &Row, trade: &Trade) -> Option<Verdict> {
     } else {
         Verdict::BreakEven
     })
+}
+
+/// Whether a time cell is a date with no time of day: it has no `:` and reads as midnight.
+fn is_date_only(cell: &str, at: NaiveDateTime) -> bool {
+    !cell.contains(':') && at.time() == chrono::NaiveTime::MIN
+}
+
+/// What a row's file left out: the lot, the prices (either one), the time of day. Recorded on the
+/// deals, so that the placeholders they hold are never shown or counted.
+fn gaps_of(volume: Option<f64>, prices: (Option<f64>, Option<f64>), time: Gaps) -> Gaps {
+    let mut gaps = time;
+    if volume.is_none() {
+        gaps = gaps.with(Gaps::VOLUME);
+    }
+    if prices.0.is_none() || prices.1.is_none() {
+        gaps = gaps.with(Gaps::PRICE);
+    }
+    gaps
 }
 
 /// Reads one row, or says in Vietnamese why it cannot be.
@@ -335,14 +352,23 @@ fn read_row(sheet: &Sheet, layout: &Layout, row: &Row) -> Result<Parsed, String>
         }
     })?;
 
+    // What the file leaves out is recorded, so that the placeholders below are never shown or counted.
+    let volume = positive(Field::Volume)?;
+    let open_price = positive(Field::OpenPrice)?;
+    let close_price = positive(Field::ClosePrice)?;
+    let date_only = is_date_only(open_cell, open);
+    let day_only_close = !close_cell.is_empty() && is_date_only(close_cell, close);
+    let time = if date_only || day_only_close { Gaps::TIME } else { Gaps::NONE };
+    let gaps = gaps_of(volume, (open_price, close_price), time);
+
     let trade = Trade {
         symbol,
         side,
-        volume: positive(Field::Volume)?.unwrap_or(DEFAULT_VOLUME),
+        volume: volume.unwrap_or(DEFAULT_VOLUME),
         open,
         close,
-        open_price: positive(Field::OpenPrice)?.unwrap_or(0.0),
-        close_price: positive(Field::ClosePrice)?.unwrap_or(0.0),
+        open_price: open_price.unwrap_or(0.0),
+        close_price: close_price.unwrap_or(0.0),
         sl: number(Field::StopLoss, Need::Optional)?.unwrap_or(0.0),
         tp: number(Field::TakeProfit, Need::Optional)?.unwrap_or(0.0),
         profit: number(Field::Profit, Need::Required)?.unwrap_or(0.0),
@@ -350,6 +376,7 @@ fn read_row(sheet: &Sheet, layout: &Layout, row: &Row) -> Result<Parsed, String>
         result_r: parse_number(text(Field::ResultR), locale.comma),
         commission: number(Field::Commission, Need::Optional)?.unwrap_or(0.0),
         swap: number(Field::Swap, Need::Optional)?.unwrap_or(0.0),
+        gaps,
     };
 
     let first_item = |field: Field| split_list(text(field)).into_iter().next().unwrap_or_default();
@@ -372,6 +399,5 @@ fn read_row(sheet: &Sheet, layout: &Layout, row: &Row) -> Result<Parsed, String>
         custom: CustomValues::new(),
     };
     let title = row.cell(layout.key_column).to_owned();
-    let date_only = !open_cell.contains(':') && open.time() == chrono::NaiveTime::MIN;
     Ok(Parsed { title, open_ms: to_ms(open), date_only, trade, journal })
 }

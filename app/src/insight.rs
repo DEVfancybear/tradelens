@@ -9,7 +9,7 @@ use chrono::{Datelike, NaiveDate};
 use tradelens_core::{
     Account, Rules, Side, TradeKey,
     catalog::CatalogItem,
-    metrics::{self, DayStat, Group, MistakeCost, RuleUsage, Sample},
+    metrics::{self, Basis, DayStat, Group, MistakeCost, RuleUsage, Sample, Unit},
     rules::{self, Violation},
     time::{Clock, Session, hour_of, weekday_index},
 };
@@ -63,6 +63,13 @@ fn closed_in_range(snapshot: &Snapshot, range: Range, today: NaiveDate) -> Vec<&
         .collect()
 }
 
+/// The day the calendar opens on: today when its month has trades, else the latest day that has any
+/// (a journal imported from the past would open on an empty month), else today.
+pub(crate) fn opening_day(days: &BTreeMap<NaiveDate, DayStat>, today: NaiveDate) -> NaiveDate {
+    let month_has_trades = days.keys().any(|day| (day.year(), day.month()) == (today.year(), today.month()));
+    if month_has_trades { today } else { days.keys().next_back().copied().unwrap_or(today) }
+}
+
 /// The result of every day any trade closed on, over the whole history of the chosen accounts.
 pub(crate) fn daily_results(snapshot: &Snapshot) -> BTreeMap<NaiveDate, DayStat> {
     let rows: Vec<&TradeRow> = snapshot.rows.iter().filter(|row| row.trade.is_closed()).collect();
@@ -82,7 +89,19 @@ pub(crate) struct HeatCell {
     pub(crate) weekday: u32,
     pub(crate) hour: u32,
     pub(crate) net: f64,
+    /// The R of the cell's trades that have one.
+    pub(crate) r: f64,
     pub(crate) trades: usize,
+}
+
+impl HeatCell {
+    /// The cell's result in `unit`.
+    pub(crate) fn result(&self, unit: Unit) -> f64 {
+        match unit {
+            Unit::Money => self.net,
+            Unit::R => self.r,
+        }
+    }
 }
 
 /// The mistakes' cost over the range, and what it adds up to.
@@ -101,6 +120,12 @@ pub(crate) struct MistakeReport {
 pub(crate) struct Analysis {
     pub(crate) trades: usize,
     pub(crate) net: f64,
+    /// How many of the trades have money and how many only R: every money figure counts the first.
+    pub(crate) basis: Basis,
+    /// The total R of the trades that have one.
+    pub(crate) total_r: f64,
+    /// Trades whose time of day is unknown (dated by day only): left out of the hour and session figures.
+    pub(crate) time_unknown: usize,
     /// Best result first.
     pub(crate) by_symbol: Vec<Group>,
     pub(crate) by_weekday: Vec<Group>,
@@ -123,8 +148,27 @@ fn label_of(items: &[CatalogItem], key: &str) -> String {
     items.iter().find(|item| item.key == key).map_or_else(|| key.to_owned(), |item| item.label.clone())
 }
 
-fn best_first(mut groups: Vec<Group>) -> Vec<Group> {
-    groups.sort_by(|a, b| b.net.total_cmp(&a.net));
+impl Analysis {
+    /// The unit the figures are shown in: R when none of the trades has money.
+    pub(crate) fn unit(&self) -> Unit {
+        self.basis.unit()
+    }
+
+    /// A group's result in the analysis' unit.
+    pub(crate) fn result_of(&self, group: &Group) -> f64 {
+        match self.unit() {
+            Unit::Money => group.net,
+            Unit::R => group.total_r,
+        }
+    }
+}
+
+fn best_first(mut groups: Vec<Group>, unit: Unit) -> Vec<Group> {
+    let result = |g: &Group| match unit {
+        Unit::Money => g.net,
+        Unit::R => g.total_r,
+    };
+    groups.sort_by(|a, b| result(b).total_cmp(&result(a)));
     groups
 }
 
@@ -137,9 +181,13 @@ pub(crate) fn analyse(snapshot: &Snapshot, range: Range, today: NaiveDate) -> An
     let journal = |x: &Sample<'_>| snapshot.journals.get(&x.trade.key);
     let catalogs = &snapshot.catalogs;
 
+    let basis = Basis::of(&samples);
+    let unit = basis.unit();
     let weekday_label = |index: &u32| WEEKDAYS.get(usize::try_from(*index).unwrap_or(usize::MAX)).unwrap_or(&"?");
+    // A trade dated by day only has a weekday but no hour: the hour and session figures leave it out.
     let opened_weekday = |x: &Sample<'_>| row_of(x).map(|row| weekday_index(row.opened().date()));
-    let opened_hour = |x: &Sample<'_>| row_of(x).map(|row| hour_of(row.opened()));
+    let opened_hour = |x: &Sample<'_>| row_of(x).filter(|row| row.trade.time_known()).map(|row| hour_of(row.opened()));
+    let time_unknown = samples.iter().filter(|x| !x.trade.time_known()).count();
 
     let by_symbol = metrics::breakdown(&samples, |x| vec![x.trade.symbol.clone()], String::clone);
     let by_weekday =
@@ -147,7 +195,13 @@ pub(crate) fn analyse(snapshot: &Snapshot, range: Range, today: NaiveDate) -> An
     let by_hour = metrics::breakdown(&samples, |x| opened_hour(x).into_iter().collect(), |h| format!("{h:02}:00"));
     let by_session = metrics::breakdown(
         &samples,
-        |x| row_of(x).map(|row| Session::of_utc_hour(hour_of(row.utc(row.trade.open_time)))).into_iter().collect(),
+        |x| {
+            row_of(x)
+                .filter(|row| row.trade.time_known())
+                .map(|row| Session::of_utc_hour(hour_of(row.utc(row.trade.open_time))))
+                .into_iter()
+                .collect()
+        },
         |s: &Session| s.label().to_owned(),
     );
     let by_setup = metrics::breakdown(
@@ -171,12 +225,13 @@ pub(crate) fn analyse(snapshot: &Snapshot, range: Range, today: NaiveDate) -> An
         |short| (if *short == 1 { "Sell" } else { "Buy" }).to_owned(),
     );
 
-    let mut heat: BTreeMap<(u32, u32), (f64, usize)> = BTreeMap::new();
+    let mut heat: BTreeMap<(u32, u32), (f64, f64, usize)> = BTreeMap::new();
     for x in &samples {
         if let (Some(weekday), Some(hour)) = (opened_weekday(x), opened_hour(x)) {
             let cell = heat.entry((weekday, hour)).or_default();
             cell.0 += x.net();
-            cell.1 += 1;
+            cell.1 += x.r.unwrap_or(0.0);
+            cell.2 += 1;
         }
     }
 
@@ -202,17 +257,20 @@ pub(crate) fn analyse(snapshot: &Snapshot, range: Range, today: NaiveDate) -> An
     Analysis {
         trades: samples.len(),
         net: samples.iter().map(Sample::net).sum(),
-        by_symbol: best_first(by_symbol),
+        basis,
+        total_r: r_values.iter().sum(),
+        time_unknown,
+        by_symbol: best_first(by_symbol, unit),
         by_weekday,
         by_hour,
         by_session,
-        by_setup: best_first(by_setup),
-        by_tag: best_first(by_tag),
-        by_emotion: best_first(by_emotion),
+        by_setup: best_first(by_setup, unit),
+        by_tag: best_first(by_tag, unit),
+        by_emotion: best_first(by_emotion, unit),
         by_side,
         heat: heat
             .into_iter()
-            .map(|((weekday, hour), (net, trades))| HeatCell { weekday, hour, net, trades })
+            .map(|((weekday, hour), (net, r, trades))| HeatCell { weekday, hour, net, r, trades })
             .collect(),
         mistakes,
         r_buckets: metrics::r_distribution(&samples),
@@ -238,11 +296,11 @@ pub(crate) fn r_curve(snapshot: &Snapshot, range: Range, today: NaiveDate) -> Ve
     curve
 }
 
-/// The best and the worst hour of entry by net result, as `(hour, net)`; `None` without trades.
+/// The best and the worst hour of entry by result (money, or R without money), as `(hour, result)`; `None` without trades.
 pub(crate) fn hour_extremes(analysis: &Analysis) -> Option<((u32, f64), (u32, f64))> {
     let mut by_hour: BTreeMap<u32, f64> = BTreeMap::new();
     for cell in &analysis.heat {
-        *by_hour.entry(cell.hour).or_default() += cell.net;
+        *by_hour.entry(cell.hour).or_default() += cell.result(analysis.unit());
     }
     let best = by_hour.iter().max_by(|a, b| a.1.total_cmp(b.1)).map(|(h, n)| (*h, *n))?;
     let worst = by_hour.iter().min_by(|a, b| a.1.total_cmp(b.1)).map(|(h, n)| (*h, *n))?;
@@ -328,6 +386,7 @@ mod tests {
             tp: 0.0,
             risk: None,
             result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
             reason: None,
         }
     }
@@ -423,8 +482,8 @@ mod tests {
         let a = analyse(&snapshot, Range::Days30, today());
         let weekdays: Vec<(&str, usize)> = a.by_weekday.iter().map(|g| (g.label.as_str(), g.trades)).collect();
         assert_eq!(weekdays, [("T2", 2), ("T3", 1)]);
-        assert!(a.heat.contains(&HeatCell { weekday: 0, hour: 8, net: 100.0, trades: 1 }));
-        assert!(a.heat.contains(&HeatCell { weekday: 0, hour: 22, net: -40.0, trades: 1 }));
+        assert!(a.heat.contains(&HeatCell { weekday: 0, hour: 8, net: 100.0, r: 0.0, trades: 1 }));
+        assert!(a.heat.contains(&HeatCell { weekday: 0, hour: 22, net: -40.0, r: 0.0, trades: 1 }));
         let sessions: Vec<&str> = a.by_session.iter().map(|g| g.label.as_str()).collect();
         assert_eq!(
             sessions,

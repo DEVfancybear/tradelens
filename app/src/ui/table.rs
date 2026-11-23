@@ -62,20 +62,51 @@ fn column(key: &str, title: &str, width: f32, sortable: Sortable, align: DataTab
     column
 }
 
-fn columns(sorting: Sortable) -> Vec<DataTableColumn> {
+/// The width of a sort button at the end of a title (`nsh_base`'s), which a right-aligned title gives
+/// up and a right-aligned cell must give up too, so that a figure stands under its title.
+const SORT_BUTTON: f32 = 20.0;
+
+/// Which columns a table has: the trades page has them all, the overview's list the design's seven.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    Full,
+    Recent,
+}
+
+/// The columns of a table `available` points wide: the widths below, and what is left over goes to
+/// the setup column, so that the rows reach the right edge of the card.
+fn columns(sorting: Sortable, shape: Shape, available: f32) -> Vec<DataTableColumn> {
     use DataTableAlign::{End, Start};
     use Sortable::No;
-    vec![
-        column("time", "Đóng lúc", 116.0, sorting, Start),
-        column("symbol", "Symbol", 100.0, sorting, Start),
-        column("side", "Chiều", 72.0, No, Start),
-        column("lot", "Lot", 68.0, sorting, End),
-        column("hold", "Thời gian giữ", 120.0, sorting, End),
-        column("net", "Net", 112.0, sorting, End),
-        column("r", "R", 72.0, sorting, End),
-        column("setup", "Setup", 132.0, No, Start),
-        column("journal", "Nhật ký", 96.0, No, Start),
-    ]
+    let mut list = match shape {
+        Shape::Full => vec![
+            column("time", "Đóng lúc", 116.0, sorting, Start),
+            column("symbol", "Symbol", 100.0, sorting, Start),
+            column("side", "Chiều", 72.0, No, Start),
+            column("lot", "Lot", 68.0, sorting, End),
+            column("hold", "Thời gian giữ", 120.0, sorting, End),
+            column("net", "Net", 112.0, sorting, End),
+            column("r", "R", 72.0, sorting, End),
+            column("setup", "Setup", 132.0, No, Start),
+            column("journal", "Nhật ký", 96.0, No, Start),
+        ],
+        Shape::Recent => vec![
+            column("time", "Đóng lúc", 116.0, sorting, Start),
+            column("symbol", "Symbol", 100.0, sorting, Start),
+            column("side", "Chiều", 72.0, No, Start),
+            column("lot", "Lot", 68.0, sorting, End),
+            column("net", "Net", 112.0, sorting, End),
+            column("r", "R", 72.0, sorting, End),
+            column("setup", "Setup", 132.0, No, Start),
+        ],
+    };
+    let used: f32 = list.iter().filter_map(|c| c.width).map(|w| w.0).sum();
+    let spare = (available - used).max(0.0);
+    if let Some(setup) = list.iter_mut().find(|c| c.key.as_ref() == "setup") {
+        let own = setup.width.map_or(0.0, |w| w.0);
+        setup.width = Some(px(own + spare));
+    }
+    list
 }
 
 fn rows_of(cells: &[TradeCells]) -> DataTableRows {
@@ -94,7 +125,9 @@ fn rows_of(cells: &[TradeCells]) -> DataTableRows {
 
 /// Draws one cell from its column and text: the text is everything the cell shows, so a
 /// cell is made again exactly when what it shows changes.
-fn cell(cell: &DataTableCell, on_open: impl Fn(usize) + Copy + 'static) -> AnyElement {
+fn cell(cell: &DataTableCell, sorting: Sortable, on_open: impl Fn(usize) + Copy + 'static) -> AnyElement {
+    // A right-aligned figure ends where its title's text ends: before the title's sort button.
+    let end_gap = if sorting == Sortable::Yes { SORT_BUTTON } else { 0.0 };
     let shown = cell.text.clone();
     let key = cell.key.as_str();
     let row = usize::try_from(cell.row).unwrap_or(usize::MAX);
@@ -106,6 +139,7 @@ fn cell(cell: &DataTableCell, on_open: impl Fn(usize) + Copy + 'static) -> AnyEl
             .text_color(move || theme().muted_foreground)
             .into_element(),
         "symbol" => button()
+            .cursor_pointer()
             .on_press(move || on_open(row))
             .accessibility_label(format!("Mở nhật ký lệnh {shown}"))
             .px_1()
@@ -117,10 +151,16 @@ fn cell(cell: &DataTableCell, on_open: impl Fn(usize) + Copy + 'static) -> AnyEl
             let tone = if shown.as_ref() == "Buy" { Tone::Profit } else { Tone::Loss };
             chip(shown, tone).into_element()
         }
-        "lot" | "hold" => text(shown).font_family(tokens::mono).tabular_nums().number_of_lines(1).into_element(),
+        "lot" | "hold" => text(shown)
+            .font_family(tokens::mono)
+            .tabular_nums()
+            .number_of_lines(1)
+            .text_right()
+            .pr(px(end_gap))
+            .into_element(),
         "net" | "r" => {
             let figure = shown.to_string();
-            pnl_text(move || figure.clone()).into_element()
+            pnl_text(move || figure.clone()).text_right().pr(px(end_gap)).into_element()
         }
         "setup" if !shown.is_empty() => chip(shown, Tone::Neutral).into_element(),
         "journal" => {
@@ -158,7 +198,7 @@ pub(crate) fn trades_table(
     on_open: impl Fn(usize) + Copy + 'static,
     empty: impl Fn() -> (String, String) + Copy + 'static,
 ) -> impl IntoElement {
-    build(rows, Some(sorting), on_open, empty)
+    build(rows, Some(sorting), Shape::Full, on_open, empty)
 }
 
 /// The same table for a short, fixed list (the latest trades): titles do not sort.
@@ -167,15 +207,18 @@ pub(crate) fn recent_trades(
     on_open: impl Fn(usize) + Copy + 'static,
     empty: impl Fn() -> (String, String) + Copy + 'static,
 ) -> impl IntoElement {
-    build(rows, None, on_open, empty)
+    build(rows, None, Shape::Recent, on_open, empty)
 }
 
 fn build(
     rows: impl Fn() -> Vec<TradeCells> + Copy + 'static,
     sorting: Option<Sorting>,
+    shape: Shape,
     on_open: impl Fn(usize) + Copy + 'static,
     empty: impl Fn() -> (String, String) + Copy + 'static,
 ) -> impl IntoElement {
+    // The width the table has: its columns share it, so that the rows reach the card's right edge.
+    let available = signal(0.0_f32);
     let mut classes = DataTableClasses::default();
     classes.root = Some("rounded-lg border border-border bg-card".into());
     classes.header = Some("border-b border-border bg-secondary/50".into());
@@ -195,38 +238,55 @@ fn build(
         Some(Sorting { current, change }) => (Some(current), Some(change), Sortable::Yes),
         None => (None, None, Sortable::No),
     };
-    data_table()
+    view()
         .flex_1()
-        .accessibility_label("Danh sách lệnh")
-        .columns(columns(sortable))
-        .data(move || rows_of(&rows()))
-        .row_height(px(ROW_HEIGHT))
-        .header_height(px(HEADER_HEIGHT))
-        .column_selectable(false)
-        .movable_columns(false)
-        .classes(classes)
-        .sort(move || {
-            current.as_ref().and_then(|current| current()).map(|s| {
-                let mut sort = DataTableSort::default();
-                sort.key = s.key;
-                sort.direction =
-                    if s.ascending { DataTableSortDirection::Ascending } else { DataTableSortDirection::Descending };
-                sort
-            })
-        })
-        .on_sort_change(move |next: &Option<DataTableSort>| {
-            if let Some(change) = &change {
-                change(next.as_ref().map(|s| TableSort {
-                    key: s.key.clone(),
-                    ascending: s.direction == DataTableSortDirection::Ascending,
-                }));
+        .min_w(px(0.0))
+        .on_layout(move |bounds: &Bounds<Points>| {
+            let width = bounds.size.width.0;
+            if (available.get_untracked() - width).abs() > 0.5 {
+                available.set(width);
             }
         })
-        .on_row_press(move |press: &DataTablePress| {
-            if let Ok(row) = usize::try_from(press.row) {
-                on_open(row);
-            }
-        })
-        .render_cell(move |c: &DataTableCell| cell(c, on_open))
-        .empty(empty_state(move || empty().0, move || empty().1))
+        .child(
+            data_table()
+                .flex_1()
+                .accessibility_label("Danh sách lệnh")
+                .columns(move || columns(sortable, shape, available.get() - TABLE_BORDER))
+                .data(move || rows_of(&rows()))
+                .row_height(px(ROW_HEIGHT))
+                .header_height(px(HEADER_HEIGHT))
+                .column_selectable(false)
+                .movable_columns(false)
+                .classes(classes)
+                .sort(move || {
+                    current.as_ref().and_then(|current| current()).map(|s| {
+                        let mut sort = DataTableSort::default();
+                        sort.key = s.key;
+                        sort.direction = if s.ascending {
+                            DataTableSortDirection::Ascending
+                        } else {
+                            DataTableSortDirection::Descending
+                        };
+                        sort
+                    })
+                })
+                .on_sort_change(move |next: &Option<DataTableSort>| {
+                    if let Some(change) = &change {
+                        change(next.as_ref().map(|s| TableSort {
+                            key: s.key.clone(),
+                            ascending: s.direction == DataTableSortDirection::Ascending,
+                        }));
+                    }
+                })
+                .on_row_press(move |press: &DataTablePress| {
+                    if let Ok(row) = usize::try_from(press.row) {
+                        on_open(row);
+                    }
+                })
+                .render_cell(move |c: &DataTableCell| cell(c, sortable, on_open))
+                .empty(empty_state(move || empty().0, move || empty().1)),
+        )
 }
+
+/// The card's border, left and right, which the columns do not have.
+const TABLE_BORDER: f32 = 2.0;

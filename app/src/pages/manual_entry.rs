@@ -21,6 +21,7 @@ use crate::{
     store::{AccountFilter, Store, store, writer},
     ui::{
         controls::{Choice, Variant, action, action_icon, action_when, segmented, select_value, text_field},
+        date_picker::{DatePick, date_pick, date_trigger},
         forms::{NumberRange, number_field},
         gallery::gallery,
         icons::Icon,
@@ -106,7 +107,7 @@ fn build_trade(
     let close_price = positive(input.close_price, "Giá ra")?;
     let time = |typed: &str, what: &str| {
         parse_typed_time(typed, server_offset_min, local_offset_min)
-            .ok_or_else(|| format!("{what} nhập dạng 2026-11-20 16:05."))
+            .ok_or_else(|| format!("{what} chưa chọn: bấm ô để chọn ngày và giờ."))
     };
     let open_time = time(&input.opened, "Thời gian vào")?;
     let close_time = time(&input.closed, "Thời gian ra")?;
@@ -282,7 +283,7 @@ fn entry_page(round: Signal<u32>, notice: Signal<Option<String>>) -> impl IntoEl
         .child(view().child(action_icon(Icon::Check, "Lưu lệnh", Variant::Primary, move || save(After::Open))));
     page_with(
         "Nhập lệnh & nhật ký thủ công",
-        "Cho lệnh ngoài MT5, tài khoản không chạy EA, hoặc bổ sung nhật ký cho lệnh có sẵn",
+        "Cho lệnh ngoài MT5, hoặc bổ sung nhật ký cho lệnh có sẵn",
         actions,
         view()
             .flex_row()
@@ -396,6 +397,28 @@ fn who_row(inputs: Inputs) -> impl IntoElement {
         .child(field("Chiều", segmented("Chiều", SIDES, Side::label, move || side.get(), move |s| side.set(s))))
 }
 
+/// A day and a time chosen from the calendar and its time field, kept in `typed` in the form the
+/// parser reads (`2026-11-20 16:05`).
+fn moment_picker(label: &'static str, typed: Signal<String>) -> impl IntoElement {
+    let chosen = move || {
+        let text = typed.get();
+        TIME_FORMATS.iter().find_map(|format| NaiveDateTime::parse_from_str(text.trim(), format).ok())
+    };
+    date_pick(
+        DatePick::moment(
+            label,
+            chosen,
+            || chrono::Local::now().date_naive(),
+            move |at| {
+                typed.set(at.format("%Y-%m-%d %H:%M").to_string());
+            },
+        ),
+        date_trigger(move || {
+            chosen().map_or_else(|| "Chọn ngày giờ".to_owned(), |at| at.format("%d/%m/%Y %H:%M").to_string())
+        }),
+    )
+}
+
 /// When the trade opened and closed, and how big it was.
 fn when_row(inputs: Inputs) -> impl IntoElement {
     let (opened, closed) = (inputs.opened, inputs.closed);
@@ -403,26 +426,8 @@ fn when_row(inputs: Inputs) -> impl IntoElement {
         .flex_row()
         .flex_wrap()
         .gap_3()
-        .child(field(
-            "Thời gian vào",
-            text_field(
-                "Thời gian vào",
-                None,
-                "2026-11-20 16:05",
-                move || opened.get(),
-                move |t| opened.set(t.to_owned()),
-            ),
-        ))
-        .child(field(
-            "Thời gian ra",
-            text_field(
-                "Thời gian ra",
-                None,
-                "2026-11-20 17:40",
-                move || closed.get(),
-                move |t| closed.set(t.to_owned()),
-            ),
-        ))
+        .child(field("Thời gian vào", moment_picker("Thời gian vào", opened)))
+        .child(field("Thời gian ra", moment_picker("Thời gian ra", closed)))
         .child(number("Khối lượng", Some("lot"), inputs.volume, 0.01))
 }
 

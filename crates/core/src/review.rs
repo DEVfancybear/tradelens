@@ -216,6 +216,7 @@ mod tests {
             profit: 0.0,
             risk: None,
             result_r: None,
+            gaps: crate::model::Gaps::NONE,
             magic: 0,
             comment: String::new(),
             manual: false,

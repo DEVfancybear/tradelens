@@ -28,7 +28,7 @@ pub mod ui;
 mod zone;
 
 use nsh_base::theme;
-use nsh_core::{element::desktop::window as app_window, prelude::*};
+use nsh_core::prelude::*;
 
 pub use store::{Reading, Writer, data_changed, query, query_with, writer};
 
@@ -42,11 +42,38 @@ fn native(registry: &mut Registry) {
     registry.assets(assets!());
 }
 
-/// The root: the main window, showing [`Workspace`].
+/// The root: the main window's content, [`Workspace`]. The platform makes the window itself, sized by
+/// the `window` of `nsh.json` ([`root`]); a `window()` element here would open a second window of
+/// its own, at the default size of a dialog.
 #[component]
 pub fn App() -> impl IntoElement {
-    app_window().id("main").content(workspace)
+    workspace()
 }
+
+/// The text of `nsh.json`: the app's id and the main window's size come from it, whoever starts the app.
+const MANIFEST: &str = include_str!("../nsh.json");
+
+/// The app's root as the runner needs it: [`App`] with what `nsh.json` declares. NSH's own tooling
+/// (`nsh run`, `nsh package`) generates this from the file; `cargo run` has to do it here, because
+/// without the id the data folder is the one every app without an id shares (`default`), and
+/// without the window options the window opens at a default size.
+///
+/// # Panics
+///
+/// When `nsh.json` is not valid JSON or has no `id`; a test checks it.
+pub fn root() -> nsh_core::element::Root {
+    let manifest: serde_json::Value = serde_json::from_str(MANIFEST).expect("nsh.json is valid JSON");
+    let id = manifest["id"].as_str().expect("nsh.json has an id");
+    let root = nsh_core::element::Root::of::<App>().app_id(id);
+    match manifest.get("window") {
+        Some(window) => root.main_window_json(&window.to_string()),
+        None => root,
+    }
+}
+
+/// The folder name of the app's data inside the system's folder for apps (`%APPDATA%` on Windows):
+/// the id of `nsh.json`.
+pub const APP_ID: &str = "vn.dat.tradelens";
 
 /// The main window's content: theme, store and shell. A component of its own so
 /// headless tests mount it without a desktop window.
@@ -54,6 +81,7 @@ pub fn App() -> impl IntoElement {
 pub fn Workspace() -> impl IntoElement {
     ui::theme::install();
     store::provide();
+    ui::controls::provide_root_owner();
     cloud::provide();
     pages::follow_appearance();
     view().flex_1().bg(move || theme().background).text_color(move || theme().foreground).child(shell::shell())
@@ -61,7 +89,27 @@ pub fn Workspace() -> impl IntoElement {
 
 #[cfg(test)]
 mod tests {
-    use nsh_core::{element::AssetKind, prelude::assets};
+    use nsh_core::{
+        element::AssetKind,
+        prelude::{assets, px},
+    };
+
+    #[test]
+    fn the_root_has_the_apps_own_id_so_its_data_is_not_in_the_folder_shared_by_apps_without_one() {
+        let root = super::root();
+        assert_eq!(root.app_id_ref(), Some(super::APP_ID));
+        assert_eq!(nsh_engine::app_dir_name(root.app_id_ref()), "vn.dat.tradelens");
+        assert_ne!(nsh_engine::app_dir_name(None), "vn.dat.tradelens", "`default` is what an app without an id gets");
+    }
+
+    #[test]
+    fn the_main_window_opens_at_1280_by_800_points_and_cannot_shrink_below_the_design_minimum() {
+        let root = super::root();
+        let window = root.main_window_ref().expect("nsh.json declares the window");
+        assert_eq!(window.default_size, Some(nsh_core::geometry::size(px(1280.0), px(800.0))));
+        assert_eq!(window.attributes.min_size, Some(Some(nsh_core::geometry::size(px(1024.0), px(680.0)))));
+        assert!(!window.restore_bounds, "a window left tiny once must not come back tiny");
+    }
 
     #[test]
     fn the_bundled_fonts_are_registered_with_the_app() {

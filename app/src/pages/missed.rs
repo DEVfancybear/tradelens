@@ -21,9 +21,10 @@ use crate::{
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{
-            Choice, Variant, action, action_icon, action_icon_when, commit_field, confirm, segmented, select_field,
-            tag_picker, text_field, textarea,
+            Choice, Variant, action, action_icon, action_icon_when, commit_field, confirm_then, root_owner, segmented,
+            select_field, tag_picker, text_field, textarea,
         },
+        date_picker::{DatePick, date_pick, date_trigger},
         forms::{NumberRange, number_field},
         gallery::gallery,
         icons::Icon,
@@ -418,17 +419,17 @@ fn form(
             },
         );
     };
+    // The question is the root's task: this form is built again when the data is read again.
+    let asker = root_owner();
     let remove = move || {
-        spawn(async move {
-            if confirm("Xoá lệnh bỏ lỡ?", "Không hoàn tác được.", "Xoá hẳn").await {
-                write.run(
-                    move |db| db.delete_missed_trade(id),
-                    move |result| match result {
-                        Ok(()) => editing.set(None),
-                        Err(message) => error.set(Some(message)),
-                    },
-                );
-            }
+        confirm_then(asker, "Xoá lệnh bỏ lỡ?", "Không hoàn tác được.", "Xoá hẳn", move || {
+            write.run(
+                move |db| db.delete_missed_trade(id),
+                move |result| match result {
+                    Ok(()) => editing.set(None),
+                    Err(message) => error.set(Some(message)),
+                },
+            );
         });
     };
     view()
@@ -500,16 +501,22 @@ fn trade_fields(fields: Fields) -> impl IntoElement {
                     segmented("Chiều", &SIDES, Side::label, move || side.get(), move |next| side.set(next)),
                 )),
         )
-        .child(labelled(
-            "Thời điểm",
-            text_field(
-                "Thời điểm",
-                None,
-                "21/11/2026 09:42",
-                move || seen.get(),
-                move |typed| seen.set(typed.to_owned()),
-            ),
-        ))
+        .child(labelled("Thời điểm", {
+            let chosen = move || parse_seen(&seen.get()).map(tradelens_core::time::naive);
+            date_pick(
+                DatePick::moment(
+                    "Thời điểm",
+                    chosen,
+                    || chrono::Local::now().date_naive(),
+                    move |at| {
+                        seen.set(at.format("%d/%m/%Y %H:%M").to_string());
+                    },
+                ),
+                date_trigger(move || {
+                    chosen().map_or_else(|| "Chọn ngày giờ".to_owned(), |at| at.format("%d/%m/%Y %H:%M").to_string())
+                }),
+            )
+        }))
         .child(
             view()
                 .flex_row()

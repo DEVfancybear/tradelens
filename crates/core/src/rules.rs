@@ -242,6 +242,7 @@ mod tests {
             profit: net,
             risk,
             result_r: None,
+            gaps: crate::model::Gaps::NONE,
             magic: 0,
             comment: String::new(),
             manual: false,

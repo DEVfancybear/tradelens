@@ -171,6 +171,7 @@ pub fn dropzone(
         });
     };
     button()
+        .cursor_pointer()
         .on_press(open)
         .accessibility_label(title)
         .items_center()
