@@ -14,6 +14,15 @@ workspace = true
 tradelens-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+chrono.workspace = true
 log.workspace = true
 thiserror.workspace = true
-# v0.1: ureq (HTTPS), keyring (OS credential store), sha2 + base64 (PKCE).
+ureq = "3.5"
+keyring = "4.2"
+sha2 = "0.11"
+base64 = "0.23"
+getrandom = "0.4"
+percent-encoding = "2.3"
+
+[dev-dependencies]
+tiny_http = "0.12"

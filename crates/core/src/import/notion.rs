@@ -460,10 +460,37 @@ pub fn infer(bytes: &[u8]) -> Result<NotionPlan, ImportError> {
 ///
 /// As [`infer`], and [`ImportError::Invalid`] when an override names a column the file lacks.
 pub fn infer_with(bytes: &[u8], overrides: &NotionMapping) -> Result<NotionPlan, ImportError> {
-    let sheet = sheet::read(bytes)?;
-    let layout = detect::detect(&sheet, overrides)?;
-    let planned = properties::infer(&sheet, &layout);
-    rows::build(&sheet, &layout, planned, overrides)
+    plan_sheet(&sheet::read(bytes)?, overrides)
+}
+
+/// Reads a table already in memory: the rows of a database fetched through the Notion API,
+/// every cell flattened to text the way the CSV export writes it (numbers with `.` as the
+/// decimal point). Detection and inference are those of [`infer`].
+///
+/// # Errors
+///
+/// As [`infer`]; also [`ImportError::Invalid`] when `headers` is empty.
+pub fn infer_table(headers: &[String], rows: &[Vec<String>]) -> Result<NotionPlan, ImportError> {
+    infer_table_with(headers, rows, &NotionMapping::default())
+}
+
+/// [`infer_table`] with columns imposed, as [`infer_with`].
+///
+/// # Errors
+///
+/// As [`infer_with`].
+pub fn infer_table_with(
+    headers: &[String],
+    rows: &[Vec<String>],
+    overrides: &NotionMapping,
+) -> Result<NotionPlan, ImportError> {
+    plan_sheet(&sheet::from_table(headers, rows)?, overrides)
+}
+
+fn plan_sheet(sheet: &sheet::Sheet, overrides: &NotionMapping) -> Result<NotionPlan, ImportError> {
+    let layout = detect::detect(sheet, overrides)?;
+    let planned = properties::infer(sheet, &layout);
+    rows::build(sheet, &layout, planned, overrides)
 }
 
 /// [`infer`] on a file.

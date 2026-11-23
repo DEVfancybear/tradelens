@@ -614,3 +614,64 @@ fn a_known_playbook_setup_is_linked() {
     assert_eq!((journal.playbook_id, journal.setup.as_str()), (Some(id), "Breakout"));
     assert_eq!(journal_of(&db, report.account_id, plan.rows[1].position_id).playbook_id, None);
 }
+
+// --- a table in memory (the Notion API) --------------------------------------------
+
+fn table_row(cells: &[&str]) -> Vec<String> {
+    cells.iter().map(|c| (*c).to_owned()).collect()
+}
+
+#[test]
+fn a_table_in_memory_is_read_like_a_csv() {
+    let headers = table_row(&["Name", "Date", "Pair", "Direction", "Lot", "Entry", "Exit", "P&L", "Setup", "Tags"]);
+    let rows = vec![
+        table_row(&[
+            "EURUSD breakout",
+            "2026-11-16 09:00 → 2026-11-16 15:10",
+            "EURUSD",
+            "Long",
+            "0.2",
+            "1.085",
+            "1.095",
+            "150",
+            "Breakout",
+            "London open, Theo trend H4",
+        ]),
+        table_row(&["Gold fade", "", "XAUUSD", "Short", "0.1", "2650.25", "2660.25", "-100", "Fade", ""]),
+        table_row(&[
+            "Gold swing",
+            "2026-11-18 10:00",
+            "XAUUSD",
+            "Long",
+            "0.3",
+            "2640",
+            "2644",
+            "1,200",
+            "Breakout",
+            "A+ setup",
+        ]),
+    ];
+    let plan = notion::infer_table(&headers, &rows).expect("a table is understood like a file");
+
+    assert_eq!(plan.mapping.column(Field::OpenTime), Some("Date"));
+    assert_eq!(plan.mapping.column(Field::Profit), Some("P&L"));
+    assert_eq!(plan.total_rows, 3);
+    assert_eq!(plan.rows.len(), 2, "the row without a date cannot be imported");
+    assert_eq!(
+        (plan.issues[0].line, plan.issues.len()),
+        (3, 1),
+        "line 1 is the header, the bad row is the second data row"
+    );
+    assert_close(plan.rows[0].net(), 150.0, "first trade");
+    assert_close(plan.rows[1].net(), 1200.0, "a thousands comma in a table is a thousands comma");
+    assert_eq!(plan.rows[0].journal.tags, ["London open", "Theo trend H4"]);
+    assert_eq!(plan.rows[0].entry.time_msc, time("2026.11.16 09:00:00"));
+}
+
+#[test]
+fn a_table_without_rows_or_columns_is_refused() {
+    assert!(matches!(notion::infer_table(&[], &[]), Err(ImportError::Invalid(_))));
+    let headers = table_row(&["Date", "Pair", "Direction"]);
+    assert!(matches!(notion::infer_table(&headers, &[]), Err(ImportError::Invalid(_))));
+    assert!(matches!(notion::infer_table(&headers, &[table_row(&["", "", ""])]), Err(ImportError::Invalid(_))));
+}
