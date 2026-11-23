@@ -1,10 +1,12 @@
 //! The advanced trade journal, the form editor, the entry-plan prompt and manual entry,
 //! headless on the real engine over a database in a temporary data directory.
 
+mod common;
+
 use std::time::Duration;
 
-use nsh_core::{Checked, platform::Os};
-use nsh_testing::{DialogAnswer, Headless, Screen};
+use nsh_core::platform::Os;
+use nsh_testing::{DialogAnswer, Headless};
 use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, TradeKey,
     catalog::{FieldDef, FieldKind, FieldScope, FieldValue, Requirement},
@@ -119,23 +121,6 @@ fn open_trade(app: &mut Headless, symbol: &str) {
     app.press("role:button[Lệnh]").expect("the trades row is a button");
     app.wait_for(&format!("role:button[Mở nhật ký lệnh {symbol}]")).expect("the trades load");
     press_until(app, &format!("role:button[Mở nhật ký lệnh {symbol}] >> nth=0"), "Nhật ký lệnh");
-}
-
-/// Turns the toggle `selector` names on, pressing again when a press is lost: the form draws its
-/// properties again once the trader's arrangement is read, and a press that lands then reaches a
-/// button that is being replaced. Never presses a toggle that is already on.
-fn toggle_on(app: &mut Headless, selector: &str) {
-    let on = |screen: &Screen| screen.accessibility_state(selector).is_ok_and(|s| s.pressed == Some(Checked::True));
-    for _ in 0..5 {
-        if on(app.screen()) {
-            return;
-        }
-        app.press(selector).expect("the toggle is a button");
-        if app.wait_until("the toggle being on", Duration::from_secs(2), on).is_ok() {
-            return;
-        }
-    }
-    panic!("`{selector}` did not turn on");
 }
 
 /// Presses `press` until `done` shows: the editor draws its rows again after each stored change, and a
@@ -325,7 +310,7 @@ fn a_trade_typed_in_by_hand_is_stored_with_its_journal() {
     app.wait_for("text:/Nhập mã giao dịch/").expect("the form says what is missing");
 
     app.type_text("label:Symbol", "GBPUSD").expect("symbol");
-    app.press("role:button[Chiều: Sell]").expect("side");
+    common::toggle_on(&mut app, "role:button[Chiều: Sell]");
     app.type_text("label:Thời gian vào", "2026-11-20 16:05").expect("opened");
     app.type_text("label:Thời gian ra", "2026-11-20 17:40").expect("closed");
     app.type_text("label:Khối lượng", "0.8").expect("volume");
@@ -334,7 +319,7 @@ fn a_trade_typed_in_by_hand_is_stored_with_its_journal() {
     app.type_text("label:Lãi/lỗ", "264").expect("profit");
     app.type_text("label:Commission", "-5.6").expect("commission");
     app.wait_for("Tự tính: kết quả ròng +$258.40 · giữ 1g 35p").expect("the computed line follows");
-    toggle_on(&mut app, "role:button[Tag: Tin tức]");
+    common::toggle_on(&mut app, "role:button[Tag: Tin tức]");
     app.type_text("label:Ghi chú", "Vào sớm vì sợ lỡ").expect("notes");
     app.press("role:button[Lưu lệnh]").expect("saves");
 

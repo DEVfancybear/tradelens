@@ -1,8 +1,13 @@
 //! Accounts and discipline, the daily journal and the settings, headless on the real engine
 //! over a database in a temporary data directory.
 
+mod common;
+
+use std::time::Duration;
+
 use chrono::{Datelike, Local, NaiveDate};
-use nsh_testing::Headless;
+use nsh_core::Checked;
+use nsh_testing::{Headless, Screen};
 use tradelens_core::{
     ChecklistItem, DayNote, Db, Deal, DealBatch, DealEntry, DealKind,
     catalog::{FieldDef, FieldKind, FieldScope, Requirement},
@@ -269,8 +274,8 @@ fn settings_are_kept_in_the_database() {
     app.press("role:button[Cài đặt]").expect("the settings row is a button");
     app.wait_for("Chế độ màu").expect("the page opens");
 
-    app.press("role:button[Chế độ màu: Sáng]").expect("a look is chosen");
-    app.press("role:button[Giờ hiển thị: Giờ server]").expect("a clock is chosen");
+    common::toggle_on(&mut app, "role:button[Chế độ màu: Sáng]");
+    common::toggle_on(&mut app, "role:button[Giờ hiển thị: Giờ server]");
     let db = fixture.db();
     wait_until("the settings being saved", || {
         db.setting("appearance").expect("reads").as_deref() == Some("light")
@@ -291,7 +296,17 @@ fn opening_a_day_of_the_calendar_shows_that_days_journal() {
     app.press("role:button[Lịch P/L]").expect("the calendar row is a button");
     app.wait_for("Tháng này").expect("the page opens");
     app.press("role:button[Tháng trước]").expect("goes to last month");
-    app.press(&format!("role:button[Xem ngày {}]", day.format("%d/%m"))).expect("picks the day");
+    let cell = format!("role:button[Xem ngày {}]", day.format("%d/%m"));
+    app.wait_for(&cell).expect("last month is drawn");
+    // The day card's title ("Thứ 5, 15/10") names the picked day; a press that lands while the
+    // month is drawn again is lost, so the day is picked again until the card follows.
+    // "." stands for the "/" between day and month, which would end the pattern.
+    let title = format!("text:/, {}$/", day.format("%d.%m"));
+    let picked = (0..5).any(|_| {
+        app.press(&cell).expect("picks the day");
+        app.wait_for_within(&title, Duration::from_secs(2)).is_ok()
+    });
+    assert!(picked, "the day card shows {day}");
     app.press("role:button[Mở nhật ký ngày]").expect("opens its journal");
 
     app.wait_for("Kế hoạch và tổng kết").expect("the day journal opens");
@@ -339,12 +354,21 @@ fn the_time_display_setting_changes_the_times_the_pages_show() {
 
     app.press("role:button[Cài đặt]").expect("the settings row is a button");
     app.wait_for("Chế độ màu").expect("the page opens");
-    app.press("role:button[Giờ hiển thị: Giờ server]").expect("the server's clock is chosen");
+    common::toggle_on(&mut app, "role:button[Giờ hiển thị: Giờ server]");
     app.press("role:button[Lệnh]").expect("back to the trades");
     app.wait_for(&on_server).expect("the same trade now shows the time MT5 reports");
     app.wait_for_gone(&on_machine, WAIT).expect("and no longer the machine's");
 
     app.press("role:button[Cài đặt]").expect("the settings row is a button");
+    // Until the stored choice is read the switch shows the default, the trader's clock, and
+    // pressing an option already on changes nothing.
+    let server_chosen = |screen: &Screen| {
+        screen
+            .accessibility_state("role:button[Giờ hiển thị: Giờ server]")
+            .is_ok_and(|state| state.pressed == Some(Checked::True))
+    };
+    app.wait_until("the stored choice being shown", Duration::from_secs(5), server_chosen)
+        .expect("the settings show the server's clock as chosen");
     app.press("role:button[Giờ hiển thị: Giờ của bạn]").expect("the trader's clock is chosen again");
     app.press("role:button[Lệnh]").expect("back to the trades");
     app.wait_for(&on_machine).expect("the trader's clock is back");

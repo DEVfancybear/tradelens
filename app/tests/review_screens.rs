@@ -1,6 +1,8 @@
 //! The playbook, the missed trades, the reviews, the search and the importers, headless on the
 //! real engine over a database in a temporary data directory.
 
+mod common;
+
 use std::path::{Path, PathBuf};
 
 use chrono::Local;
@@ -221,8 +223,8 @@ fn a_missed_trade_is_recorded_with_its_reason() {
     app.wait_for("Chưa có lệnh bỏ lỡ nào").expect("the empty state shows");
 
     app.type_text("label:Symbol", "xauusd").expect("the symbol is typed");
-    app.press("role:button[Chiều: Sell]").expect("the side is chosen");
-    app.press("role:button[Lý do: Sợ sau lệnh thua]").expect("a reason is chosen");
+    common::toggle_on(&mut app, "role:button[Chiều: Sell]");
+    common::toggle_on(&mut app, "role:button[Lý do: Sợ sau lệnh thua]");
     app.type_text("label:Ghi chú", "Đợi thêm nến xác nhận").expect("the notes are typed");
     app.press("role:button[Lưu]").expect("the save button");
 
