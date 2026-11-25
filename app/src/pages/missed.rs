@@ -21,7 +21,7 @@ use crate::{
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{
-            Choice, Variant, action, action_icon, action_icon_when, commit_field, confirm_then, root_owner, segmented,
+            Choice, Variant, action, action_icon, action_icon_when, add_field, confirm_then, root_owner, segmented,
             select_field, tag_picker, text_field, textarea,
         },
         date_picker::{DatePick, date_pick, date_trigger},
@@ -602,7 +602,7 @@ fn reason_field(
                 move || reason.get().into_iter().collect(),
                 move |key, on| reason.set(on.then(|| key.to_owned())),
             ))
-            .child(commit_field("Thêm lý do", "+ Thêm lý do mới, rồi Enter", String::new, add_reason)),
+            .child(add_field("Thêm lý do", "+ Thêm lý do mới, rồi Enter", add_reason)),
     )
 }
 

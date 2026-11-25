@@ -96,6 +96,7 @@ pub(crate) fn current() -> Route {
 pub(crate) fn go(route: Route) {
     batch(|| {
         global::<OpenTrade>().set(OpenTrade(None));
+        global::<EditTrade>().set(EditTrade(None));
         global::<FormEditor>().set(FormEditor(None));
         global::<ManualEntry>().set(ManualEntry(false));
         global::<Current>().set(Current(route));
@@ -115,13 +116,40 @@ pub(crate) fn open_trade() -> Option<TradeKey> {
 pub(crate) fn show_trade(key: TradeKey) {
     batch(|| {
         global::<Current>().set(Current(Route::Trades));
+        global::<EditTrade>().set(EditTrade(None));
         global::<OpenTrade>().set(OpenTrade(Some(key)));
     });
 }
 
 /// Closes the trade's page: back to the trades list.
 pub(crate) fn close_trade() {
-    global::<OpenTrade>().set(OpenTrade(None));
+    batch(|| {
+        global::<EditTrade>().set(EditTrade(None));
+        global::<OpenTrade>().set(OpenTrade(None));
+    });
+}
+
+/// The trade whose facts are being edited over its page.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct EditTrade(Option<TradeKey>);
+
+/// The trade being edited (tracked where it is read); its page is open under the form.
+pub(crate) fn edit_trade() -> Option<TradeKey> {
+    global::<EditTrade>().get().0
+}
+
+/// Opens the form that edits the facts of a trade over the trade's page.
+pub(crate) fn open_edit_trade(key: TradeKey) {
+    batch(|| {
+        global::<Current>().set(Current(Route::Trades));
+        global::<OpenTrade>().set(OpenTrade(Some(key.clone())));
+        global::<EditTrade>().set(EditTrade(Some(key)));
+    });
+}
+
+/// Closes the edit form: the trade's page shows again.
+pub(crate) fn close_edit_trade() {
+    global::<EditTrade>().set(EditTrade(None));
 }
 
 /// The form editor open over the current page, with the form it starts on.
@@ -158,6 +186,7 @@ pub(crate) fn open_manual_entry() {
     batch(|| {
         global::<Current>().set(Current(Route::Trades));
         global::<OpenTrade>().set(OpenTrade(None));
+        global::<EditTrade>().set(EditTrade(None));
         global::<ManualEntry>().set(ManualEntry(true));
     });
 }

@@ -6,11 +6,14 @@
 use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime};
 use nsh_base::{
     CalendarEntry, CalendarItemKind, DatePickerEvent, DateRangePreset, DateTime, PickedDate, TimeOfDay, TimePrecision,
-    date_picker, theme,
+    date_picker, input, theme,
 };
 use nsh_core::prelude::*;
 
-use super::icons::{Icon, icon};
+use super::{
+    icons::{Icon, icon},
+    theme::{self as tokens, mono},
+};
 
 /// The names of the weekdays over the grid, Sunday first (as `nsh_base` numbers them).
 const WEEKDAY_NAMES: [&str; 7] = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
@@ -143,7 +146,13 @@ pub fn date_pick(pick: DatePick, trigger: impl IntoElement) -> impl IntoElement 
             .time_precision(Some(TimePrecision::Minute))
             .default_time(Some(TimeOfDay(NaiveTime::MIN)))
             .time_accessibility_label("Giờ")
-            .time_label(text("Giờ").text_sm());
+            .time_label(text("Giờ").text_sm())
+            // The segment being edited is marked, and the ring shows where the keyboard is: the hour,
+            // the minute, the arrows and the digits all act on it.
+            .segment_class(
+                "px-1 rounded-sm tabular-nums selected:bg-primary selected:text-primary-foreground \
+                 focus-visible:ring-2 hover:bg-accent",
+            );
     }
     picker
 }
@@ -203,6 +212,172 @@ pub fn date_trigger(shown: impl Fn() -> String + 'static) -> impl IntoElement {
         .child(text(shown).text_sm().font_weight(FontWeight::SEMIBOLD).number_of_lines(1))
 }
 
+/// What a trade's open or close is while it is typed: a day, and the time of day when it is known.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct MomentValue {
+    pub day: Option<NaiveDate>,
+    pub time: Option<NaiveTime>,
+}
+
+impl MomentValue {
+    /// A day and a time.
+    pub fn of(at: NaiveDateTime) -> Self {
+        Self { day: Some(at.date()), time: Some(at.time()) }
+    }
+
+    /// A day whose time of day is not known.
+    pub fn of_day(day: NaiveDate) -> Self {
+        Self { day: Some(day), time: None }
+    }
+
+    /// The day at its time, midnight when the time is not known; `None` while no day is chosen.
+    pub fn at(self) -> Option<NaiveDateTime> {
+        self.day.map(|day| day.and_time(self.time.unwrap_or(NaiveTime::MIN)))
+    }
+}
+
+/// A day and a time of day the trader picks or types: the signals behind a [`moment_field`].
+#[derive(Debug, Clone, Copy)]
+pub struct Moment {
+    day: Signal<Option<NaiveDate>>,
+    time: Signal<Option<NaiveTime>>,
+    /// What is wrong with the time typed (Vietnamese), until it is corrected.
+    problem: Signal<Option<String>>,
+}
+
+impl Moment {
+    pub fn new(value: MomentValue) -> Self {
+        Self { day: signal(value.day), time: signal(value.time), problem: signal(None) }
+    }
+
+    /// What is chosen now (not tracked: for a listener).
+    pub fn value(&self) -> MomentValue {
+        MomentValue { day: self.day.get_untracked(), time: self.time.get_untracked() }
+    }
+
+    /// What is chosen, tracked where it is read.
+    pub fn tracked(&self) -> MomentValue {
+        MomentValue { day: self.day.get(), time: self.time.get() }
+    }
+
+    /// What is wrong with the time typed, if anything.
+    pub fn problem(&self) -> Option<String> {
+        self.problem.get_untracked()
+    }
+}
+
+/// A time of day typed as `0930`, `930`, `9:30`, `09:30`, `9.30`, `9h30` or just `9` (the hour), or the
+/// Vietnamese reason it is not one.
+///
+/// # Errors
+///
+/// The sentence that tells how to type it, when `typed` is not a time between 00:00 and 23:59.
+pub fn parse_clock(typed: &str) -> Result<NaiveTime, String> {
+    let wrong = || "Giờ không hợp lệ: gõ 0930 hoặc 9:30 (từ 00:00 đến 23:59).".to_owned();
+    let typed = typed.trim();
+    let (hour, minute) = if let Some((hour, minute)) = typed.split_once([':', '.', 'h', 'H']) {
+        (hour.trim(), minute.trim().trim_end_matches(['p', 'P']))
+    } else if typed.len() > 2 && typed.is_ascii() {
+        typed.split_at(typed.len() - 2)
+    } else {
+        (typed, "00")
+    };
+    // An hour is one or two digits; the minutes are two (`9:5` is not `9:05`), or none.
+    let number = |digits: &str, longest: usize| -> Option<u32> {
+        (!digits.is_empty() && digits.len() <= longest && digits.chars().all(|c| c.is_ascii_digit()))
+            .then(|| digits.parse().ok())
+            .flatten()
+    };
+    let minute = if minute.is_empty() { Some(0) } else { number(minute, 2).filter(|_| minute.len() == 2) };
+    let (Some(hour), Some(minute)) = (number(hour, 2), minute) else {
+        return Err(wrong());
+    };
+    NaiveTime::from_hms_opt(hour, minute, 0).ok_or_else(wrong)
+}
+
+/// The field for a time of day, next to the day: type `0930` or `9:30`, kept when Enter is pressed or the
+/// field is left; a wrong time says why under the field. Empty means the time is not known.
+fn time_input(label: &'static str, moment: Moment) -> impl IntoElement {
+    let draft = signal(String::new());
+    effect(move || draft.set(moment.time.get().map_or_default(|t| t.format("%H:%M").to_string())));
+    let keep: std::rc::Rc<dyn Fn()> = std::rc::Rc::new(move || {
+        let typed = draft.get_untracked();
+        if typed.trim().is_empty() {
+            moment.problem.set(None);
+            moment.time.set(None);
+            return;
+        }
+        match parse_clock(&typed) {
+            Ok(time) => {
+                moment.problem.set(None);
+                moment.time.set(Some(time));
+                draft.set(time.format("%H:%M").to_string());
+            }
+            Err(reason) => moment.problem.set(Some(reason)),
+        }
+    });
+    let on_enter = std::rc::Rc::clone(&keep);
+    view()
+        .flex_row()
+        .items_center()
+        .h(px(34.0))
+        .w(px(84.0))
+        .px_3()
+        .rounded(move || theme().radius)
+        .border_1()
+        .border_color(move || if moment.problem.get().is_some() { theme().destructive } else { theme().input })
+        .bg(move || theme().card)
+        .focus_within(|s| s.border_color(move || theme().ring).outline(px(2.0)).outline_color(move || theme().ring))
+        .child(
+            input()
+                .flex_1()
+                .label(label)
+                .text_sm()
+                .font_family(mono)
+                .tabular_nums()
+                .text_color(move || theme().foreground)
+                .placeholder("HH:MM")
+                .placeholder_color(move || color(theme().muted_foreground))
+                .caret_color(move || color(theme().primary))
+                .value(move || draft.get())
+                .on_change(move |typed: &str| draft.set(typed.to_owned()))
+                .on_submit(move |_: &str| on_enter())
+                .on_blur(move || keep()),
+        )
+}
+
+/// A day and a time of day, to enter either way: the day from the calendar (its popup has the time's
+/// hour and minute too, set with the arrows or the digits), the time typed in the field beside it.
+/// Both change `moment`.
+pub fn moment_field(label: &'static str, time_label: &'static str, moment: Moment) -> impl IntoElement {
+    let chosen = move || moment.tracked().at();
+    let pick = DatePick::moment(
+        label,
+        chosen,
+        || chrono::Local::now().date_naive(),
+        move |at| {
+            let unknown = moment.time.get_untracked().is_none() && at.time() == NaiveTime::MIN;
+            moment.problem.set(None);
+            moment.day.set(Some(at.date()));
+            moment.time.set((!unknown).then_some(at.time()));
+        },
+    );
+    let trigger = date_trigger(move || {
+        moment.day.get().map_or_else(|| "Chọn ngày".to_owned(), |day| day.format("%d/%m/%Y").to_string())
+    });
+    view()
+        .gap_1()
+        .child(
+            view()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(date_pick(pick, trigger))
+                .child(time_input(time_label, moment)),
+        )
+        .child(dynamic(move || moment.problem.get().map(|reason| text(reason).text_xs().text_color(tokens::loss()))))
+}
+
 /// The date as the trigger of a page's title says it: `Thứ 7, 21/11/2026`.
 #[must_use]
 pub fn weekday_title(day: NaiveDate) -> String {
@@ -219,5 +394,31 @@ mod tests {
         let day = NaiveDate::from_ymd_opt(2026, 11, 21).expect("a date");
         assert_eq!(weekday_title(day), "Thứ 7, 21/11/2026");
         assert_eq!(WEEKDAY_NAMES[0], "CN");
+    }
+
+    #[test]
+    fn a_time_is_typed_the_ways_a_trader_writes_it() {
+        let at = |h, m| NaiveTime::from_hms_opt(h, m, 0).expect("a time");
+        for (typed, want) in [
+            ("0930", at(9, 30)),
+            ("930", at(9, 30)),
+            ("9:30", at(9, 30)),
+            ("09:30", at(9, 30)),
+            (" 9.30 ", at(9, 30)),
+            ("9h30", at(9, 30)),
+            ("9", at(9, 0)),
+            ("2359", at(23, 59)),
+            ("00:00", at(0, 0)),
+        ] {
+            assert_eq!(parse_clock(typed), Ok(want), "{typed:?}");
+        }
+    }
+
+    #[test]
+    fn a_time_that_is_not_one_says_how_to_type_it() {
+        for typed in ["", "abc", "2460", "24:00", "9:5", "12:60", "99999", "9:30:15", "-1:30"] {
+            let reason = parse_clock(typed).expect_err(typed);
+            assert!(reason.starts_with("Giờ không hợp lệ"), "{typed:?}: {reason}");
+        }
     }
 }

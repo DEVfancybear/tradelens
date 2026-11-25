@@ -252,15 +252,6 @@ impl Trade {
     }
 }
 
-/// The instrument as MetaTrader writes it: `BTC/USD` and `xau-usd` become `BTCUSD` and `XAUUSD`.
-/// Text that is not a code (it has spaces, or other punctuation) is left as it is.
-fn normalise_symbol(text: &str) -> String {
-    let separator = |c: char| matches!(c, '/' | '\\' | '-' | '_');
-    let code =
-        !text.is_empty() && text.chars().all(|c| c.is_alphanumeric() || separator(c) || matches!(c, '.' | '#' | '+'));
-    if code { text.chars().filter(|&c| !separator(c)).flat_map(char::to_uppercase).collect() } else { text.to_owned() }
-}
-
 /// How the trade ended: by its status cell when the file has a status column and the cell holds a
 /// value it learned, else by the sign of the result.
 fn verdict_of(layout: &Layout, row: &Row, trade: &Trade) -> Option<Verdict> {
@@ -342,7 +333,7 @@ fn read_row(sheet: &Sheet, layout: &Layout, row: &Row) -> Result<Parsed, String>
     if close < open {
         return Err("thời gian ra sớm hơn thời gian vào".to_owned());
     }
-    let symbol = normalise_symbol(text(Field::Symbol));
+    let symbol = crate::symbol::normalise(text(Field::Symbol));
     if symbol.is_empty() {
         return Err("thiếu symbol".to_owned());
     }

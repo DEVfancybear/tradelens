@@ -21,8 +21,8 @@ use crate::search::{missed_document, playbook_document, review_document};
 use crate::sync::{Element, Fields, Shape, entity, flatten, join_key, split_key, unflatten};
 
 use super::{
-    DEAL_COLUMNS, DbError, Result, day_document, day_values_on, deal_from_row_at, enum_name, journal_on,
-    save_field_def_raw, set_setting_on, setting_on, write_deal_raw, write_index, write_journal_raw,
+    DEAL_COLUMNS, DbError, Result, day_document, day_values_on, deal_from_row_at, enum_name, journal_document,
+    journal_on, save_field_def_raw, set_setting_on, setting_on, write_deal_raw, write_index, write_journal_raw,
 };
 
 const JOURNAL: Shape = Shape {
@@ -283,7 +283,15 @@ fn store_deal(conn: &Connection, key: &str, fields: &Fields) -> Result<()> {
     let deal: Deal = serde_json::from_value(record.clone())?;
     let source = record.get("source").and_then(Value::as_str).unwrap_or("sync");
     let account_id = ensure_account(conn, &join_key(&[login, server]))?;
-    write_deal_raw(conn, account_id, &deal, source)
+    write_deal_raw(conn, account_id, &deal, source)?;
+    // The search entry of the trade's journal is titled by the trade's deals.
+    let position_id = if deal.position_id == 0 { deal.ticket } else { deal.position_id };
+    for (journal, entry) in
+        super::manual::journals_of_position(conn, &TradeKey { account_id, position_id, segment: 0 })?
+    {
+        write_index(conn, &journal_document(conn, &journal, &entry)?)?;
+    }
+    Ok(())
 }
 
 fn load_journal(conn: &Connection, key: &str) -> Result<Option<Fields>> {
@@ -705,6 +713,28 @@ pub(super) fn remove(conn: &Connection, kind: &str, key: &str) -> Result<()> {
                 )?;
             }
             delete("DELETE FROM missed_trades WHERE uid = ?1")
+        }
+        entity::DEAL => {
+            let parts = split_key(key);
+            let [login, server, ticket] = parts.as_slice() else { return Err(bad_key(entity::DEAL, key)) };
+            let Ok(ticket) = ticket.parse::<i64>() else { return Err(bad_key(entity::DEAL, key)) };
+            if let Some(account_id) = account_row(conn, login, server)? {
+                conn.execute(
+                    "DELETE FROM deals WHERE account_id = ?1 AND ticket = ?2",
+                    rusqlite::params![account_id, ticket],
+                )?;
+            }
+            Ok(())
+        }
+        entity::JOURNAL => {
+            if let Some(trade) = trade_key_of(conn, key)? {
+                conn.execute(
+                    "DELETE FROM journal WHERE account_id = ?1 AND position_id = ?2 AND segment = ?3",
+                    rusqlite::params![trade.account_id, trade.position_id, trade.segment],
+                )?;
+                super::manual::unindex_journal(conn, &trade)?;
+            }
+            Ok(())
         }
         _ => Ok(()),
     }

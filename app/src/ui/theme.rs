@@ -52,6 +52,11 @@ pub(crate) fn loss_soft() -> AdaptiveColor {
     token("loss-soft")
 }
 
+/// The ink on a `destructive` fill (a button that deletes).
+pub(crate) fn destructive_foreground() -> AdaptiveColor {
+    token("destructive-foreground")
+}
+
 /// A rule close to its limit.
 pub(crate) fn warning() -> AdaptiveColor {
     token("warning")

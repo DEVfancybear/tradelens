@@ -23,6 +23,8 @@ pub(crate) struct PlanView {
     pub(crate) trade: Trade,
     /// The account's currency (`USD`), for the risk row.
     pub(crate) currency: String,
+    /// The decimals the symbol's prices are shown with.
+    pub(crate) digits: usize,
 }
 
 /// One line of the comparison, ready to draw.
@@ -38,14 +40,19 @@ pub(crate) struct PlanRow {
 
 const NONE: &str = "—";
 
-/// A planned price, or a dash when the plan did not say.
-fn planned_price(value: Option<f64>) -> String {
-    value.filter(|v| *v > 0.0).map_or_else(|| NONE.to_owned(), format::price)
+/// A planned price, or a dash when the plan did not say; with at least the decimals the symbol's
+/// prices have.
+fn planned_price(value: Option<f64>, digits: usize) -> String {
+    value.filter(|v| *v > 0.0).map_or_else(|| NONE.to_owned(), |v| format::price_to(v, digits.max(format::decimals(v))))
 }
 
 /// A price gap with its sign: `+0.20`, `−0.10`.
-fn price_gap(gap: f64) -> String {
-    let text = format::price(gap.abs());
+fn price_gap(gap: f64, digits: usize) -> String {
+    signed(gap, &format::price_to(gap.abs(), digits))
+}
+
+/// `gap` as `text` with its sign.
+fn signed(gap: f64, text: &str) -> String {
     if gap > f64::EPSILON {
         format!("+{text}")
     } else if gap < -f64::EPSILON {
@@ -56,7 +63,7 @@ fn price_gap(gap: f64) -> String {
 }
 
 /// The rows of the comparison of `plan` with `trade`.
-pub(crate) fn plan_rows(plan: &EntryPlan, trade: &Trade, currency: &str) -> Vec<PlanRow> {
+pub(crate) fn plan_rows(plan: &EntryPlan, trade: &Trade, currency: &str, digits: usize) -> Vec<PlanRow> {
     let review = journal::review(plan, trade);
     let row = |label, planned: String, actual: String, gap: String, tone| PlanRow { label, planned, actual, gap, tone };
     // A trade whose source gave no prices has nothing to set the plan against.
@@ -64,7 +71,7 @@ pub(crate) fn plan_rows(plan: &EntryPlan, trade: &Trade, currency: &str) -> Vec<
 
     let (entry_gap, entry_tone) = match review.entry_slippage {
         Some(slip) if slip.abs() > f64::EPSILON => {
-            (format!("{} (trượt giá)", price_gap(slip)), if slip > 0.0 { Tone::Loss } else { Tone::Profit })
+            (format!("{} (trượt giá)", price_gap(slip, digits)), if slip > 0.0 { Tone::Loss } else { Tone::Profit })
         }
         Some(_) => ("đúng giá".to_owned(), Tone::Neutral),
         None => (NONE.to_owned(), Tone::Neutral),
@@ -76,7 +83,7 @@ pub(crate) fn plan_rows(plan: &EntryPlan, trade: &Trade, currency: &str) -> Vec<
         _ => (NONE.to_owned(), Tone::Neutral),
     };
     let target_gap = match (plan.take_profit.filter(|v| *v > 0.0), trade.tp > 0.0) {
-        (Some(planned), true) if (trade.tp - planned).abs() > f64::EPSILON => price_gap(trade.tp - planned),
+        (Some(planned), true) if (trade.tp - planned).abs() > f64::EPSILON => price_gap(trade.tp - planned, digits),
         (Some(_), true) => "đúng kế hoạch".to_owned(),
         _ => NONE.to_owned(),
     };
@@ -84,14 +91,32 @@ pub(crate) fn plan_rows(plan: &EntryPlan, trade: &Trade, currency: &str) -> Vec<
     let risk_gap = match (plan.risk, trade.risk) {
         (Some(planned), Some(actual)) if planned > 0.0 => {
             let over = actual - planned;
-            (price_gap(over), if over > f64::EPSILON { Tone::Loss } else { Tone::Neutral })
+            (signed(over, &format::price(over.abs())), if over > f64::EPSILON { Tone::Loss } else { Tone::Neutral })
         }
         _ => (NONE.to_owned(), Tone::Neutral),
     };
     vec![
-        row("Giá vào", planned_price(plan.entry), known(format::price(trade.open_price)), entry_gap, entry_tone),
-        row("Stop loss", planned_price(plan.stop_loss), known(format::level(trade.sl)), stop_gap, stop_tone),
-        row("Take profit", planned_price(plan.take_profit), known(format::level(trade.tp)), target_gap, Tone::Neutral),
+        row(
+            "Giá vào",
+            planned_price(plan.entry, digits),
+            known(format::price_to(trade.open_price, digits)),
+            entry_gap,
+            entry_tone,
+        ),
+        row(
+            "Stop loss",
+            planned_price(plan.stop_loss, digits),
+            known(format::level_to(trade.sl, digits)),
+            stop_gap,
+            stop_tone,
+        ),
+        row(
+            "Take profit",
+            planned_price(plan.take_profit, digits),
+            known(format::level_to(trade.tp, digits)),
+            target_gap,
+            Tone::Neutral,
+        ),
         row("R:R", planned_rr, format::r_text(review.realised_r), NONE.to_owned(), Tone::Neutral),
         row(
             "Risk",
@@ -152,7 +177,7 @@ fn blank(on_write: impl Fn() + 'static) -> impl IntoElement {
 
 fn filled(shown: &PlanView, on_write: impl Fn() + 'static) -> impl IntoElement {
     let before = written_before_close(&shown.plan, &shown.trade);
-    let rows = plan_rows(&shown.plan, &shown.trade, &shown.currency);
+    let rows = plan_rows(&shown.plan, &shown.trade, &shown.currency, shown.digits);
     let thesis = shown.plan.thesis.trim().to_owned();
     let timeframe = shown.plan.timeframe.trim().to_owned();
     view()
@@ -276,7 +301,7 @@ mod tests {
 
     #[test]
     fn slippage_and_a_widened_stop_read_as_worse_for_the_trader() {
-        let rows = plan_rows(&plan(), &trade(Side::Long, 2648.2, 2640.0, 2660.0), "USD");
+        let rows = plan_rows(&plan(), &trade(Side::Long, 2648.2, 2640.0, 2660.0), "USD", 2);
         let entry = by_label(&rows, "Giá vào");
         assert_eq!((entry.planned.as_str(), entry.actual.as_str()), ("2648.00", "2648.20"));
         assert_eq!(entry.gap, "+0.20 (trượt giá)");
@@ -293,7 +318,7 @@ mod tests {
 
     #[test]
     fn a_better_fill_and_the_planned_stop_read_as_good() {
-        let rows = plan_rows(&plan(), &trade(Side::Long, 2647.9, 2644.0, 2660.0), "USD");
+        let rows = plan_rows(&plan(), &trade(Side::Long, 2647.9, 2644.0, 2660.0), "USD", 2);
         assert_eq!(by_label(&rows, "Giá vào").tone, Tone::Profit);
         assert_eq!(by_label(&rows, "Giá vào").gap, "\u{2212}0.10 (trượt giá)");
         assert_eq!(by_label(&rows, "Stop loss").gap, "đúng kế hoạch");
@@ -301,7 +326,7 @@ mod tests {
 
     #[test]
     fn what_the_plan_does_not_say_is_a_dash() {
-        let rows = plan_rows(&EntryPlan::default(), &trade(Side::Short, 1.2684, 0.0, 0.0), "USD");
+        let rows = plan_rows(&EntryPlan::default(), &trade(Side::Short, 1.2684, 0.0, 0.0), "USD", 2);
         for label in ["Giá vào", "Stop loss", "Take profit", "R:R", "Risk"] {
             assert_eq!(by_label(&rows, label).planned, "—", "{label}");
             assert_eq!(by_label(&rows, label).gap, "—", "{label}");

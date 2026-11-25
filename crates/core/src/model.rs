@@ -325,9 +325,8 @@ impl Side {
     }
 }
 
-/// Where a trade came from, told by its entry deal's ticket: MetaTrader's tickets are positive,
-/// the app's own (hand-entered trades, imported journals) are negative, and an imported journal's
-/// start below [`JOURNAL_TICKET_BASE`] so that they never meet a hand-entered one.
+/// Where a trade came from, told by how its deals were written (their `source`, see
+/// [`Origin::of_source`]), never by their tickets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Origin {
     Mt5,
@@ -346,20 +345,26 @@ impl Origin {
         }
     }
 
-    /// The origin of the position whose entry deal has `ticket`.
-    pub const fn of_ticket(ticket: i64) -> Self {
-        if ticket > 0 {
-            Self::Mt5
-        } else if ticket <= -JOURNAL_TICKET_BASE {
-            Self::Notion
-        } else {
-            Self::Manual
+    /// The origin of deals stored with `source` (what wrote them: `manual`, `notion`, or an MT5
+    /// feed or report: `ea`, `html`, `xlsx`, `json`, …).
+    pub fn of_source(source: &str) -> Self {
+        match source {
+            "manual" => Self::Manual,
+            "notion" => Self::Notion,
+            _ => Self::Mt5,
         }
+    }
+
+    /// Whether the trader may change the facts of such a trade: only what they typed or
+    /// imported from their own journal; what the terminal reported stays as it was reported.
+    pub const fn is_editable(self) -> bool {
+        !matches!(self, Self::Mt5)
     }
 }
 
 /// Tickets of imported journal trades are at most the negative of this, far from the small
-/// negative tickets that hand-entered trades count down from.
+/// negative tickets that hand-entered trades count down from (MetaTrader's are positive). It only
+/// keeps the app's own tickets apart; what a trade is, is told by [`Origin::of_source`].
 pub const JOURNAL_TICKET_BASE: i64 = 1 << 40;
 
 /// Identifies a trade across rebuilds, and the journal entry kept on it.
@@ -431,14 +436,11 @@ impl Trade {
     }
 
     /// Whether the trade's money is known. A trade imported with only its result in R has no
-    /// money: statistics count it by its R, and money figures show a dash for it.
+    /// money: statistics count it by its R, and money figures show a dash for it. A trade that has
+    /// a result in R and also a profit (a result the trader gave in R although the money is known)
+    /// keeps its money.
     pub fn money_known(&self) -> bool {
-        self.result_r.is_none()
-    }
-
-    /// Where the trade came from.
-    pub fn origin(&self) -> Origin {
-        Origin::of_ticket(self.key.position_id)
+        self.result_r.is_none() || self.profit != 0.0
     }
 
     /// Whether the lot size is the source's own (not a placeholder).
@@ -577,19 +579,65 @@ pub struct DayNote {
     pub mood: String,
 }
 
-/// A trade added by hand, stored as an entry and an exit deal.
+/// A trade the trader typed, or imported from their journal, as an entry and an exit deal. What
+/// the trader did not give is `None`: it is stored as a placeholder and recorded as a [`Gaps`] bit,
+/// so that it shows as a dash and no figure counts it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ManualTrade {
     pub symbol: String,
     pub side: Side,
-    pub volume: f64,
+    /// The lot size; `None` when not given.
+    pub volume: Option<f64>,
+    /// Server time, milliseconds (see [`Deal::time_msc`]).
     pub open_time: i64,
-    pub open_price: f64,
+    pub open_price: Option<f64>,
     pub close_time: i64,
-    pub close_price: f64,
+    pub close_price: Option<f64>,
+    /// The times are days only: the time of day is not known (the times then hold midnight).
+    pub date_only: bool,
+    /// The stop loss; 0 for none.
     pub sl: f64,
+    /// The take profit; 0 for none.
     pub tp: f64,
-    pub profit: f64,
+    /// The profit before commission and swap; `None` when the money of the trade is not known, in
+    /// which case `result_r` says how it went.
+    pub profit: Option<f64>,
+    /// Costs only count when the money is known (`profit` is given).
     pub commission: f64,
     pub swap: f64,
+    /// The result in R when the trader gives one: it stands in for what the stop would say, or is
+    /// the only result of a trade kept without money.
+    pub result_r: Option<f64>,
+}
+
+impl ManualTrade {
+    /// The result in R the prices and the stop say (the move over the distance to the stop), as a
+    /// trade without a risk amount is measured; `None` without both prices or a stop.
+    pub fn computed_r(&self) -> Option<f64> {
+        let (open, close) = (self.open_price?, self.close_price?);
+        let stop = (open - self.sl).abs();
+        if self.sl <= 0.0 || stop < f64::EPSILON {
+            return None;
+        }
+        let moved = match self.side {
+            Side::Long => close - open,
+            Side::Short => open - close,
+        };
+        Some(moved / stop)
+    }
+
+    /// What the trade does not tell, as the deals record it.
+    pub fn gaps(&self) -> Gaps {
+        let mut gaps = Gaps::NONE;
+        if self.volume.is_none() {
+            gaps = gaps.with(Gaps::VOLUME);
+        }
+        if self.open_price.is_none() || self.close_price.is_none() {
+            gaps = gaps.with(Gaps::PRICE);
+        }
+        if self.date_only {
+            gaps = gaps.with(Gaps::TIME);
+        }
+        gaps
+    }
 }

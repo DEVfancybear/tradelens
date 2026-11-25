@@ -105,22 +105,36 @@ pub(crate) fn lots(volume: f64) -> String {
     format!("{volume:.2}")
 }
 
-/// A price with the decimals it has, at least two: `2650.25`, `1.08123`.
-pub(crate) fn price(value: f64) -> String {
+/// The decimals `value` has, up to five: `1.0850` has 3, `1.08505` has 5, `2648.2` has 1.
+pub(crate) fn decimals(value: f64) -> usize {
     let text = format!("{value:.5}");
-    let trimmed = text.trim_end_matches('0');
-    let decimals = trimmed.split_once('.').map_or(0, |(_, fraction)| fraction.len());
-    if decimals >= 2 { trimmed.to_owned() } else { format!("{value:.2}") }
+    text.trim_end_matches('0').split_once('.').map_or(0, |(_, fraction)| fraction.len())
 }
 
-/// A price level where `0` means "not set" (stop loss, take profit).
-pub(crate) fn level(value: f64) -> String {
-    if value > 0.0 { price(value) } else { "—".to_owned() }
+/// A price with the decimals it has, at least two: `2650.25`, `1.08123`. A symbol's prices side
+/// by side use [`price_to`] with the symbol's decimals, so that they line up.
+pub(crate) fn price(value: f64) -> String {
+    price_to(value, decimals(value).max(2))
 }
 
-/// A profit factor: `1.86`, or a dash when nothing was lost yet.
+/// A price with exactly `digits` decimals: `1.08500`, `2648.20`.
+pub(crate) fn price_to(value: f64, digits: usize) -> String {
+    format!("{value:.digits$}")
+}
+
+/// [`price_to`] where `0` means "not set" (stop loss, take profit): a dash for it.
+pub(crate) fn level_to(value: f64, digits: usize) -> String {
+    if value > 0.0 { price_to(value, digits) } else { "—".to_owned() }
+}
+
+/// The profit factor from which [`ratio`] stops giving digits: one tiny loss among many wins makes it
+/// huge and meaningless (`1240.00`), and the figure must fit its column.
+const RATIO_CAP: f64 = 50.0;
+
+/// A profit factor: `1.86`; `50+` from 50 up; a dash when nothing was lost yet.
 pub(crate) fn ratio(value: Option<f64>) -> String {
-    value.map_or_else(|| "—".to_owned(), |v| format!("{v:.2}"))
+    value
+        .map_or_else(|| "—".to_owned(), |v| if v >= RATIO_CAP { format!("{RATIO_CAP:.0}+") } else { format!("{v:.2}") })
 }
 
 /// Day and month with the time: `20/11 22:44`.
@@ -251,8 +265,20 @@ mod tests {
         assert_eq!(price(1.08123), "1.08123");
         assert_eq!(price(150.1), "150.10");
         assert_eq!(price(2650.0), "2650.00");
-        assert_eq!(level(0.0), "—");
-        assert_eq!(level(2644.3), "2644.30");
+        assert_eq!(level_to(0.0, 2), "—");
+        assert_eq!(level_to(2644.3, 2), "2644.30");
+    }
+
+    #[test]
+    fn a_symbols_prices_all_have_the_decimals_it_has() {
+        // 5-digit FX: a price that ends in 0 keeps its zero, so that 1.08500 and 1.08505 line up.
+        assert_eq!(price_to(1.0850, 5), "1.08500");
+        assert_eq!(price_to(1.08505, 5), "1.08505");
+        assert_eq!(price_to(2648.2, 2), "2648.20");
+        assert_eq!(decimals(1.0850), 3);
+        assert_eq!(decimals(1.08505), 5);
+        assert_eq!(decimals(2648.2), 1);
+        assert_eq!(decimals(2650.0), 0);
     }
 
     #[test]
@@ -261,6 +287,9 @@ mod tests {
         assert_eq!(percent(0.5833), "58.3%");
         assert_eq!(ratio(Some(1.857)), "1.86");
         assert_eq!(ratio(None), "—");
+        assert_eq!(ratio(Some(49.994)), "49.99");
+        assert_eq!(ratio(Some(55.0)), "50+", "a profit factor made by one tiny loss is capped");
+        assert_eq!(ratio(Some(1240.0)), "50+");
     }
 
     #[test]

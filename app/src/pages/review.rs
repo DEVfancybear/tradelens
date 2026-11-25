@@ -22,7 +22,7 @@ use crate::{
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{
-            Variant, action, action_icon, action_icon_when, action_when, commit_field, icon_action, rating, segmented,
+            Variant, action, action_icon, action_icon_when, action_when, add_field, icon_action, rating, segmented,
             textarea,
         },
         date_picker::{DatePick, date_pick, date_trigger},
@@ -522,6 +522,9 @@ fn questions_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl Int
         let start = p.bounds(anchor.get()).0;
         source_of(p, start, loaded.value().as_deref(), template.value().as_deref(), store.accounts.get().id())
     });
+    // Which review the form is for. A change in what is stored of it (a write of this form, a sync) is
+    // not another review: the form follows it, instead of being made again under the typing.
+    let shown = computed(move || source.with(|s| s.as_ref().map(|s| (s.period, s.start, s.review.account_id))));
     view()
         .p_5()
         .gap_4()
@@ -530,8 +533,12 @@ fn questions_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl Int
         .border_color(move || theme().border)
         .bg(move || theme().card)
         .child(text("Câu hỏi tổng kết").text_sm().font_weight(FontWeight::SEMIBOLD))
-        .child(dynamic(move || match source.get() {
-            Some(source) => untracked(|| answers_form(source).into_element()),
+        .child(dynamic(move || match shown.get() {
+            // The form is made once for the review it shows, then follows what is stored of it.
+            Some(_) => untracked(|| match source.get_untracked() {
+                Some(first) => answers_form(first, source).into_element(),
+                None => view().into_element(),
+            }),
             None => untracked(|| {
                 text(move || loaded.error().unwrap_or_else(|| "Đang tải…".to_owned()))
                     .text_sm()
@@ -571,21 +578,31 @@ fn answer_rows(answers: Signal<Vec<(String, String)>>) -> impl IntoElement {
 }
 
 /// The questions of one review, the discipline grade and the button that stores them.
-fn answers_form(source: Source) -> impl IntoElement {
+fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement {
     let write = writer();
-    let answers = signal(source.review.answers.clone());
-    let grade = signal(source.review.rating);
-    let saved = signal(source.review.clone());
-    let base = std::rc::Rc::new(source.review);
+    let answers = signal(first.review.answers.clone());
+    let grade = signal(first.review.rating);
+    let saved = signal(first.review.clone());
+    // The stored review the edits are laid over (its id, once it has one).
+    let base = signal(first.review);
     let busy = signal(false);
     let failure = signal(None::<String>);
-    let current = {
-        let base = std::rc::Rc::clone(&base);
-        move || PeriodReview { answers: answers.get(), rating: grade.get(), ..PeriodReview::clone(&base) }
-    };
-    let dirty = computed({
-        let current = current.clone();
-        move || current() != saved.get()
+    let current = move || PeriodReview { answers: answers.get(), rating: grade.get(), ..base.get() };
+    let dirty = computed(move || current() != saved.get());
+    // What is stored of this review changed (this form's own save read back, another window, a sync):
+    // shown unless the trader has edits that are not saved, which are theirs.
+    effect(move || {
+        let Some(next) = latest.get() else { return };
+        untracked(|| {
+            if !dirty.get_untracked() {
+                batch(|| {
+                    answers.set(next.review.answers.clone());
+                    grade.set(next.review.rating);
+                    saved.set(next.review.clone());
+                    base.set(next.review);
+                });
+            }
+        });
     });
     let save = move || {
         let review = current();
@@ -606,17 +623,12 @@ fn answers_form(source: Source) -> impl IntoElement {
     view()
         .gap_4()
         .child(answer_rows(answers))
-        .child(commit_field(
-            "Thêm câu hỏi",
-            "+ Thêm câu hỏi cho kỳ này, rồi Enter",
-            String::new,
-            move |typed| {
-                let prompt = typed.trim().to_owned();
-                if !prompt.is_empty() {
-                    answers.update(|a| a.push((prompt, String::new())));
-                }
-            },
-        ))
+        .child(add_field("Thêm câu hỏi", "+ Thêm câu hỏi cho kỳ này, rồi Enter", move |typed| {
+            let prompt = typed.trim().to_owned();
+            if !prompt.is_empty() {
+                answers.update(|a| a.push((prompt, String::new())));
+            }
+        }))
         .child(
             view()
                 .flex_row()

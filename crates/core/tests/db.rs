@@ -256,16 +256,18 @@ fn manual(side: Side, open: &str, close: &str) -> ManualTrade {
     ManualTrade {
         symbol: "EURUSD".into(),
         side,
-        volume: 0.5,
+        volume: Some(0.5),
         open_time: parse_mt5_time(open).expect("fixture times parse"),
-        open_price: 1.1000,
+        open_price: Some(1.1000),
         close_time: parse_mt5_time(close).expect("fixture times parse"),
-        close_price: 1.1040,
+        close_price: Some(1.1040),
+        date_only: false,
         sl: 1.0980,
         tp: 1.1050,
-        profit: 200.0,
+        profit: Some(200.0),
         commission: -3.5,
         swap: -0.4,
+        result_r: None,
     }
 }
 
@@ -327,8 +329,8 @@ fn bad_manual_trades_are_refused() {
     let account_id = db.upsert_account(&info(1000.0)).unwrap();
     let good = manual(Side::Long, "2026.11.19 08:00:00", "2026.11.19 09:00:00");
     assert!(db.add_manual_trade(account_id, &ManualTrade { symbol: " ".into(), ..good.clone() }).is_err());
-    assert!(db.add_manual_trade(account_id, &ManualTrade { volume: 0.0, ..good.clone() }).is_err());
-    assert!(db.add_manual_trade(account_id, &ManualTrade { open_price: f64::NAN, ..good.clone() }).is_err());
+    assert!(db.add_manual_trade(account_id, &ManualTrade { volume: Some(0.0), ..good.clone() }).is_err());
+    assert!(db.add_manual_trade(account_id, &ManualTrade { open_price: Some(f64::NAN), ..good.clone() }).is_err());
     assert!(db.add_manual_trade(404, &good).is_err(), "the account must exist");
     assert_eq!(db.deals(None).unwrap(), Vec::new(), "nothing half written");
 }

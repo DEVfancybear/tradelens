@@ -63,39 +63,38 @@ pub fn checklist_editor(
         }
     };
     let draft = signal(String::new());
+    // The rows are known by their item and their place (a new item has no id yet). Renaming an item
+    // changes neither, so it makes no row again: the row the trader moves on to is still there when
+    // the rename of the one they leave has come back.
+    let rows = computed(move || list.with(|items| items.iter().cloned().enumerate().collect::<Vec<_>>()));
+    let none = computed(move || list.with(Vec::is_empty));
     view()
         .gap_2()
         .child(dynamic(move || {
-            let current = list.get();
-            untracked(|| {
-                if current.is_empty() {
-                    return text("Chưa có mục nào.")
-                        .text_sm()
-                        .text_color(move || theme().muted_foreground)
-                        .into_element();
-                }
-                view()
-                    .gap_2()
-                    .children(current.into_iter().enumerate().map(|(index, item)| {
-                        let removal = format!("Xoá mục {}", item.text);
-                        let shown = item.text;
-                        view()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(view().flex_1().min_w(px(0.0)).child(commit_field(
-                                format!("{group}: mục {}", index + 1),
-                                "Nội dung mục",
-                                move || shown.clone(),
-                                move |typed| apply(renamed(&list.get_untracked(), index, &typed)),
-                            )))
-                            .child(icon_action(Icon::Trash, removal, Variant::Ghost, move || {
-                                apply(without(&list.get_untracked(), index));
-                            }))
-                    }))
-                    .into_element()
-            })
+            none.get()
+                .then(|| untracked(|| text("Chưa có mục nào.").text_sm().text_color(move || theme().muted_foreground)))
         }))
+        .child(each(
+            rows,
+            |(at, item): &(usize, ChecklistItem)| (item.id, *at),
+            move |row, _| {
+                let (index, item) = row.with_untracked(Clone::clone);
+                let removal = format!("Xoá mục {}", item.text);
+                view()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(view().flex_1().min_w(px(0.0)).child(commit_field(
+                        format!("{group}: mục {}", index + 1),
+                        "Nội dung mục",
+                        move || row.with(|(_, item)| item.text.clone()),
+                        move |typed| apply(renamed(&list.get_untracked(), index, &typed)),
+                    )))
+                    .child(icon_action(Icon::Trash, removal, Variant::Ghost, move || {
+                        apply(without(&list.get_untracked(), index));
+                    }))
+            },
+        ))
         .child(
             view()
                 .flex_row()

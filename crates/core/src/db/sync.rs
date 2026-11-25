@@ -12,7 +12,7 @@ use std::path::Path;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior};
 use serde_json::Value;
 
-use crate::model::Deal;
+use crate::model::{Deal, Origin};
 use crate::sync::{
     Body, Change, FieldOp, Fields, Stamp, Winner, apply_op, diff, entity, is_synced_setting, merge_deal, new_uid,
 };
@@ -309,6 +309,12 @@ fn apply_fields(conn: &Connection, change: &Change, ops: &[FieldOp]) -> Result<A
     Ok(report)
 }
 
+/// Whether the deal record was written by the trader (typed, or imported from their journal), not
+/// by the terminal or one of its reports.
+fn is_traders_own(record: &Value) -> bool {
+    record.get("source").and_then(Value::as_str).is_some_and(|source| Origin::of_source(source).is_editable())
+}
+
 /// A deal is one record: the later write wins whole, and the measured figures it lacks come
 /// from the other version (see [`merge_deal`]).
 fn apply_deal(conn: &Connection, change: &Change, ops: &[FieldOp]) -> Result<ApplyReport> {
@@ -316,11 +322,27 @@ fn apply_deal(conn: &Connection, change: &Change, ops: &[FieldOp]) -> Result<App
     let mut report = ApplyReport::default();
     for op in ops.iter().filter(|op| op.field == "deal") {
         let Some(record) = &op.value else { continue };
+        // A deal that was deleted stays deleted against a write older than its deletion, and
+        // comes back with a newer one (a report imported again, a trade edited elsewhere).
+        let gone = tombstone(conn, entity::DEAL, key)?;
+        if gone.as_ref().is_some_and(|gone| stamp <= gone.stamp) {
+            report.stale += 1;
+            continue;
+        }
         let held = clock_of(conn, entity::DEAL, key, "deal")?;
         let wins = stamp.beats(held.as_ref());
         let stored = views::load(conn, entity::DEAL, key)?;
         let merged = match stored.as_ref().and_then(|fields| fields.get("deal")) {
             None => record.clone(),
+            // What the trader typed or kept in a journal is whole as written: a stop they cleared is
+            // not filled back from the older version of the deal.
+            Some(stored_record) if is_traders_own(if wins { record } else { stored_record }) => {
+                if wins {
+                    record.clone()
+                } else {
+                    stored_record.clone()
+                }
+            }
             Some(stored_record) => {
                 let (stored_deal, incoming_deal): (Deal, Deal) =
                     (serde_json::from_value(stored_record.clone())?, serde_json::from_value(record.clone())?);
@@ -338,6 +360,10 @@ fn apply_deal(conn: &Connection, change: &Change, ops: &[FieldOp]) -> Result<App
         };
         if stored.as_ref().and_then(|fields| fields.get("deal")) != Some(&merged) {
             views::store(conn, entity::DEAL, key, &Fields::from([("deal".to_owned(), merged)]))?;
+        }
+        if stored.is_none() && gone.is_some() {
+            conn.execute("DELETE FROM sync_tombstones WHERE entity = ?1 AND key = ?2", [entity::DEAL, key])?;
+            report.revived += 1;
         }
         if wins {
             let differs = stored.as_ref().and_then(|fields| fields.get("deal")).is_some_and(|stored| stored != record);

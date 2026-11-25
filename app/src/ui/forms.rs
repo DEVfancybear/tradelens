@@ -11,8 +11,25 @@ use super::{
     theme::{self as tokens, mono},
 };
 
-/// How wide a number field is, in points.
-const NUMBER_WIDTH: f32 = 148.0;
+/// What a number field takes besides its digits and its unit, in points: the border and padding (10)
+/// and the two step buttons (30 each).
+const NUMBER_CHROME: f32 = 70.0;
+/// The room the digits of a number field keep: `1.08505` and `+99.9` with a margin (8 glyphs of the
+/// mono font at 8.4 wide, and the input's padding).
+const NUMBER_DIGITS: f32 = 76.0;
+/// What a glyph of a unit takes (12 pt), with room.
+const UNIT_GLYPH: f32 = 7.0;
+/// What a unit takes besides its glyphs: the space after it.
+const UNIT_PADDING: f32 = 12.0;
+
+/// The width of a number field with `unit` after its digits: what its chrome, its digits and the unit
+/// need, so that a price to five decimals (or a lot of 100.00) is never cut.
+fn number_width(unit: Option<&str>) -> f32 {
+    let unit = unit.map_or(0.0, |unit| {
+        f32::from(u16::try_from(unit.chars().count()).unwrap_or(u16::MAX)) * UNIT_GLYPH + UNIT_PADDING
+    });
+    (NUMBER_CHROME + NUMBER_DIGITS + unit).ceil()
+}
 
 /// The limits and step of a [`number_field`].
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -57,6 +74,29 @@ pub fn number_field(
     value: impl Fn() -> Option<f64> + 'static,
     on_change: impl Fn(Option<f64>) + 'static,
 ) -> impl IntoElement {
+    number_input_of(label, unit, range, value, on_change).w(px(number_width(unit)))
+}
+
+/// A [`number_field`] for a grid of fields: it takes the width of its cell (never less than what its
+/// digits and unit need) instead of a fixed one, so that it grows with the form.
+pub fn number_field_fluid(
+    label: impl Into<SharedString>,
+    unit: Option<&'static str>,
+    range: NumberRange,
+    value: impl Fn() -> Option<f64> + 'static,
+    on_change: impl Fn(Option<f64>) + 'static,
+) -> impl IntoElement {
+    number_input_of(label, unit, range, value, on_change).w_full().min_w(px(number_width(unit)))
+}
+
+/// The input of a number field, without a width.
+fn number_input_of(
+    label: impl Into<SharedString>,
+    unit: Option<&'static str>,
+    range: NumberRange,
+    value: impl Fn() -> Option<f64> + 'static,
+    on_change: impl Fn(Option<f64>) + 'static,
+) -> impl IntoElement + Styled {
     let step_button = |sign: &'static str| text(sign).text_sm().text_color(move || theme().muted_foreground);
     let step_style =
         |s: nsh_core::element::StyleRefinement| s.size(px(30.0)).items_center().justify_center().rounded(px(6.0));
@@ -84,7 +124,6 @@ pub fn number_field(
         .when_some(unit, |field, unit| {
             field.suffix(text(unit).pr_2().text_xs().text_color(move || theme().muted_foreground))
         })
-        .w(px(NUMBER_WIDTH))
         .flex_row()
         .items_center()
         .px_1()
@@ -166,18 +205,23 @@ pub fn checklist(
     checked: impl Fn() -> Vec<i64> + Copy + 'static,
     on_toggle: impl Fn(i64, bool) + Copy + 'static,
 ) -> impl IntoElement {
+    // The items often come from a `Reading`, which announces itself at every read of the database:
+    // the rows follow the items, not the announcements.
+    let items = computed(items);
     view().gap_2().child(dynamic(move || {
-        let items = items();
-        if items.is_empty() {
-            return text("Chưa có mục nào trong checklist.")
-                .text_sm()
-                .text_color(move || theme().muted_foreground)
-                .into_element();
-        }
-        view()
-            .gap_2()
-            .children(items.into_iter().map(|item| checklist_row(label, item, checked, on_toggle)))
-            .into_element()
+        let items = items.get();
+        untracked(|| {
+            if items.is_empty() {
+                return text("Chưa có mục nào trong checklist.")
+                    .text_sm()
+                    .text_color(move || theme().muted_foreground)
+                    .into_element();
+            }
+            view()
+                .gap_2()
+                .children(items.into_iter().map(|item| checklist_row(label, item, checked, on_toggle)))
+                .into_element()
+        })
     }))
 }
 

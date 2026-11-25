@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
 use tradelens_core::{
-    Account, Db, DbError, Deal, JournalEntry, Trade, TradeKey,
+    Account, Db, DbError, Deal, JournalEntry, Origin, Trade, TradeKey,
     catalog::{CatalogItem, CatalogKind},
     metrics::{self, Basis, EquityPoint, Sample, Stats, Unit},
     playbook::Playbook,
@@ -112,6 +112,11 @@ pub(crate) struct TradeRow {
     pub(crate) journaled: bool,
     /// The deals the position is made of, oldest first.
     pub(crate) deals: Vec<Deal>,
+    /// How the trade came to be, from how its deals were written (not from the account it is filed
+    /// under): the trader may change the facts of their own trades only.
+    pub(crate) origin: Origin,
+    /// The decimals the prices of the trade's symbol are shown with (see `price_digits`).
+    pub(crate) digits: usize,
     clock: Clock,
     /// Minutes the account's server is ahead of UTC, whatever clock the times are shown on.
     server_offset_min: Option<i32>,
@@ -231,25 +236,39 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
         emotions: db.catalog(CatalogKind::Emotion)?,
     };
 
+    let origins = db.trade_origins(query.account)?;
     let mut deals_by_account: BTreeMap<i64, Vec<Deal>> = BTreeMap::new();
     for (account_id, deal) in db.deals(query.account)? {
         deals_by_account.entry(account_id).or_default().push(deal);
     }
+    let built: Vec<(i64, Vec<Trade>)> =
+        deals_by_account.iter().map(|(account_id, deals)| (*account_id, build_trades(*account_id, deals))).collect();
+    let digits = price_digits(built.iter().flat_map(|(_, trades)| trades));
 
     let mut rows: Vec<TradeRow> = Vec::new();
     let mut cash: Vec<(i64, f64)> = Vec::new();
     let mut start_total = 0.0;
-    for (account_id, deals) in &deals_by_account {
-        let account = accounts.iter().find(|a| a.id == *account_id);
+    for (account_id, trades) in built {
+        let deals = deals_by_account.get(&account_id).map_or(&[][..], Vec::as_slice);
+        let account = accounts.iter().find(|a| a.id == account_id);
         let server_offset_min = account.and_then(|a| a.server_offset_min);
         let clock = display.clock(server_offset_min, query.local_offset_min);
         let title = account.map_or_else(|| format!("Tài khoản {account_id}"), Account::title);
         let currency = account.map_or_default(|a| a.currency.clone());
-        let trades = build_trades(*account_id, deals);
         let account_cash = cash_flows(deals);
         let account_rows: Vec<TradeRow> = trades
             .into_iter()
-            .map(|trade| make_row(trade, deals, &journals, &playbooks, &title, &currency, (clock, server_offset_min)))
+            .map(|trade| {
+                let looks = Looks {
+                    origin: origins
+                        .get(&(account_id, trade.key.position_id))
+                        .copied()
+                        // Every trade has deals, so this is only the safe answer (not editable).
+                        .unwrap_or(Origin::Mt5),
+                    digits: digits.get(&trade.symbol).copied().unwrap_or(MIN_DIGITS),
+                };
+                make_row(trade, deals, &journals, &playbooks, (&title, &currency), (clock, server_offset_min), looks)
+            })
             .collect();
         if let Some(account) = account {
             let samples = closed_samples(&account_rows);
@@ -294,14 +313,39 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
     })
 }
 
+/// What a row knows beyond its own trade: where it came from and how its prices are shown.
+#[derive(Clone, Copy)]
+struct Looks {
+    origin: Origin,
+    digits: usize,
+}
+
+/// The fewest decimals a price is shown with.
+pub(crate) const MIN_DIGITS: usize = 2;
+/// The most decimals a price is shown with (5-digit FX).
+const MAX_DIGITS: usize = 5;
+
+/// The decimals each symbol's prices are shown with: the most any of its prices has, between
+/// `MIN_DIGITS` and `MAX_DIGITS`, so that EURUSD reads 1.08500 and 1.08505 and XAUUSD 2648.20.
+fn price_digits<'a>(trades: impl Iterator<Item = &'a Trade>) -> HashMap<String, usize> {
+    let mut digits: HashMap<String, usize> = HashMap::new();
+    for trade in trades.filter(|t| t.prices_known()) {
+        let prices = [Some(trade.open_price), trade.close_price, Some(trade.sl), Some(trade.tp)];
+        let seen = prices.into_iter().flatten().filter(|p| *p > 0.0).map(crate::format::decimals).max();
+        let slot = digits.entry(trade.symbol.clone()).or_insert(MIN_DIGITS);
+        *slot = (*slot).max(seen.unwrap_or(0)).min(MAX_DIGITS);
+    }
+    digits
+}
+
 fn make_row(
     trade: Trade,
     deals: &[Deal],
     journals: &HashMap<TradeKey, JournalEntry>,
     playbooks: &[Playbook],
-    account: &str,
-    currency: &str,
+    (account, currency): (&str, &str),
     (clock, server_offset_min): (Clock, Option<i32>),
+    looks: Looks,
 ) -> TradeRow {
     let entry = journals.get(&trade.key);
     let setup = entry.map_or_else(String::new, |e| setup_name(e, playbooks));
@@ -324,6 +368,8 @@ fn make_row(
         r,
         setup,
         deals: own,
+        origin: looks.origin,
+        digits: looks.digits,
         clock,
         server_offset_min,
         haystack,
@@ -458,6 +504,70 @@ mod tests {
         assert_eq!(snapshot.rows[0].deals.len(), 2);
         assert_eq!(snapshot.currency, "USD");
         assert_eq!(snapshot.symbols, ["EURUSD"]);
+    }
+
+    #[test]
+    fn a_symbols_prices_are_shown_with_the_most_decimals_it_has_between_two_and_five() {
+        let mut db = seeded();
+        let account = db.accounts().expect("accounts").remove(0).id;
+        let typed = |symbol: &str, open: f64, close: f64| tradelens_core::ManualTrade {
+            symbol: symbol.into(),
+            side: tradelens_core::Side::Long,
+            volume: Some(0.1),
+            open_time: at("2026.11.12 09:00:00"),
+            open_price: Some(open),
+            close_time: at("2026.11.12 10:00:00"),
+            close_price: Some(close),
+            date_only: false,
+            sl: 0.0,
+            tp: 0.0,
+            profit: Some(1.0),
+            commission: 0.0,
+            swap: 0.0,
+            result_r: None,
+        };
+        db.add_manual_trade(account, &typed("EURUSD", 1.0850, 1.08505)).expect("typed");
+        db.add_manual_trade(account, &typed("XAUUSD", 2648.2, 2650.0)).expect("typed");
+        let snapshot = load(&db, &query(Range::All)).expect("loads");
+        let digits = |symbol: &str| snapshot.rows.iter().find(|r| r.trade.symbol == symbol).map(|r| r.digits);
+        assert_eq!(digits("EURUSD"), Some(5), "1.08505 has five, so 1.0850 reads 1.08500");
+        assert_eq!(digits("XAUUSD"), Some(2), "at least two");
+        let eur =
+            snapshot.rows.iter().find(|r| r.trade.symbol == "EURUSD" && r.origin == Origin::Manual).expect("the trade");
+        assert_eq!(crate::format::price_to(eur.trade.open_price, eur.digits), "1.08500");
+        assert_eq!(crate::format::price_to(eur.trade.close_price.expect("closed"), eur.digits), "1.08505");
+    }
+
+    #[test]
+    fn a_trades_origin_is_how_its_deals_were_written_not_where_they_are_filed() {
+        let mut db = seeded();
+        let account = db.accounts().expect("accounts").remove(0).id;
+        let key = db
+            .add_manual_trade(
+                account,
+                &tradelens_core::ManualTrade {
+                    symbol: "eurusd".into(),
+                    side: tradelens_core::Side::Long,
+                    volume: Some(0.1),
+                    open_time: at("2026.11.12 09:00:00"),
+                    open_price: Some(1.1),
+                    close_time: at("2026.11.12 10:00:00"),
+                    close_price: Some(1.2),
+                    date_only: false,
+                    sl: 0.0,
+                    tp: 0.0,
+                    profit: Some(1.0),
+                    commission: 0.0,
+                    swap: 0.0,
+                    result_r: None,
+                },
+            )
+            .expect("typed");
+        let snapshot = load(&db, &query(Range::All)).expect("loads");
+        let origin =
+            |position: i64| snapshot.rows.iter().find(|r| r.trade.key.position_id == position).map(|r| r.origin);
+        assert_eq!(origin(10), Some(Origin::Mt5));
+        assert_eq!(origin(key.position_id), Some(Origin::Manual));
     }
 
     #[test]

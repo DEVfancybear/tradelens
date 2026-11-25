@@ -19,7 +19,9 @@ use crate::{
     store::{Reading, Writer, query, writer},
     ui::{
         chips::{Tone, chip},
-        controls::{Choice, Variant, action, action_icon, commit_field, confirm_then, icon_action, select_value},
+        controls::{
+            Choice, Variant, action, action_icon, add_field, commit_field, confirm_then, icon_action, select_value,
+        },
         forms::{NumberRange, number_field, switch_row},
         icons::Icon,
         parts::{empty_state, page_with},
@@ -323,6 +325,8 @@ fn table_card(ops: Ops, rows: Memo<Vec<Property>>) -> impl IntoElement {
     let restoring = signal(false);
     let defs = ops.defs;
     let archived = computed(move || deleted(&defs.get()));
+    // Whether there is a table to draw, not what is in it: renaming a property is not another table.
+    let no_rows = computed(move || rows.with(Vec::is_empty));
     view()
         .p_5()
         .gap_3()
@@ -332,7 +336,7 @@ fn table_card(ops: Ops, rows: Memo<Vec<Property>>) -> impl IntoElement {
         .bg(move || theme().card)
         .child(text(move || rows.with(|r| summary_of(r))).text_xs().text_color(move || theme().muted_foreground))
         .child(dynamic(move || {
-            let empty = rows.with(Vec::is_empty);
+            let empty = no_rows.get();
             untracked(|| {
                 if empty {
                     return empty_state("Form này chưa có thuộc tính", "Thêm một thuộc tính ở khung bên phải.")
@@ -543,11 +547,14 @@ fn edit_panel(ops: Ops, rows: Memo<Vec<Property>>) -> impl IntoElement {
         Some(p) => format!("Sửa thuộc tính · {}", p.label),
         None => "Sửa thuộc tính".to_owned(),
     };
+    // Which property the panel is for: a memo, so that a change of the property's name or options (a
+    // rename kept, a read of the database that brings another text) does not make the panel again.
+    let which = computed(move || current.with(|p| p.as_ref().map(|p| p.field.clone())));
     panel_frame(
         title,
         view().gap_3().child(dynamic(move || {
             // Rebuilt when another property is picked, not on every keystroke of its name.
-            let which = current.with(|p| p.as_ref().map(|p| p.field.clone()));
+            let which = which.get();
             untracked(|| match which {
                 None => text("Bấm tên một thuộc tính ở bảng bên trái để sửa.")
                     .text_sm()
@@ -604,6 +611,9 @@ fn custom_panel(ops: Ops, key: String) -> impl IntoElement {
     let key = stored(key);
     let def = move || ops.defs.with(|all| all.iter().find(|d| key.with(|k| d.key == *k)).cloned());
     let kind_of = move || def().map_or(FieldKind::Text, |d| d.kind);
+    // A memo: editing the property (an option renamed, a limit typed) must not make again the editors
+    // that only depend on its kind, under the hand that is typing in them.
+    let kind = computed(kind_of);
     let flag = move |pick: fn(&FieldDef) -> bool| def().is_some_and(|d| pick(&d));
     let key_text = move || key.with(|k| k.clone());
     view()
@@ -632,11 +642,11 @@ fn custom_panel(ops: Ops, key: String) -> impl IntoElement {
                 )),
         )
         .child(dynamic(move || {
-            matches!(kind_of(), FieldKind::Select | FieldKind::MultiSelect)
+            matches!(kind.get(), FieldKind::Select | FieldKind::MultiSelect)
                 .then(|| untracked(|| options_editor(ops, key_text())))
         }))
         .child(dynamic(move || {
-            (kind_of() == FieldKind::Scale).then(|| {
+            (kind.get() == FieldKind::Scale).then(|| {
                 untracked(|| {
                     view()
                         .flex_row()
@@ -735,10 +745,9 @@ fn kind_id(kind: FieldKind) -> &'static str {
 
 /// The choices of a select or multi-select: rename (entries follow), remove, add.
 fn options_editor(ops: Ops, key: String) -> impl IntoElement {
-    let added = signal(0_u32);
     let options = {
         let key = key.clone();
-        move || ops.defs.with(|all| all.iter().find(|d| d.key == key).map_or_default(|d| d.options.clone()))
+        computed(move || ops.defs.with(|all| all.iter().find(|d| d.key == key).map_or_default(|d| d.options.clone())))
     };
     let add_key = key.clone();
     view()
@@ -748,30 +757,23 @@ fn options_editor(ops: Ops, key: String) -> impl IntoElement {
                 .text_xs()
                 .text_color(move || theme().muted_foreground),
         )
-        .child(dynamic(move || {
-            let all = options();
-            let key = key.clone();
-            untracked(|| view().gap_1().children(all.into_iter().map(|option| option_row(ops, key.clone(), option))))
+        // A row is known by its option: renaming one makes that row again and leaves the others, so
+        // the one the trader moves on to is still there when the rename of the one they leave is kept.
+        .child(view().gap_1().child(each(
+            options,
+            |option: &String| option.clone(),
+            move |row, _| option_row(ops, key.clone(), row.with_untracked(Clone::clone)),
+        )))
+        .child(add_field("Thêm lựa chọn", "+ Thêm lựa chọn", move |option| {
+            let option = option.trim().to_owned();
+            if !option.is_empty() {
+                ops.edit_def(&add_key, |d| {
+                    if !d.options.contains(&option) {
+                        d.options.push(option.clone());
+                    }
+                });
+            }
         }))
-        .child(commit_field(
-            "Thêm lựa chọn",
-            "+ Thêm lựa chọn",
-            move || {
-                let _ = added.get();
-                String::new()
-            },
-            move |option| {
-                let option = option.trim().to_owned();
-                if !option.is_empty() {
-                    ops.edit_def(&add_key, |d| {
-                        if !d.options.contains(&option) {
-                            d.options.push(option.clone());
-                        }
-                    });
-                    added.update(|n| *n += 1);
-                }
-            },
-        ))
 }
 
 fn option_row(ops: Ops, key: String, option: String) -> impl IntoElement {

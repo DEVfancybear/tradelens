@@ -19,7 +19,7 @@ chuẩn mà code trong `src/ui/` phải theo.
 | Nhấn | `primary` (teal) | hành động chính, mục đang chọn, đường equity |
 | Lãi / lỗ | `profit`, `loss` (+ `-soft` làm nền ô) | số P/L, ô lịch, thanh phân tích |
 | Cảnh báo | `warning` | quy tắc sắp chạm ngưỡng |
-| Phá huỷ | `destructive` | màu chữ báo lỗi / phá huỷ (hộp xác nhận là alert hệ thống nên không dùng token) |
+| Phá huỷ | `destructive` (+ `destructive-foreground` là chữ trên nền đó) | nền nút `Variant::Destructive` ("Xoá lệnh", thanh xoá nhiều lệnh), màu chữ báo lỗi; hộp xác nhận là alert hệ thống nên không dùng token |
 | Biểu đồ | `chart-1…5` | chuỗi dữ liệu không mang nghĩa lãi/lỗ |
 
 Không viết mã màu trong code; thiếu vai trò thì thêm token trước.
@@ -41,14 +41,14 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 |---|---|---|
 | `page`, `page_with`, `page_fill`, `card`, `stat_tile`, `empty_state`, `warning_banner(message)` (một dòng cảnh báo quy tắc, `role` Alert) | `parts.rs` | có |
 | `parts::property_row(label, control)` (hàng nhãn + điều khiển đơn giản, khác `properties`) | `parts.rs` | có |
-| `action` / `action_when` (Primary / Secondary / Ghost); nút tắt có một dáng chung (nền `muted`, chữ `muted-foreground`, mờ, không hover) | `controls.rs` | có |
+| `action` / `action_when` (Primary / Secondary / Ghost / Destructive: nền `destructive`, chữ `destructive-foreground`, hover mờ 0.9, tắt như các nút khác); nút tắt có một dáng chung (nền `muted`, chữ `muted-foreground`, mờ, không hover) | `controls.rs` | có |
 | `link(label, on_press)` (liên kết chữ `primary`, gạch chân khi rê chuột: "Xem tất cả", "Mở lịch"…) | `controls.rs` | có |
 | `confirm_then(owner, tiêu đề, mô tả, nhãn, then)` (hỏi bằng `alert_dialog` hệ thống; `then` chạy dưới `owner`, chỉ khi bấm `nhãn`) | `controls.rs` | có |
 | `Modal`, `modal::open`, `modal::close`, `modal::host()` (một hộp thoại trong cửa sổ mỗi lúc: nền, panel, tiêu đề, ✕, Escape, giữ Tab; gắn một lần trong `shell`) | `modal.rs` | có |
 | `action_icon` / `action_icon_when` (icon trước nhãn), `icon_action` (chỉ icon, bắt buộc `accessibility_label`) | `controls.rs` | có |
 | `sidebar_row` (icon), `segmented`, `select_field`, `select_value`, `text_field`, `commit_field`, `textarea`, `tag_picker`, `rating` / `rating_of` | `controls.rs` | có |
 | `icon(Icon, size)`, `Icon` (bộ icon nét 1.75 của thiết kế) | `icons.rs` (`pub`) | có |
-| `number_field`, `switch_row`, `setting_row`, `check_box`, `checklist`, `progress_rule` | `forms.rs` (`pub`) | có |
+| `number_field` (rộng vừa số 5 lẻ, lot 100.00 và đơn vị) / `number_field_fluid` (rộng theo ô của lưới, không nhỏ hơn mức đó), `switch_row`, `setting_row`, `check_box`, `checklist`, `progress_rule` | `forms.rs` (`pub`) | có |
 | `dropzone`, `image_slot`, `Accept`, `pick_files`, `pasted_images`, `paths_of_uris` | `files.rs` (`pub`) | có |
 | `gallery` (ảnh, chú thích, kéo/phím đổi thứ tự, Thêm ảnh; bấm ảnh mở `viewer`; "Xem" và ✕ ở góc ô khi rê chuột / có focus; xoá hoàn tác được 6 giây) | `gallery.rs` (`pub`) | có |
 | `viewer::overlay()` (gắn một lần, cuối `shell`) + `viewer::open(Request)` (trình xem ảnh phủ cả cửa sổ: vừa khung, bộ đếm, trước / sau, phóng to, kéo để di chuyển, mở bằng ứng dụng khác) | `viewer.rs` (`pub`) | có |
@@ -66,7 +66,7 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 | `bar_chart(items, label, height)` + `BarItem`, `histogram(buckets, label, height)`, `heatmap(grid)` + `HeatGrid`, `diverging_bars(items)` + `DivergingItem`, `mistake_cost_bar(name, trades, net, r, share)` | `charts.rs` | có |
 | `r_curve_chart(points, generation)` + `RPoint` (tổng R tích luỹ) | `r_chart.rs` | có |
 | `month_grid(weeks, figure, selected, currency, today, on_pick)` + `Figure`, `mini_month(weeks, today)` (tuần lấy từ `metrics::month_weeks`) | `month_grid.rs` | có |
-| `breakdown_table(name_title, rows, empty)` + `BreakdownRow` (bảng nhóm: lệnh, win rate, net, PF, R TB) | `breakdown.rs` | có |
+| `breakdown_table(name_title, rows, empty)` + `BreakdownRow` (bảng nhóm: lệnh, win rate, net, PF, R TB; cột số rộng đúng số dài nhất hoặc tiêu đề, cách nhau 20 pt khi thẻ đủ chỗ và 6 pt khi chật, tên chiếm phần còn lại; PF từ 50 trở lên hiện "50+") | `breakdown.rs` | có |
 | `columns(main, side)` (hai cột tự xuống dòng), `titled_card(title, trailing, body)` | `layout.rs` | có |
 | `toast` | — | v0.1 |
 
@@ -159,16 +159,16 @@ khác do `on_def` của màn xử lý (màn Tuỳ biến form).
   (cửa sổ tối đi, không có nội dung); `app/tests/no_native_dialog.rs` quét mã nguồn để chặn. Modal là một lớp `absolute` của root
   như bảng tìm: nền `background` mờ 72% (bấm vào nền gọi `on_dismiss`, trừ khi `keeps_open_on_scrim` khi form có chữ chưa lưu),
   panel `popover` ở giữa, tiêu đề + nút ✕, thân cuộn khi cao hơn cửa sổ; Escape và ✕ gọi `on_dismiss`, nó tự `modal::close`
-  khi xong việc. Mỗi lúc chỉ một modal hiện, modal sau xếp hàng. Escape gắn bằng `on_key` của chính lớp nên mất cùng lớp, và không
+  khi xong việc. Mỗi lúc chỉ một modal hiện, modal sau xếp hàng. Escape gắn bằng `on_key_with(.., When::Always)` của chính lớp nên mất cùng lớp và vẫn chạy khi focus đang ở ô chữ (`When::Auto` bỏ qua Escape vì ô nhập "dùng" phím đó), và không
   có phím Enter toàn cục. Focus chuyển vào panel khi mở; hai "lính canh" ở hai đầu lớp giữ Tab / Shift+Tab trong modal (test
   `tab_does_not_leave_the_modal` chạy với `Os::Windows`). Chưa trả focus về nút đã mở modal vì NSH không cho đọc phần tử đang giữ focus.
   Câu hỏi phá huỷ vẫn dùng `confirm_then` (alert hệ thống), không dùng modal. Trong test không đầu, bấm nền bằng
   `press_at("label:Đóng hộp thoại", điểm góc)` vì `press` thường bỏ qua việc nền che trang.
-- **Popup ghi kế hoạch**: `pages::entry_plan::enqueue(PlanRequest, Writer)` xếp một yêu cầu vào hàng đợi (chi tiết lệnh dùng
-  cho "Viết / Sửa kế hoạch"; kết nối MT5 của v0.4 sẽ đưa lệnh vừa mở vào); mỗi yêu cầu là một `Modal` (`Writer` để "Ghi sau" và
-  Escape ghi cờ). Một việc chạy bằng `Writer::run` mà chủ của nó là hộp thoại phải xong *trước khi* đóng
+- **Popup ghi kế hoạch**: `pages::entry_plan::enqueue(PlanRequest)` xếp một yêu cầu vào hàng đợi (chỉ chi tiết lệnh gọi, cho "Viết / Sửa kế hoạch";
+  EA đã bỏ nên không có nguồn nào khác); mỗi yêu cầu là một `Modal`. Đóng bằng ✕ hoặc Escape chỉ đóng, không ghi gì (không có "Ghi sau",
+  không đặt `review_later`); `PlanRequest::volume` là `Option` và dòng tiêu đề không ghi lot khi lệnh không có lot. Một việc chạy bằng `Writer::run` mà chủ của nó là hộp thoại phải xong *trước khi* đóng
   hộp thoại (đóng huỷ tác vụ), nên `finish` chỉ gọi trong `done`.
-- **Phím tắt**: Ctrl+N (từ Lệnh) mở nhập lệnh tay, Ctrl+Enter lưu ở đó.
+- **Phím tắt**: Ctrl+N (từ Lệnh) mở nhập lệnh tay, Ctrl+Enter lưu ở đó; Ctrl+E (ở chi tiết lệnh) sửa số liệu của lệnh người dùng gõ.
 - Form nhật ký của lệnh dùng chung: `trade_detail::journal_form(fields, shots, suggestion, failure)` vẽ danh sách
   thuộc tính của `FieldScope::Trade` từ `FormLayout`; chi tiết lệnh và nhập lệnh tay đều dùng nó.
 
@@ -195,6 +195,33 @@ Tôn trọng *reduce motion*: chỉ đổi opacity, không dịch chuyển.
 
 Khi một ô nhập bám theo `Reading::value()`, bọc bằng `computed(move || data.value())`: một lần đọc lại đang chạy cũng
 làm `value()` báo đổi (cờ `loading`), và nếu không có memo thì dữ liệu cũ ghi đè lên chỗ người dùng vừa sửa.
+
+`Store::snapshot` báo đổi **mỗi lần** đọc lại (`SignalEquals::Never`), và đọc lại xảy ra mỗi khi *bất kỳ* ghi nào xong, kể từ
+cửa sổ khác hay (trong test) một test khác cùng tiến trình, vì `revision()` là biến toàn cục. Vì thế `dynamic` có ô nhập bên trong
+không được đọc snapshot trực tiếp: đọc qua `computed(move || điều_kiện)` (nhập lệnh tay: `leads_r`, `leads_money`), nếu không ô số bị
+dựng lại giữa lúc gõ và các ký tự sau đi vào ô đã mất.
+
+**Chữ đang gõ không được mất khi dữ liệu tải lại** (mọi ô nhập, mọi form). Quy tắc chung:
+
+- Khối phản ứng (`dynamic`, `when`, `each`) có ô nhập bên trong chỉ đọc **memo** của đúng thứ quyết định hình dạng
+  (`computed(move || snapshot_hoặc_reading → giá_trị_nhỏ)`), rồi dựng phần thân trong `untracked`. Không đọc thẳng
+  `store.snapshot()`, `Reading::value()` / `error()` / `loading()` hay `ops.defs` trong khối đó: chúng báo đổi ở **mỗi** lần
+  đọc DB (hoặc mỗi lần sửa), dù nội dung không đổi.
+- Danh sách hàng có ô nhập dùng `each` với khoá là danh tính của hàng (id, hoặc id + vị trí khi mục mới chưa có id; lựa
+  chọn của thuộc tính thì khoá là chính chữ lựa chọn), không dựng lại cả danh sách khi một hàng đổi chữ: đổi tên mục này khi
+  rời ô sang mục kế bên không được làm mất ô kế bên. Hàng đọc chữ của mình qua `ReadSignal`, không chụp lúc dựng.
+- Nháp nằm trong signal cục bộ mà lần đọc lại không ghi đè khi người dùng đang sửa: `commit_field` theo `value` chỉ khi
+  `value` thật sự đổi *và* nháp còn là chữ `value` nói lần trước (chưa bị viết đè); form nạp từ DB (`journal`, `review`
+  `answers_form`) chỉ nhận dữ liệu mới khi không `dirty`. Ô "thêm" (`+ Thêm lựa chọn`, `+ Thêm lý do`…) là `add_field`
+  (trao chữ cho `on_add` rồi xoá ô), không phải `commit_field` bọc giá trị rỗng.
+- Bộ chọn dùng chung đã tự lo phần này: `tag_picker` và `forms::checklist` chỉ dựng lại khi danh sách lựa chọn / mục thật
+  sự đổi; `commit_field` có test `a_commit_field_follows_what_is_read_until_the_trader_writes_over_it`.
+- Test: `tests/typing_survives_reloads.rs` với `type_through_reloads` (gõ từng đoạn, giữa các đoạn gọi
+  `data_changed()` và cho app đọc lại; đoạn sau gõ vào **ô đang giữ focus**, nên ô bị dựng lại thì mất chữ) và
+  `type_through_changes` (cùng thế, kèm một ghi thật từ kết nối khác). Form mới có ô nhập thì thêm một test ở đó.
+
+Việc của nút cần cài đặt `cloud.*` (Notion API) không chạy trên `State::env` mặc định: nút chỉ ghi `Ask`, một effect chạy nó khi
+`State::ready` (trước đó `env` mặc định sẽ ghi token vào kho khoá thật và gọi Notion thật).
 
 ### Trình xem ảnh (`ui::viewer`) và ảnh trong `gallery`
 
@@ -257,6 +284,19 @@ Nhật ký ngày đọc `nav::requested_journal_day()` rồi gọi `nav::take_jo
   `DatePicker` của `nsh_base`: tuần bắt đầu thứ 2, tên thứ tiếng Việt, tháng / năm, nút "Hôm nay", chấm ở ngày `marking(..)` đánh dấu.
   Dùng ở Nhật ký ngày, Tổng kết, Lệnh bỏ lỡ, Nhập lệnh tay và thuộc tính kiểu Ngày. Nút ngày có nhãn truy cập là ngày ISO
   (`role:button[2026-11-15]`). Phím mũi tên / Enter / Escape là của `DatePicker` (NSH có test riêng); test không đầu của app chưa điều khiển được.
+  **Ngày kèm giờ gõ được: `date_picker::moment_field(nhãn ngày, nhãn giờ, Moment)`**: nút ngày (lịch) và ô "HH:MM" cạnh nó; ô giờ nhận
+  `0930`, `930`, `9:30`, `9h30` (`parse_clock`), giữ khi Enter hoặc rời ô, báo lỗi tiếng Việt dưới ô (`Moment::problem`) và có viền focus;
+  để trống nghĩa là chưa biết giờ (`MomentValue::time = None`). Phần giờ trong popup lịch vẫn dùng được (mũi tên, số), đoạn đang sửa có nền
+  `primary` và vòng focus. Test gõ vào `label:Giờ vào` rồi `press_key("enter")`.
+- **Sửa và xoá lệnh:** `Db::update_manual_trade(key, &ManualTrade)` ghi lại hai deal của lệnh người dùng gõ hoặc nhập từ Notion (giữ ticket,
+  nên nhật ký, ảnh và liên kết ở nguyên), `Db::manual_trade(key)` đọc ra để điền biểu mẫu (`None` với lệnh MT5), `Db::delete_trades(&keys)` xoá
+  deal + journal + mục tìm kiếm trong một giao dịch và ghi tombstone để máy khác xoá theo (`docs/cloud-sync.md`, quy tắc 6). Trang sửa là
+  `manual_entry::edit_trade(key)` đè lên trang lệnh (`nav::open_edit_trade` / `close_edit_trade`); xoá hỏi bằng `confirm_then`
+  (`trade_detail::delete_question`, `delete_trades`), từ trang lệnh và từ thanh "Đã chọn N lệnh · Xoá" của danh sách (cột hộp chọn của
+  `trades_table`: bấm hộp chọn, Shift+bấm chọn đoạn; `trade_list::toggled`). **Nguồn của lệnh** (`TradeRow::origin`) là `source` của deal
+  (`Db::trade_origins`), không phải tài khoản hay dải ticket; **số lẻ của giá** (`TradeRow::digits`) là số lẻ nhiều nhất của symbol trong
+  dữ liệu đang xem, từ 2 đến 5 (`format::price_to`), vì `format::price` chỉ cắt số 0 cuối nên `1.0850` hiện `1.085`. Symbol qua
+  `tradelens_core::symbol::normalise` ở mọi chỗ lưu.
 - **Dữ liệu không đủ:** deal mang `Gaps` (`TIME`, `VOLUME`, `PRICE`) do importer ghi; `Trade::money_known / volume_known / prices_known /
   time_known / hold_secs / origin` là quy tắc duy nhất, màn không tự suy từ giá trị (lot 1, giá 0, 00:00). Số liệu nhiều lệnh đi qua
   `metrics::Basis` (`unit()` là R khi không lệnh nào có tiền; `money_note()` khi trộn). Màn mới có số tiền phải chọn đơn vị bằng nó.

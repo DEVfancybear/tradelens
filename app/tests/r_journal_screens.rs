@@ -104,6 +104,24 @@ fn a_trade_in_r_shows_dashes_for_what_its_source_never_had() {
 }
 
 #[test]
+fn the_plan_prompt_of_a_trade_in_r_shows_no_lot_and_names_its_source() {
+    let fixture = Fixture::new();
+    seed_r_journal(&mut fixture.db());
+    let mut app = start_on(&fixture, "Lệnh");
+    app.wait_for("BTCUSD").expect("the list");
+    app.press("role:button[Mở nhật ký lệnh BTCUSD] >> nth=0").expect("a trade opens");
+    app.wait_for("Chi tiết lệnh").expect("the trade's page");
+    app.press("role:button[Viết kế hoạch]").expect("the trade has no plan yet");
+    app.wait_for("Kế hoạch vào lệnh").expect("the prompt opens");
+    app.wait_for("text:/ · Notion$/").expect("the first line names the source of the deals, not a ticket");
+    assert!(
+        !app.screen().matches("text:/^[0-9.]+ lot/").expect("a selector"),
+        "the header says no lot size: the source had none"
+    );
+    shows_nothing_like(&app, "1.00");
+}
+
+#[test]
 fn the_calendar_opens_on_the_latest_month_with_trades_and_counts_in_r() {
     let fixture = Fixture::new();
     seed_r_journal(&mut fixture.db());

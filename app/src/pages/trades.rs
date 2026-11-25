@@ -1,9 +1,12 @@
 //! Lệnh: Danh sách lệnh đã gom từ deal MT5, lọc và mở nhật ký từng lệnh.
 //! Design: `docs/design/screens/trades.html`.
 
+use std::collections::BTreeSet;
+
 use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
+    Origin, TradeKey,
     metrics::{self, Sample},
     time::format_duration,
 };
@@ -13,11 +16,13 @@ use crate::{
     format::{self, Sign},
     nav,
     snapshot::{Snapshot, TradeRow},
-    store::{Load, store},
+    store::{Load, store, writer},
     trade_list::{self, Column, Direction, Filter, Order, Outcome},
     ui::{
         chips::{Tone, pnl_text},
-        controls::{Choice, Variant, action, action_icon, segmented, select_field, text_field},
+        controls::{
+            Choice, Variant, action, action_icon, confirm_then, root_owner, segmented, select_field, text_field,
+        },
         icons::Icon,
         parts::page_fill,
         table::{JOURNALED, NOT_JOURNALED, Sorting, TableSort, TradeCells, trades_table},
@@ -29,6 +34,10 @@ pub(crate) fn trades() -> impl IntoElement {
     // Each is keyed, so that opening or closing a trade's page starts at the top of what shows.
     let screen = |key: String, page: AnyElement| view().flex_1().min_h(px(0.0)).key(key).child(page);
     dynamic(move || match nav::open_trade() {
+        Some(key) if nav::edit_trade().as_ref() == Some(&key) => {
+            let id = format!("trade:{key:?}:edit");
+            screen(id, untracked(|| manual_entry::edit_trade(key)).into_element())
+        }
         Some(key) => {
             let id = format!("trade:{key:?}");
             screen(id, untracked(|| trade_detail::trade_detail(key)).into_element())
@@ -45,6 +54,8 @@ pub(crate) fn cells_of(row: &TradeRow) -> TradeCells {
     let trade = &row.trade;
     let closed = trade.is_closed();
     TradeCells {
+        // The list gives its rows a box (`select_cell`); the overview's table has none.
+        select: String::new(),
         time: row.closed().map_or_else(
             || "đang mở".to_owned(),
             |at| if trade.time_known() { format::short_stamp(at) } else { format::short_day(at) },
@@ -123,9 +134,43 @@ fn list() -> impl IntoElement {
     let store = store();
     let (filter, sort) = (store.trade_filter, store.trade_sort);
     let picked = computed(move || trade_list::select(&store.snapshot().rows, &filter.get(), sort.get()));
+    // The trades ticked for deleting, and the one a Shift-press counts from.
+    let selected = signal(BTreeSet::<TradeKey>::new());
+    let anchor = signal(None::<TradeKey>);
     let rows = move || {
         let snapshot = store.snapshot();
-        picked.with(|picked| picked.iter().filter_map(|&i| snapshot.rows.get(i)).map(cells_of).collect())
+        picked.with(|picked| {
+            picked
+                .iter()
+                .filter_map(|&i| snapshot.rows.get(i))
+                .map(|row| TradeCells { select: selected.with(|ticked| select_cell(row, ticked)), ..cells_of(row) })
+                .collect()
+        })
+    };
+    // The ticked trades that are in the list now: a filter that hides one takes it out of the count, so
+    // that nothing the trader cannot see is deleted.
+    let chosen = computed(move || {
+        let snapshot = store.snapshot();
+        picked.with(|picked| {
+            selected.with(|selected| {
+                picked
+                    .iter()
+                    .filter_map(|&i| snapshot.rows.get(i))
+                    .filter(|row| selected.contains(row.key()))
+                    .map(|row| (row.key().clone(), row.trade.symbol.clone(), row.origin))
+                    .collect::<Vec<_>>()
+            })
+        })
+    });
+    let select = move |at: usize, shift: bool| {
+        let snapshot = store.snapshot_now();
+        let order: Vec<TradeKey> = picked.with_untracked(|picked| {
+            picked.iter().filter_map(|&i| snapshot.rows.get(i)).map(|r| r.key().clone()).collect()
+        });
+        let range_from = anchor.get_untracked().filter(|_| shift);
+        let next = trade_list::toggled(&selected.get_untracked(), &order, at, range_from.as_ref());
+        selected.set(next);
+        anchor.set(order.get(at).cloned());
     };
     let summary = computed(move || summarise(&store.snapshot(), &picked.get()));
     let open = move |at: usize| {
@@ -181,10 +226,17 @@ fn list() -> impl IntoElement {
                     },
                 ),
                 open,
+                select,
                 empty,
             ))
-            .child(footer(picked)),
+            .child(footer(picked, chosen, selected)),
     )
+}
+
+/// The box cell of a trade: ticked or not (`1` / `0`), and what screen readers call it.
+fn select_cell(row: &TradeRow, ticked: &BTreeSet<TradeKey>) -> String {
+    let when = row.closed().map_or_else(|| "đang mở".to_owned(), format::short_stamp);
+    format!("{}|Chọn lệnh {} {when}", u8::from(ticked.contains(row.key())), row.trade.symbol)
 }
 
 fn filters(store: crate::store::Store) -> impl IntoElement {
@@ -270,15 +322,75 @@ fn summary_strip(summary: Memo<Summary>) -> impl IntoElement {
         .child(figure("Chưa ghi nhật ký", move || summary.with(|s| s.unjournaled.to_string()), || Tone::Neutral))
 }
 
-fn footer(picked: Memo<Vec<usize>>) -> impl IntoElement {
+/// What is under the list: how many trades show, and the bar of what the trader ticked.
+fn footer(
+    picked: Memo<Vec<usize>>,
+    chosen: Memo<Vec<(TradeKey, String, Origin)>>,
+    selected: Signal<BTreeSet<TradeKey>>,
+) -> impl IntoElement {
     let store = store();
-    text(move || {
-        let shown = picked.with(Vec::len);
-        let all = store.snapshot().rows.len();
-        format!("Hiển thị {shown} / {all} lệnh")
-    })
-    .text_xs()
-    .text_color(move || theme().muted_foreground)
+    let failure = signal(None::<String>);
+    view()
+        .gap_2()
+        .child(
+            view()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(
+                    text(move || {
+                        let shown = picked.with(Vec::len);
+                        let all = store.snapshot().rows.len();
+                        format!("Hiển thị {shown} / {all} lệnh")
+                    })
+                    .text_xs()
+                    .text_color(move || theme().muted_foreground),
+                )
+                .child(dynamic(move || {
+                    let ticked = chosen.with(Vec::len);
+                    (ticked > 0).then(|| selection_bar(ticked, chosen, selected, failure))
+                })),
+        )
+        .child(dynamic(move || failure.get().map(|error| text(error).text_xs().text_color(crate::ui::theme::loss()))))
+}
+
+/// "Đã chọn N lệnh · Xoá": what the ticked trades can be asked to do. One question covers all of them.
+fn selection_bar(
+    ticked: usize,
+    chosen: Memo<Vec<(TradeKey, String, Origin)>>,
+    selected: Signal<BTreeSet<TradeKey>>,
+    failure: Signal<Option<String>>,
+) -> impl IntoElement {
+    let (asker, write) = (root_owner(), writer());
+    let remove = move || {
+        let trades = chosen.get_untracked();
+        let symbol = trades.first().map_or_default(|(_, symbol, _)| symbol.clone());
+        let origin =
+            if trades.iter().any(|(_, _, origin)| *origin == Origin::Mt5) { Origin::Mt5 } else { Origin::Manual };
+        let (title, said) = trade_detail::delete_question(trades.len(), &symbol, origin);
+        let keys: Vec<TradeKey> = trades.into_iter().map(|(key, _, _)| key).collect();
+        confirm_then(asker, title, said, "Xoá lệnh", move || {
+            failure.try_set(None);
+            trade_detail::delete_trades(write, keys, move |result| match result {
+                Ok(()) => {
+                    selected.try_set(BTreeSet::new());
+                }
+                Err(error) => {
+                    failure.try_set(Some(error));
+                }
+            });
+        });
+    };
+    view()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .child(text(format!("Đã chọn {ticked} lệnh")).text_sm().font_weight(FontWeight::MEDIUM))
+        .child(text("·").text_sm().text_color(move || theme().muted_foreground))
+        .child(action("Xoá", Variant::Destructive, remove))
+        .child(action("Bỏ chọn", Variant::Ghost, move || selected.set(BTreeSet::new())))
 }
 
 #[cfg(test)]

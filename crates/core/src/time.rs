@@ -29,6 +29,15 @@ impl Clock {
         naive(shifted)
     }
 
+    /// The server time (milliseconds) of a time on the local wall clock: what [`Clock::local`] undoes.
+    pub fn server_ms(&self, local: NaiveDateTime) -> i64 {
+        let ms = to_ms(local);
+        match self.server_offset_min {
+            Some(server) => ms - i64::from(self.local_offset_min - server) * 60_000,
+            None => ms,
+        }
+    }
+
     /// The UTC wall clock of a server time (for trading sessions).
     pub fn utc(&self, server_ms: i64) -> NaiveDateTime {
         let shifted = server_ms - i64::from(self.server_offset_min.unwrap_or(0)) * 60_000;
@@ -184,6 +193,17 @@ mod tests {
         assert_eq!(format_time(naive(ms)), "20/11/2026 14:05");
         assert!(parse_mt5_time("2026-11-20 14:05").is_some());
         assert!(parse_mt5_time("hello").is_none());
+    }
+
+    #[test]
+    fn a_local_time_goes_back_to_the_servers_clock_and_comes_again() {
+        let local = naive(parse_mt5_time("2026.11.20 16:05:00").unwrap());
+        for server_offset_min in [Some(120), Some(-300), None] {
+            let clock = Clock { server_offset_min, local_offset_min: 420 };
+            assert_eq!(clock.local(clock.server_ms(local)), local, "{server_offset_min:?}");
+        }
+        let clock = Clock { server_offset_min: Some(120), local_offset_min: 420 };
+        assert_eq!(naive(clock.server_ms(local)).format("%H:%M").to_string(), "11:05", "7 hours ahead, server 2");
     }
 
     #[test]

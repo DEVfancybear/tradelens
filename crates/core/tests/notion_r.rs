@@ -330,14 +330,16 @@ fn imported_trades(plan: &NotionPlan) -> (Db, Vec<tradelens_core::Trade>) {
 #[test]
 fn a_journal_in_r_records_that_it_has_no_lot_no_prices_and_no_time_of_day() {
     let (plan, _) = notion::read_source(&fixture_path(R_ZIP)).expect("the zip is understood");
-    let (_, trades) = imported_trades(&plan);
+    let (db, trades) = imported_trades(&plan);
     assert_eq!(trades.len(), 5);
+    let origins = db.trade_origins(None).expect("origins");
     for trade in &trades {
         assert_eq!(trade.gaps, Gaps::TIME.with(Gaps::VOLUME).with(Gaps::PRICE), "{trade:?}");
         assert!(!trade.time_known() && !trade.volume_known() && !trade.prices_known() && !trade.money_known());
         assert_eq!(trade.hold_secs(), None, "no hold time from two dates");
-        assert_eq!(trade.origin(), Origin::Notion);
-        assert_eq!(trade.origin().label(), "Notion");
+        let origin = origins[&(trade.key.account_id, trade.key.position_id)];
+        assert_eq!(origin, Origin::Notion, "told by the deals' source");
+        assert_eq!(origin.label(), "Notion");
     }
 }
 

@@ -143,9 +143,45 @@ pub fn reorder(list: &mut Vec<Attachment>, from: usize, to: usize) {
     }
 }
 
+/// Deletes the image files at `paths` (relative to `store`) that nothing uses any more. A path that
+/// would leave `store` (a damaged or hostile journal) is skipped, and so is a file that is already
+/// gone; the others are removed. Returns how many files were removed.
+pub fn remove_unused(store: &Path, paths: &[String]) -> usize {
+    let inside = |path: &Path| path.components().all(|c| matches!(c, std::path::Component::Normal(_)));
+    paths
+        .iter()
+        .filter(|path| inside(Path::new(path)))
+        .filter(|path| match fs::remove_file(store.join(path)) {
+            Ok(()) => true,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    log::warn!("không xoá được ảnh {path}: {error}");
+                }
+                false
+            }
+        })
+        .count()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unused_images_are_removed_but_never_outside_the_folder() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let store = dir.path().join("attachments");
+        fs::create_dir_all(store.join("images")).expect("folder");
+        fs::write(store.join("images/a.png"), b"a").expect("writes");
+        fs::write(dir.path().join("secret.txt"), b"keep").expect("writes");
+        let gone = remove_unused(
+            &store,
+            &["images/a.png".to_owned(), "images/missing.png".to_owned(), "../secret.txt".to_owned()],
+        );
+        assert_eq!(gone, 1);
+        assert!(!store.join("images/a.png").exists());
+        assert!(dir.path().join("secret.txt").exists(), "a path out of the folder is never followed");
+    }
 
     #[test]
     fn several_images_are_added_at_once_and_duplicates_kept_once() {

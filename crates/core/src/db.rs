@@ -11,7 +11,7 @@ use crate::form::FormLayout;
 use crate::missed::MissedTrade;
 use crate::model::{
     Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, DealEntry, DealKind, Gaps, JournalEntry,
-    ManualTrade, PositionLevels, Rules, Side, TradeKey,
+    PositionLevels, Rules, TradeKey,
 };
 use crate::playbook::Playbook;
 use crate::review::{Period, PeriodReview, ReviewTemplate};
@@ -20,6 +20,8 @@ use crate::trades::build_trades;
 
 mod fields;
 pub use fields::{FieldApplied, KindImpact};
+mod manual;
+pub use manual::Deleted;
 mod notion;
 mod sync;
 pub use sync::{ApplyReport, PortableState, SyncState};
@@ -325,74 +327,6 @@ impl Db {
         ))?;
         let rows = stmt.query_map([account_id], |r| Ok((r.get(0)?, deal_from_row_at(r, 1)?)))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
-    }
-
-    /// Stores a hand-entered trade as an entry and an exit deal with negative tickets.
-    ///
-    /// The entry deal gets the lower ticket of the two, so that the two sort entry first
-    /// even when they share a timestamp. The deals' position id is the entry's ticket;
-    /// commission, swap and profit go on the exit.
-    ///
-    /// # Errors
-    ///
-    /// [`DbError::Invalid`] when the symbol is empty or the volume or a price is not a
-    /// positive number; [`DbError::Sqlite`] when the account does not exist or the write fails.
-    pub fn add_manual_trade(&mut self, account_id: i64, trade: &ManualTrade) -> Result<TradeKey> {
-        if trade.symbol.trim().is_empty() {
-            return Err(DbError::Invalid("thiếu mã giao dịch".into()));
-        }
-        for (label, value) in
-            [("khối lượng", trade.volume), ("giá vào", trade.open_price), ("giá ra", trade.close_price)]
-        {
-            if !(value.is_finite() && value > 0.0) {
-                return Err(DbError::Invalid(format!("{label} phải là số dương")));
-            }
-        }
-        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let lowest: i64 =
-            tx.query_row("SELECT COALESCE(MIN(ticket), 0) FROM deals WHERE account_id = ?1", [account_id], |r| {
-                r.get(0)
-            })?;
-        let exit_ticket = lowest.min(0) - 1;
-        let entry_ticket = exit_ticket - 1;
-        let (entry_kind, exit_kind) = match trade.side {
-            Side::Long => (DealKind::Buy, DealKind::Sell),
-            Side::Short => (DealKind::Sell, DealKind::Buy),
-        };
-        let deal = |ticket: i64, kind: DealKind, entry: DealEntry, time_msc: i64, price: f64| Deal {
-            ticket,
-            order: ticket,
-            position_id: entry_ticket,
-            time_msc,
-            symbol: trade.symbol.trim().to_owned(),
-            kind,
-            entry,
-            volume: trade.volume,
-            price,
-            commission: 0.0,
-            swap: 0.0,
-            fee: 0.0,
-            profit: 0.0,
-            magic: 0,
-            comment: String::new(),
-            sl: trade.sl,
-            tp: trade.tp,
-            risk: None,
-            result_r: None,
-            gaps: Gaps::NONE,
-            reason: None,
-        };
-        let entry = deal(entry_ticket, entry_kind, DealEntry::In, trade.open_time, trade.open_price);
-        let exit = Deal {
-            commission: trade.commission,
-            swap: trade.swap,
-            profit: trade.profit,
-            ..deal(exit_ticket, exit_kind, DealEntry::Out, trade.close_time, trade.close_price)
-        };
-        write_deal(&tx, account_id, &entry, MANUAL_SOURCE)?;
-        write_deal(&tx, account_id, &exit, MANUAL_SOURCE)?;
-        tx.commit()?;
-        Ok(TradeKey { account_id, position_id: entry_ticket, segment: 0 })
     }
 
     // --- journal, rules, checklist, day notes -------------------------------
@@ -1453,7 +1387,7 @@ fn write_index(conn: &Connection, doc: &Document) -> Result<()> {
 
 /// What the trader wrote on a trade, as one searchable text titled like the trade
 /// (`XAUUSD Buy 20/11`, from the trade's deals; a bare reference when they are gone).
-fn journal_document(conn: &Connection, key: &TradeKey, entry: &JournalEntry) -> Result<Document> {
+pub(super) fn journal_document(conn: &Connection, key: &TradeKey, entry: &JournalEntry) -> Result<Document> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {DEAL_COLUMNS} FROM deals
          WHERE account_id = ?1 AND (position_id = ?2 OR (position_id = 0 AND ticket = ?2))"
