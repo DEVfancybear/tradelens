@@ -141,17 +141,10 @@ fn press_until(app: &mut Headless, press: &str, done: &str) {
     panic!("`{press}` did not lead to `{done}`");
 }
 
-/// Presses "Viết kế hoạch" on the open trade until the plan prompt is up: a press that lands while
-/// the page is being read again reaches a button that is about to be replaced. Pressing twice is
-/// harmless, since a trade waits in the prompt's queue only once.
+/// Presses "Viết kế hoạch" on the open trade until the plan prompt is up. Pressing twice is harmless,
+/// since a trade waits in the prompt's queue only once.
 fn open_plan_prompt(app: &mut Headless) {
-    for _ in 0..5 {
-        app.press("role:button[Viết kế hoạch]").expect("the trade has no plan yet");
-        if app.wait_for_within("Lưu kế hoạch", Duration::from_secs(2)).is_ok() {
-            return;
-        }
-    }
-    panic!("the plan prompt did not open");
+    common::press_until(app, "role:button[Viết kế hoạch]", |screen| screen.shows("Lưu kế hoạch"));
 }
 
 fn focus_property(scope: FieldScope, kind: FieldKind) -> FieldDef {
@@ -235,10 +228,10 @@ fn the_plan_is_set_against_what_the_trade_did() {
     app.wait_for("đúng kế hoạch").expect("the stop was kept");
 
     // Another trade has no plan: it offers to write one.
-    app.press("role:button[‹ Lệnh trước]").expect("steps to the other trade");
-    app.wait_for("Chưa có kế hoạch cho lệnh này").expect("the empty state says so");
-    app.press("role:button[Viết kế hoạch]").expect("the plan form opens over the page");
-    app.wait_for("Lưu kế hoạch").expect("the plan dialog shows");
+    common::press_until(&mut app, "role:button[‹ Lệnh trước]", |screen| {
+        screen.shows("Chưa có kế hoạch cho lệnh này")
+    });
+    open_plan_prompt(&mut app);
 }
 
 #[test]
