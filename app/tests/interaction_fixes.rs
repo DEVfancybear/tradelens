@@ -271,6 +271,7 @@ fn a_date_property_is_set_from_the_calendar() {
     let mut app = fixture.start(1400.0, 1000.0, |_| {});
     app.press("role:button[Khoảng thời gian: 7N]").expect("the range");
     app.press("role:button[Lệnh]").expect("the trades row");
+    app.wait_for_within("role:button[Mở nhật ký lệnh EURUSD]", WAIT).expect("the trades load");
     app.press("role:button[Mở nhật ký lệnh EURUSD] >> nth=0").expect("a trade opens");
     app.wait_for("Ngày xem lại").expect("the property is on the form");
     app.wait_for("Chọn ngày").expect("it has no date yet, and says to choose one");

@@ -174,6 +174,7 @@ fn a_trades_journal_is_written_and_saved() {
     seed(&mut fixture.db());
     let mut app = fixture.start();
     open_trades(&mut app);
+    app.wait_for_within(&trade_button("XAUUSD"), WAIT).expect("the trades load");
     app.press(&trade_button("XAUUSD")).expect("a trade opens");
     app.wait_for("Nhật ký lệnh").expect("the journal card shows");
     app.wait_for("Deal của lệnh").expect("the trade's deals show");
@@ -209,6 +210,7 @@ fn leaving_a_trade_with_edits_saves_them() {
     seed(&mut fixture.db());
     let mut app = fixture.start();
     open_trades(&mut app);
+    app.wait_for_within(&trade_button("GBPJPY"), WAIT).expect("the trades load");
     app.press(&trade_button("GBPJPY")).expect("a trade opens");
     app.wait_for("Nhật ký lệnh").expect("the journal card shows");
     app.type_text("label:Ghi chú", "chốt đúng kế hoạch").expect("notes are typed");
