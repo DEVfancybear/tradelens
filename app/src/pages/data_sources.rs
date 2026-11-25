@@ -335,11 +335,40 @@ struct Api {
     chosen: Signal<String>,
     /// The list was asked for, so that "no database" can be told from "not asked yet".
     listed: Signal<bool>,
+    /// What a button asked for; it runs once the settings are read (at once when they are).
+    asked: Signal<Option<Ask>>,
+    /// The section's owner: what a button asked for runs under it, not under the effect that
+    /// hears the ask, whose tasks end when it runs again.
+    owner: Owner,
+}
+
+/// What a button of the API section asks of the Notion API.
+#[derive(Debug, Clone, PartialEq)]
+enum Ask {
+    /// List the databases, keeping the given token first.
+    List(Option<String>),
+    Preview,
+    Forget,
 }
 
 impl Api {
     fn env(self) -> app_cloud::Env {
         self.state.with(|s| s.env.clone())
+    }
+
+    /// Records what a button asked for. It is not run before the settings are read: until then the
+    /// environment is the default one, which keeps a token in the operating system's credential
+    /// store and talks to the real Notion instead of the demo or the server a setting names.
+    fn ask(self, what: Ask) {
+        self.asked.set(Some(what));
+    }
+
+    fn run(self, what: Ask) {
+        match what {
+            Ask::List(token) => self.list(token),
+            Ask::Preview => self.preview_chosen(),
+            Ask::Forget => self.forget(),
+        }
     }
 
     /// Asks whether a token is kept already (the demo keeps it in memory).
@@ -438,11 +467,24 @@ fn notion_api_section(flow: Flow) -> impl IntoElement {
         databases: signal(Vec::new()),
         chosen: signal(String::new()),
         listed: signal(false),
+        asked: signal(None),
+        owner: Owner::current(),
     };
     // A token may be kept already: asked once the settings are read.
     effect(move || {
         if api.state.with(|s| s.ready) {
             untracked(|| api.look_for_token());
+        }
+    });
+    effect(move || {
+        if !api.state.with(|s| s.ready) {
+            return;
+        }
+        if let Some(what) = api.asked.get() {
+            untracked(|| {
+                api.asked.set(None);
+                api.owner.run(move || api.run(what));
+            });
         }
     });
     view()
@@ -483,15 +525,20 @@ fn api_buttons(api: Api) -> impl IntoElement {
             "Lưu token & tải danh sách",
             Variant::Secondary,
             move || !api.token.get().trim().is_empty() && idle(),
-            move || api.list(Some(api.token.get_untracked().trim().to_owned())),
+            move || api.ask(Ask::List(Some(api.token.get_untracked().trim().to_owned()))),
         ))
         .child(action_when(
             "Tải lại danh sách",
             Variant::Ghost,
             move || api.has_token.get() && idle(),
-            move || api.list(None),
+            move || api.ask(Ask::List(None)),
         ))
-        .child(action_when("Xoá token", Variant::Ghost, move || api.has_token.get() && idle(), move || api.forget()))
+        .child(action_when(
+            "Xoá token",
+            Variant::Ghost,
+            move || api.has_token.get() && idle(),
+            move || api.ask(Ask::Forget),
+        ))
 }
 
 /// The databases the integration can see, to choose one from.
@@ -522,7 +569,7 @@ fn databases_list(api: Api) -> impl IntoElement {
                     "Xem trước database",
                     Variant::Primary,
                     move || !api.flow.busy.get() && !api.chosen.get().is_empty(),
-                    move || api.preview_chosen(),
+                    move || api.ask(Ask::Preview),
                 )))
                 .into_element()
         })

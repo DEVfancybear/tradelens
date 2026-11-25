@@ -657,6 +657,12 @@ fn trade_card(inputs: Inputs, account_title: String, mode: TradeMode) -> impl In
         TradeMode::Edit(lead) => lead,
         TradeMode::New => lead_of(&store.snapshot(), &inputs.account.get()),
     };
+    // The snapshot is read again (and announces it) whenever anything is stored, here or in another
+    // window, so the rows below follow what the lead *is*, not every read of it: a `dynamic` over
+    // `lead()` rebuilt the result field in the middle of a keystroke, and the rest of the typing
+    // went to the field that was gone.
+    let leads_r = computed(move || lead() == Lead::R);
+    let leads_money = computed(move || lead() == Lead::Money);
     card(
         match mode {
             TradeMode::New => "1 · Thông tin lệnh",
@@ -667,7 +673,7 @@ fn trade_card(inputs: Inputs, account_title: String, mode: TradeMode) -> impl In
             .child(who_row(inputs, account_title, mode))
             .child(dynamic(move || {
                 // A journal kept in R: its result leads, and the rest says it is optional.
-                (lead() == Lead::R).then(|| {
+                leads_r.get().then(|| untracked(|| {
                     view()
                         .gap_2()
                         .child(r_row(inputs))
@@ -676,7 +682,7 @@ fn trade_card(inputs: Inputs, account_title: String, mode: TradeMode) -> impl In
                                 .text_xs()
                                 .text_color(move || theme().muted_foreground),
                         )
-                })
+                }))
             }))
             .child(when_row(inputs))
             .child(
@@ -698,7 +704,7 @@ fn trade_card(inputs: Inputs, account_title: String, mode: TradeMode) -> impl In
                     .child(number("Commission", None, inputs.commission, 0.1))
                     .child(number("Swap", None, inputs.swap, 0.1)),
             )
-            .child(dynamic(move || (lead() == Lead::Money).then(|| r_row(inputs))))
+            .child(dynamic(move || leads_money.get().then(|| untracked(|| r_row(inputs)))))
             .child(view().p_3().rounded(move || theme().radius).border_1().border_color(move || theme().border).child(
                 text(move || preview_line(store, inputs, lead()))
                     .text_xs()

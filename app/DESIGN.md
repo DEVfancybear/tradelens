@@ -196,6 +196,14 @@ Tôn trọng *reduce motion*: chỉ đổi opacity, không dịch chuyển.
 Khi một ô nhập bám theo `Reading::value()`, bọc bằng `computed(move || data.value())`: một lần đọc lại đang chạy cũng
 làm `value()` báo đổi (cờ `loading`), và nếu không có memo thì dữ liệu cũ ghi đè lên chỗ người dùng vừa sửa.
 
+`Store::snapshot` báo đổi **mỗi lần** đọc lại (`SignalEquals::Never`), và đọc lại xảy ra mỗi khi *bất kỳ* ghi nào xong, kể từ
+cửa sổ khác hay (trong test) một test khác cùng tiến trình, vì `revision()` là biến toàn cục. Vì thế `dynamic` có ô nhập bên trong
+không được đọc snapshot trực tiếp: đọc qua `computed(move || điều_kiện)` (nhập lệnh tay: `leads_r`, `leads_money`), nếu không ô số bị
+dựng lại giữa lúc gõ và các ký tự sau đi vào ô đã mất.
+
+Việc của nút cần cài đặt `cloud.*` (Notion API) không chạy trên `State::env` mặc định: nút chỉ ghi `Ask`, một effect chạy nó khi
+`State::ready` (trước đó `env` mặc định sẽ ghi token vào kho khoá thật và gọi Notion thật).
+
 ### Trình xem ảnh (`ui::viewer`) và ảnh trong `gallery`
 
 - **Là một lớp của cửa sổ, không phải `dialog()`** (lớp cửa sổ gốc của `dialog()` không vẽ đúng trên Windows): `viewer::overlay()` là
