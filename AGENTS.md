@@ -1,17 +1,23 @@
-# TradeLens — hướng dẫn cho agent (AGENTS.md, cùng nội dung CLAUDE.md)
+# TradeLens — hướng dẫn cho agent
 
 Nhật ký giao dịch MT5, desktop, viết bằng Rust và NSH (Rust mode). Đọc `docs/architecture.md` trước
 khi sửa code lần đầu; lộ trình ở `docs/roadmap.md`.
 
-## Bắt buộc: skill BeautifulRust
+File này là nguồn duy nhất của hướng dẫn; `CLAUDE.md` chỉ nạp nó (`@AGENTS.md`). Sửa ở đây, đừng
+chép nội dung sang `CLAUDE.md`.
 
-Repo đóng gói sẵn hai skill trong `.claude/skills/` (nguồn: BeautifulRust, MIT):
+## Bắt buộc: skill trong `.claude/skills/`
+
+Repo đóng gói sẵn các skill trong `.claude/skills/` (danh sách và nguồn ở `.claude/skills/README.md`):
 
 1. **Trước khi viết hoặc sửa bất kỳ file `.rs` nào**, nạp skill `rust-best-practices` và làm theo nó.
    Nếu skill và hướng dẫn ở đây mâu thuẫn, hướng dẫn ở đây thắng, nhưng phải ghi lý do trong commit.
-2. **Trước khi bàn giao** (kết thúc lượt, mở PR, commit), tự review phần Rust vừa đổi theo skill
+2. **Trước khi dựng hoặc sửa màn, component, test trong `app/`, migration hay import trong
+   `crates/core`, và trước khi kiểm trên app thật hay đẩy lên PR**, nạp skill `tradelens-lessons`:
+   các lỗi đã gặp trong repo này và cách tránh. Sửa xong một lỗi có bài học mới thì thêm vào skill đó.
+3. **Trước khi bàn giao** (kết thúc lượt, mở PR, commit), tự review phần Rust vừa đổi theo skill
    `rust-review`. Sửa các phát hiện nghiêm trọng; phần còn lại thì báo lại cho người dùng.
-3. **Cổng chất lượng** phải sạch: `scripts/quality.sh` (fmt, `clippy --workspace --all-targets -D warnings`
+4. **Cổng chất lượng** phải sạch: `scripts/quality.sh` (fmt, `clippy --workspace --all-targets -D warnings`
    với lint của BeautifulRust trong `Cargo.toml`, `cargo test --workspace`). Hook `Stop` trong
    `.claude/settings.json` chạy script này và không cho kết thúc khi còn lỗi. Không tắt hook, không
    thêm `#[allow]`; chỉ dùng `#[expect(lint, reason = "...")]` trên item hẹp nhất, có lý do thật.
