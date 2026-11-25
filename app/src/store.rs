@@ -516,7 +516,14 @@ impl Writer {
         spawn(async move {
             let written = blocking(move || {
                 let mut db = db.lock().expect("database lock poisoned");
-                op(&mut db)
+                let stored = op(&mut db);
+                if stored.is_ok() {
+                    // Bumped on the writing thread, not after the await: the screen that asked may
+                    // be left while this runs, which ends its task, and the pages must still read
+                    // the change (the store's poll sees the revision).
+                    data_changed();
+                }
+                stored
             })
             .await;
             let outcome = match written {
@@ -525,7 +532,6 @@ impl Writer {
                 Err(error) => Err(format!("Luồng ghi dữ liệu bị dừng: {error}")),
             };
             if outcome.is_ok() {
-                data_changed();
                 store.revision.set(revision().get());
             }
             done(outcome);
