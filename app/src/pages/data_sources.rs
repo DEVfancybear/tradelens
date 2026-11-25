@@ -24,7 +24,7 @@ use crate::{
         chips::{Tone, chip, figure_text},
         controls::{Choice, Variant, action_icon_when, action_when, select_field, text_field},
         files::{Accept, Pick, dropzone},
-        parts::{card, empty_state, page},
+        parts::{card, empty_state, error_line, page},
         properties::kind_name,
     },
 };
@@ -306,7 +306,7 @@ fn notion_import_card() -> impl IntoElement {
             ))
             .child(notion_api_section(flow))
             .child(dynamic(move || flow.busy.get().then(|| text("Đang xử lý…").text_sm().text_color(move || theme().muted_foreground))))
-            .child(dynamic(move || flow.failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
+            .child(dynamic(move || flow.failure.get().map(error_line)))
             .child(dynamic(move || {
                 let shown = flow.preview.get()?;
                 let import_now = Rc::clone(&import_now);

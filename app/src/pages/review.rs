@@ -29,7 +29,7 @@ use crate::{
         icons::Icon,
         lines::{filled, line_list},
         list_item::{Column, mini_table},
-        parts::{card, empty_state, page_with, stat_tile},
+        parts::{card, empty_state, error_line, page_with, save_status, stat_tile},
         queue::queue_row,
     },
 };
@@ -209,7 +209,7 @@ fn report_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
                             move || privacy.get(),
                             move |next| privacy.set(next),
                         ))
-                        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
+                        .child(dynamic(move || failure.get().map(error_line)))
                         .child(dynamic(move || {
                             note.get().map(|line| text(line).text_sm().text_color(move || theme().muted_foreground))
                         }))
@@ -637,7 +637,7 @@ fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement
                 .child(text("Điểm kỷ luật của kỳ").text_xs().text_color(move || theme().muted_foreground))
                 .child(rating("Điểm kỷ luật", move || grade.get(), move |next| grade.set(next))),
         )
-        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
+        .child(dynamic(move || failure.get().map(error_line)))
         .child(
             view()
                 .flex_row()
@@ -645,7 +645,7 @@ fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement
                 .justify_between()
                 .gap_3()
                 .child(
-                    text(move || {
+                    save_status(move || {
                         if busy.get() {
                             "Đang lưu…"
                         } else if dirty.get() {
@@ -654,8 +654,7 @@ fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement
                             "Đã lưu"
                         }
                     })
-                    .text_xs()
-                    .text_color(move || theme().muted_foreground),
+                    .text_xs(),
                 )
                 .child(action_icon_when(
                     Icon::Check,
@@ -923,7 +922,7 @@ fn template_editor(template: ReviewTemplate, editing: Signal<Option<Period>>) ->
                 .text_color(move || theme().muted_foreground),
         )
         .child(line_list("Câu hỏi", "Thêm câu hỏi", move || prompts.get(), move |next| prompts.set(next)))
-        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
+        .child(dynamic(move || failure.get().map(error_line)))
         .child(
             view()
                 .flex_row()

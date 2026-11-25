@@ -23,8 +23,8 @@ use super::{
     files::{Accept, Pick, image_slot, pasted_images, pick_files, sift},
     icons::{Icon, icon},
     motion,
+    parts::error_note,
     reorder::{Step, drag_handle, grid_columns, grid_drop_index, stepped},
-    theme as tokens,
     viewer::{self, Request, Slide, Slides},
 };
 
@@ -128,7 +128,7 @@ pub fn gallery(
                     });
                 })),
         )
-        .child(dynamic(move || notice.get().map(|line| text(line).text_xs().text_color(tokens::loss))))
+        .child(dynamic(move || notice.get().map(error_note)))
         .child(dynamic(move || {
             // The line is there while the list is the one the picture left.
             let offered = removed.with(|gone| gone.as_ref().is_some_and(|gone| items() == gone.after));

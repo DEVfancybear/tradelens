@@ -35,7 +35,7 @@ use crate::{
         forms::switch_row,
         icons::Icon,
         modal::{self, Modal},
-        theme as tokens,
+        parts::error_line,
     },
 };
 
@@ -378,7 +378,7 @@ fn panel(target: &ShareTarget) -> impl IntoElement {
         ))
         .child(preview(state.rendered))
         .child(toggles(state, target))
-        .child(dynamic(move || state.failure.get().map(|line| text(line).text_sm().text_color(tokens::loss))))
+        .child(dynamic(move || state.failure.get().map(error_line)))
         .child(dynamic(move || {
             state.note.get().map(|line| text(line).text_sm().text_color(move || theme().muted_foreground))
         }))

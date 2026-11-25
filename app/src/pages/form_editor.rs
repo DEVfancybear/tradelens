@@ -24,11 +24,10 @@ use crate::{
         },
         forms::{NumberRange, number_field, switch_row},
         icons::Icon,
-        parts::{empty_state, page_with},
+        parts::{empty_state, error_line, page_with},
         properties::{KINDS, builtin_glyph, change_kind, complete, kind_glyph, kind_hint, kind_name, new_def},
         reorder::{Step, drag_handle, list_drop_index, stepped},
         tab_bar::tab_bar,
-        theme as tokens,
     },
 };
 
@@ -351,7 +350,7 @@ fn table_card(ops: Ops, rows: Memo<Vec<Property>>) -> impl IntoElement {
                     .into_element()
             })
         }))
-        .child(dynamic(move || ops.notice.get().map(|error| text(error).text_sm().text_color(tokens::loss))))
+        .child(dynamic(move || ops.notice.get().map(error_line)))
         .child(
             view()
                 .flex_row()

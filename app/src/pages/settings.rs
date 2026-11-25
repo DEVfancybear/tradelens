@@ -13,8 +13,7 @@ use crate::{
     ui::{
         controls::{Variant, action, action_when, segmented},
         forms::setting_row,
-        parts::{card, page},
-        theme::loss,
+        parts::{card, error_line, page},
     },
     zone::TIME_DISPLAY_KEY,
 };
@@ -132,36 +131,31 @@ pub(crate) fn settings() -> impl IntoElement {
     page(
         "Cài đặt",
         "Giao diện, giờ hiển thị và dữ liệu",
-        view()
-            .gap_6()
-            .child(dynamic(move || {
-                error.get().or_else(|| stored.error()).map(|line| text(line).text_sm().text_color(loss))
-            }))
-            .child(
-                view()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_start()
-                    .gap_6()
-                    .child(
-                        view()
-                            .flex_1()
-                            .min_w(px(520.0))
-                            .gap_6()
-                            .child(appearance_card(looks, remember))
-                            .child(time_card(clock, remember)),
-                    )
-                    .child(
-                        view()
-                            .flex_1()
-                            .min_w(px(320.0))
-                            .max_w(px(420.0))
-                            .gap_6()
-                            .child(data_card(stored))
-                            .child(shortcuts_card())
-                            .child(about_card()),
-                    ),
-            ),
+        view().gap_6().child(dynamic(move || error.get().or_else(|| stored.error()).map(error_line))).child(
+            view()
+                .flex_row()
+                .flex_wrap()
+                .items_start()
+                .gap_6()
+                .child(
+                    view()
+                        .flex_1()
+                        .min_w(px(520.0))
+                        .gap_6()
+                        .child(appearance_card(looks, remember))
+                        .child(time_card(clock, remember)),
+                )
+                .child(
+                    view()
+                        .flex_1()
+                        .min_w(px(320.0))
+                        .max_w(px(420.0))
+                        .gap_6()
+                        .child(data_card(stored))
+                        .child(shortcuts_card())
+                        .child(about_card()),
+                ),
+        ),
     )
 }
 

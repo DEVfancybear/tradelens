@@ -33,7 +33,7 @@ use crate::{
         forms::{NumberRange, check_box, checklist, number_field},
         gallery::gallery,
         icons::Icon,
-        parts::{card, empty_state, page_with},
+        parts::{card, empty_state, page_with, save_status},
         plan_vs_actual::{PlanView, plan_vs_actual},
         properties::{PropertyEdits, PropertyList, property_list},
         theme as tokens,
@@ -1058,7 +1058,7 @@ fn journal_card(
                         .flex_row()
                         .items_center()
                         .gap_1()
-                        .child(text(editor.status()).text_xs().text_color(move || theme().muted_foreground))
+                        .child(save_status(editor.status()).text_xs())
                         .child(editor.form_editor_link()),
                 )
                 .child(view().flex_row().gap_2().child(older).child(newer)),

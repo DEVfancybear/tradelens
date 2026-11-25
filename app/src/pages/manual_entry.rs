@@ -25,8 +25,7 @@ use crate::{
         forms::{NumberRange, number_field_fluid},
         gallery::gallery,
         icons::Icon,
-        parts::{card, page_with},
-        theme as tokens,
+        parts::{card, error_line, error_note, page_with, warning_line},
     },
 };
 
@@ -578,7 +577,7 @@ fn entry_page(round: Signal<u32>, notice: Signal<Option<String>>) -> impl IntoEl
                     .flex_1()
                     .min_w(px(520.0))
                     .gap_6()
-                    .child(dynamic(move || notice.get().map(|line| text(line).text_sm().text_color(tokens::warning))))
+                    .child(dynamic(move || notice.get().map(warning_line)))
                     .child(failure_line(failure))
                     .child(trade_card(inputs, String::new(), TradeMode::New))
                     .child(card("2 · Nhật ký", journal_form(fields, shot_count, None, failure))),
@@ -590,7 +589,7 @@ fn entry_page(round: Signal<u32>, notice: Signal<Option<String>>) -> impl IntoEl
 /// What went wrong with a save that no field is to blame for (the database, the form's layout), at the
 /// top of the form where the save buttons are; what is wrong with a field is said under that field.
 fn failure_line(failure: Signal<Option<String>>) -> impl IntoElement {
-    dynamic(move || failure.get().map(|error| text(error).text_sm().text_color(tokens::loss)))
+    dynamic(move || failure.get().map(error_line))
 }
 
 /// The column of chart images beside the form.
@@ -678,7 +677,7 @@ pub(crate) fn edit_trade(key: TradeKey) -> impl IntoElement {
                 "Sửa lệnh",
                 "Không sửa được lệnh này",
                 action("‹ Lệnh", Variant::Secondary, back),
-                view().child(text(problem).text_sm().text_color(tokens::loss)),
+                view().child(error_line(problem)),
             )
             .into_element(),
             Some(Ok(trade)) => untracked(|| edit_page(&key, &trade)).into_element(),
@@ -768,7 +767,7 @@ fn checked_field(inputs: Inputs, part: Part, label: &'static str, control: impl 
         inputs
             .problems
             .with(|all| all.iter().find(|problem| problem.part == part).map(|problem| problem.message.clone()))
-            .map(|message| text(message).text_xs().text_color(tokens::loss))
+            .map(error_note)
     }))
 }
 

@@ -28,7 +28,7 @@ use crate::{
         controls::{Choice, Variant, action, action_when, icon_action, select_value, textarea},
         date_picker::{DatePick, date_pick, date_trigger},
         icons::Icon,
-        parts::{card, empty_state, page_with},
+        parts::{card, empty_state, error_line, page_with, save_status},
         properties::{PropertyEdits, PropertyList, property_list},
         selectable_card::selectable_card,
         theme::loss,
@@ -505,34 +505,30 @@ pub(crate) fn journal() -> impl IntoElement {
         .child(icon_action(Icon::ChevronRight, "Ngày sau", Variant::Secondary, move || step(1)))
         .child(action("Hôm nay", Variant::Secondary, move || go(today())))
         .child(account_picker())
-        .child(text(move || status.get()).text_xs().text_color(move || theme().muted_foreground))
+        .child(save_status(move || status.get()).text_xs())
         .child(action_when("Lưu nhật ký", Variant::Primary, move || dirty.get() && !busy.get(), save_now));
 
     page_with(
         "Nhật ký ngày",
         "Kế hoạch trước phiên, tổng kết cuối ngày và lệnh của ngày đặt cạnh nhau",
         actions,
-        view()
-            .gap_6()
-            .child(dynamic(move || data.error().map(|error| text(error).text_sm().text_color(loss))))
-            .child(week_strip(data, day, go))
-            .child(
-                view()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_start()
-                    .gap_6()
-                    .child(view().flex_1().min_w(px(520.0)).gap_6().child(form_card(data, write, fields, loaded)))
-                    .child(
-                        view()
-                            .flex_1()
-                            .min_w(px(320.0))
-                            .max_w(px(420.0))
-                            .gap_6()
-                            .child(trades_card(data))
-                            .child(checklist_card(data)),
-                    ),
-            ),
+        view().gap_6().child(dynamic(move || data.error().map(error_line))).child(week_strip(data, day, go)).child(
+            view()
+                .flex_row()
+                .flex_wrap()
+                .items_start()
+                .gap_6()
+                .child(view().flex_1().min_w(px(520.0)).gap_6().child(form_card(data, write, fields, loaded)))
+                .child(
+                    view()
+                        .flex_1()
+                        .min_w(px(320.0))
+                        .max_w(px(420.0))
+                        .gap_6()
+                        .child(trades_card(data))
+                        .child(checklist_card(data)),
+                ),
+        ),
     )
 }
 
