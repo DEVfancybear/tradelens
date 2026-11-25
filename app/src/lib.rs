@@ -46,7 +46,13 @@ fn native(registry: &mut Registry) {
 /// takes the launch defaults (size, minimum size) of the `window` of `nsh.json` ([`root`]).
 #[component]
 pub fn App() -> impl IntoElement {
-    window().id("main").content(workspace)
+    window().id("main").title(app_name()).content(workspace)
+}
+
+/// The app's name, from the `name` of `nsh.json`: the title of the main window (title bar, taskbar, Alt+Tab).
+fn app_name() -> String {
+    let manifest: serde_json::Value = serde_json::from_str(MANIFEST).expect("nsh.json is valid JSON");
+    manifest["name"].as_str().expect("nsh.json has a name").to_owned()
 }
 
 /// The text of `nsh.json`: the app's id and the main window's size come from it, whoever starts the app.
@@ -113,6 +119,12 @@ mod tests {
         element::AssetKind,
         prelude::{assets, px},
     };
+
+    #[test]
+    fn the_main_window_is_titled_with_the_name_nsh_json_gives_the_app() {
+        // The headless platform draws no title bar, so the name is checked where it is read.
+        assert_eq!(super::app_name(), "TradeLens");
+    }
 
     #[test]
     fn the_root_has_the_apps_own_id_so_its_data_is_not_in_the_folder_shared_by_apps_without_one() {
