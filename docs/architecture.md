@@ -23,6 +23,7 @@ nhập và điều khiển qua gói Python `MetaTrader5`; không có EA. EA và 
 ## Quy ước
 
 - Deal là nguồn sự thật; lệnh và chỉ số luôn tính lại từ deal.
+- Lệnh nhập tay hoặc import (Notion…) chưa biết offset server được lưu theo giờ máy của trader, không có múi giờ; khi đó "hôm nay" và "bây giờ" cũng là giờ máy (`zone::stored_now`), không phải UTC.
 - Thời gian MT5 là giờ server, lưu nguyên; quy đổi sang giờ địa phương khi hiển thị (`time::Clock`).
 - Luồng nền (kết nối MT5, cloud) không chạm signal của UI: chúng tăng `Revision`, UI tải lại.
 - Chất lượng code theo [BeautifulRust](https://github.com/morganlinton/BeautifulRust):

@@ -141,3 +141,10 @@ The user is explicit: "kiểm tra = app thật" (check on the real app). Passing
   - For `mod` lists or `shell.rs`, keep both sides.
 - **Don't switch branches in the main checkout** (another session uses it); work in a worktree.
 - **No bare `git stash`;** the stash is shared by all worktrees.
+
+## 7. Dates and "today"
+
+### 7.1 "Now" is on the same scale as the stored times
+- **Rule:** a stored trade time is the server's wall clock when the account's server offset is known, else the trader's own wall clock (manual entry and Notion import keep what was typed). Anything that means "now" next to stored times (today, range cutoffs, the planned trade of the entry dialog, `written_at`) goes through `zone::stored_now`. Never add `server_offset_min.unwrap_or(0)` to a UTC "now", and never derive "today" from `Utc::now().date_naive()`.
+- **Why:** with no offset, "today" was the UTC date. At UTC+7 the Nhật ký ngày page opened on yesterday between 00:00 and 07:00, "Hôm nay" went to yesterday and a note typed then was saved under yesterday. CI runs in UTC, so it never showed.
+- **Check:** `zone::tests` assert the day for a late-UTC instant with injected offsets, so they do not depend on the machine's zone. To reproduce an integration test's failure on old code, run it between 00:00 and 07:00 at UTC+7 (or temporarily make `stored_now` ignore the local offset).
