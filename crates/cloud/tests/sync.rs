@@ -4,9 +4,9 @@
 
 use std::collections::HashSet;
 use std::path::Path;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Condvar, Mutex};
+use std::time::Duration;
 
 use tempfile::TempDir;
 use tradelens_cloud::CloudError;
@@ -688,16 +688,23 @@ enum Refuse {
     Bytes(Vec<u8>),
 }
 
-/// A drive that writes down every call, can refuse images, and tells how many uploads overlapped.
+/// The images in flight in a [`Spy`] now, and the most that ever were at once.
+#[derive(Debug, Default)]
+struct Flight {
+    running: usize,
+    peak: usize,
+}
+
+/// A drive that writes down every call, can refuse images, and tells how many images moved at once.
 #[derive(Default)]
 struct Spy {
     inner: MemoryDrive,
     events: Mutex<Vec<String>>,
     refuse: Mutex<Refuse>,
-    running: AtomicUsize,
-    peak: AtomicUsize,
-    /// How long each upload and download of an image takes, as a slow link would.
-    delay: Duration,
+    flight: Mutex<Flight>,
+    moved: Condvar,
+    /// Whether an image in flight waits for another to join it (see [`Spy::meet`]).
+    rendezvous: bool,
 }
 
 impl Spy {
@@ -705,8 +712,10 @@ impl Spy {
         Self { inner: inner.clone(), ..Self::default() }
     }
 
-    fn slow(inner: &MemoryDrive, delay: Duration) -> Self {
-        Self { delay, ..Self::over(inner) }
+    /// A drive that holds the first image in flight until a second one arrives (or ten seconds
+    /// pass): the pool is concurrent when two meet, and no clock decides whether they do.
+    fn meeting(inner: &MemoryDrive) -> Self {
+        Self { rendezvous: true, ..Self::over(inner) }
     }
 
     fn log(&self, event: String) {
@@ -726,8 +735,9 @@ impl Spy {
         *self.refuse.lock().expect("lock poisoned") = what;
     }
 
+    /// The most images that were in flight at the same time.
     fn peak(&self) -> usize {
-        self.peak.load(Ordering::SeqCst)
+        self.flight.lock().expect("lock poisoned").peak
     }
 
     fn refused(&self, name: &str, bytes: &[u8]) -> bool {
@@ -738,17 +748,28 @@ impl Spy {
         }
     }
 
+    /// An image is in flight for as long as this call lasts.
+    fn meet(&self) {
+        let mut flight = self.flight.lock().expect("lock poisoned");
+        flight.running += 1;
+        flight.peak = flight.peak.max(flight.running);
+        self.moved.notify_all();
+        if self.rendezvous {
+            let (held, _) = self
+                .moved
+                .wait_timeout_while(flight, Duration::from_secs(10), |flight| flight.peak < 2)
+                .expect("lock poisoned");
+            flight = held;
+        }
+        flight.running -= 1;
+    }
+
     /// The part every upload shares: time in flight, and the refusal of images.
     fn admit(&self, name: &str, bytes: &[u8]) -> Result<(), CloudError> {
-        let now = self.running.fetch_add(1, Ordering::SeqCst) + 1;
-        self.peak.fetch_max(now, Ordering::SeqCst);
-        // Long enough for the other uploads to start while this one is in flight.
         if name.starts_with("attachments/") {
-            std::thread::sleep(self.delay.max(Duration::from_millis(15)));
+            self.meet();
         }
-        let refused = self.refused(name, bytes);
-        self.running.fetch_sub(1, Ordering::SeqCst);
-        if refused {
+        if self.refused(name, bytes) {
             return Err(CloudError::Network("ảnh bị từ chối (thử nghiệm)".into()));
         }
         Ok(())
@@ -776,7 +797,7 @@ impl CloudDrive for Spy {
     fn download(&self, file: &RemoteFile) -> Result<Vec<u8>, CloudError> {
         self.log(format!("download {}", file.name));
         if file.name.starts_with("attachments/") {
-            std::thread::sleep(self.delay);
+            self.meet();
         }
         let bytes = self.inner.download(file)?;
         if matches!(&*self.refuse.lock().expect("lock poisoned"), Refuse::Bytes(wanted) if *wanted == bytes) {
@@ -962,7 +983,7 @@ fn an_image_costs_one_upload_and_a_listing_is_shared_by_all() {
     // The same picture under two paths is one file on the drive.
     write_image(&a, "images/copy.png", b"chart 0");
     a.write_journal(100, |entry| entry.screenshots.push(shot("images/copy.png", "")));
-    let spy = Spy::over(&drive);
+    let spy = Spy::meeting(&drive);
     let report = a.try_sync(&spy).expect("syncs");
     assert_eq!(report.attachments_uploaded, 12);
     assert_eq!(spy.count("upload_new attachments/"), 12, "{:?}", spy.events());
@@ -971,8 +992,7 @@ fn an_image_costs_one_upload_and_a_listing_is_shared_by_all() {
     let names: HashSet<String> =
         spy.events().iter().filter_map(|e| e.strip_prefix("upload_new ").map(str::to_owned)).collect();
     assert_eq!(names.len(), 12, "no image is sent twice");
-    assert!(spy.peak() > 1, "the images go up side by side");
-    assert!(spy.peak() <= 4, "but only a few at a time: {}", spy.peak());
+    assert!((2..=4).contains(&spy.peak()), "the images go up side by side, a few at a time: {}", spy.peak());
 
     // Nothing changed: no image is sent again.
     let spy = Spy::over(&drive);
@@ -1017,38 +1037,28 @@ fn a_sync_with_nothing_new_reads_no_image_and_asks_the_drive_nothing_about_them(
 #[test]
 fn many_images_move_side_by_side_and_a_restore_fetches_each_exactly_once() {
     const IMAGES: usize = 16;
-    const DELAY: Duration = Duration::from_millis(40);
     let (drive, mut a, _) = with_charts(IMAGES);
-    let spy = Spy::slow(&drive, DELAY);
-    let started = Instant::now();
+    let spy = Spy::meeting(&drive);
     let report = a.try_sync(&spy).expect("syncs");
-    let up = started.elapsed();
     assert_eq!(report.attachments_uploaded, IMAGES);
-    let one_by_one = DELAY * u32::try_from(IMAGES).expect("a few");
-    assert!(
-        up < one_by_one / 2,
-        "{IMAGES} uploads of {DELAY:?} took {up:?}, one by one they would take {one_by_one:?}"
-    );
+    assert!((2..=4).contains(&spy.peak()), "uploads overlap, within the pool: {}", spy.peak());
     // The snapshot a new machine restores holds the journal that names the images.
     a.engine(&drive).snapshot(&a.db).expect("a snapshot");
 
     let fresh = tempfile::tempdir().expect("a temp dir");
-    let spy = Spy::slow(&drive, DELAY);
+    let spy = Spy::meeting(&drive);
     let engine = SyncEngine::new(&spy, PROVIDER, "Máy mới").with_attachments(fresh.path().join("attachments"));
-    let started = Instant::now();
     let (restored, report) = engine.restore(&fresh.path().join("tradelens.db")).expect("restores");
-    let down = started.elapsed();
     assert_eq!(report.attachments_downloaded, IMAGES);
     assert_eq!(spy.count("download attachments/"), IMAGES, "one download per image: {:?}", spy.events());
     assert_eq!(spy.count("list attachments/"), 1, "and the folder is listed once");
-    assert!(down < one_by_one / 2, "{IMAGES} downloads of {DELAY:?} took {down:?}, one by one {one_by_one:?}");
+    assert!((2..=8).contains(&spy.peak()), "downloads overlap, within the pool: {}", spy.peak());
     for n in 0..IMAGES {
         let bytes = std::fs::read(fresh.path().join(format!("attachments/images/c{n}.png"))).expect("an image");
         assert_eq!(bytes, format!("chart {n}").as_bytes());
     }
     assert!(!fresh.path().join("attachments/images/c0.png.part").exists(), "no half-written file is left");
     drop(restored);
-    println!("{IMAGES} images, {DELAY:?} each: upload {up:?}, restore {down:?}, one by one {one_by_one:?}");
 }
 
 static RECONCILE_NOW: AtomicI64 = AtomicI64::new(0);
