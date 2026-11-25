@@ -120,19 +120,36 @@ có tem thì ghi, tem = `updated_at` của journal, các thứ khác tem 0 để
 
 ## Đẩy và kéo
 
-1. `Db::log_existing()` (một lần), rồi ảnh: ảnh nào journal/lệnh bỏ lỡ/setup nhắc tới và có file trong thư mục dữ
-   liệu thì tính sha256, ghi thực thể `attachment` (đường dẫn → sha) và upload `attachments/<sha256>.<ext>` nếu
-   ổ chưa có.
+Thứ tự có chủ ý: **nhật ký (vài trăm KB) đi trước, ảnh (hàng chục MB) đi sau cùng**, để máy khác khôi phục được
+dữ liệu ngay cả khi ảnh chưa lên hết hoặc đường truyền chậm.
+
+1. `Db::log_existing()` (một lần), rồi **ghi nhận ảnh** (chỉ việc cục bộ): ảnh nào journal/lệnh bỏ lỡ/setup nhắc tới
+   và có file trong thư mục dữ liệu mà chưa có mã băm thì tính sha256 (một lần duy nhất, nhớ trong `sync_attachments`; đọc
+   file trên 4 luồng, mọi mã băm đọc được ghi trong một giao dịch) và ghi thực thể
+   `attachment` (đường dẫn → sha) vào log, để nó đi cùng lần push ngay sau. Chưa upload byte nào ở bước này.
 2. **Push:** các dòng `seq > pushed_seq` của máy này, tối đa 500 dòng mỗi file `changes/<device>/<từ>-<đến>.json`;
    upload xong mới ghi `pushed_seq` (bị ngắt giữa chừng thì lần sau gửi lại cùng tên file, ghi đè).
 3. **Pull:** liệt kê `changes/`, bỏ file của chính máy này; mỗi thiết bị khác, tải các file có `đến` ≥ mốc+1
    theo thứ tự, lấy các dòng `seq` liên tiếp từ mốc+1. Gặp lỗ hổng (thiếu file) thì **dừng ở đó và ghi cảnh báo**
    chứ không bỏ qua; file hỏng thì báo `CloudError::Corrupt` và không áp gì. Áp tất cả trong một giao dịch cùng với
    việc nâng mốc `pulled` (bảng `cloud_state`, mỗi nhà cung cấp một dòng), nên sập giữa chừng không lặp, không sót.
-4. Tải ảnh còn thiếu (tải xong đối chiếu sha256; đường dẫn ảnh từ xa không được thoát khỏi thư mục dữ liệu).
-5. Nếu bản snapshot mới nhất đã ≥ 7 ngày (hoặc chưa có): upload snapshot. Ghi `devices.json` (id, tên, lần sync cuối;
-   ghi đè theo kiểu đọc-sửa-ghi, mất một dòng khi hai máy ghi cùng lúc thì lần sync sau tự thêm lại).
-6. Chạy khi bấm *Sync ngay*, mỗi 15 phút khi bật tự động, và khi đóng app.
+4. Nếu bản snapshot mới nhất đã ≥ 7 ngày (hoặc chưa có): upload snapshot. Ghi `devices.json` (id, tên, lần sync cuối;
+   ghi đè theo kiểu đọc-sửa-ghi, mất một dòng khi hai máy ghi cùng lúc thì lần sau tự thêm lại), rồi đánh dấu đã sync.
+5. **Upload ảnh:** chỉ ảnh **chưa được ghi nhận là đã nằm trên ổ** (bảng `sync_uploaded`, theo nhà cung cấp; migration
+   0013). Sync không có gì mới thì không đọc file ảnh nào và không liệt kê `attachments/`. Có ảnh cần xét thì liệt kê
+   `attachments/` một lần: ảnh ổ đã có chỉ được ghi nhận; ảnh chưa có thì upload `attachments/<sha256>.<ext>` (hai đường
+   dẫn cùng nội dung chỉ một file), tối đa 4 ảnh cùng lúc. Với Google Drive dùng `CloudDrive::upload_new` (tên đã biết là
+   chưa có nên bỏ yêu cầu tìm tên: 1 request/ảnh thay vì 2). Ảnh lên xong được ghi nhận trong một giao dịch; một ảnh lỗi
+   không làm mất ảnh đã lên; sau 5 ảnh lỗi thì không bắt đầu ảnh mới, và lần sync sau gửi tiếp phần còn lại.
+   Hạn chế đã biết: ảnh đã ghi nhận thì không kiểm lại; file bị xoá tay trên Drive hoặc đổi tài khoản Google (cùng một
+   `provider`, giống mốc `pushed_seq`) thì ảnh không tự lên lại.
+6. **Tải ảnh:** ảnh journal nhắc tới mà **file không có** trên máy này (chỉ kiểm sự tồn tại, không băm file nào) và ổ đã
+   có thì tải về (tối đa 8 luồng; tải xong đối chiếu sha256, ghi vào file tạm rồi đổi tên nên không bao giờ có ảnh ghi dở;
+   đường dẫn ảnh từ xa không được thoát khỏi thư mục dữ liệu). Không có ảnh nào thiếu thì không liệt kê gì. Ảnh ổ chưa
+   có (máy kia chưa upload xong) thì **bỏ qua, không phải lỗi**: lần sync sau tải tiếp. Nếu bước 5 hoặc 6 lỗi thì lần
+   sync báo lỗi, nhưng nhật ký, snapshot và danh sách thiết bị đã nằm trên ổ. Khôi phục sang máy mới (`restore`) đi
+   đúng đường này nên cũng tải song song.
+7. Chạy khi bấm *Sync ngay*, mỗi 15 phút khi bật tự động, và khi đóng app.
 
 ## Snapshot và khôi phục sang máy mới
 

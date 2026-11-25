@@ -57,6 +57,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0010_sync_uids.sql"),
     include_str!("../migrations/0011_result_r.sql"),
     include_str!("../migrations/0012_deal_gaps.sql"),
+    include_str!("../migrations/0013_sync_uploaded.sql"),
 ];
 
 /// One line of the import log: what an import or a sync stored, and when.

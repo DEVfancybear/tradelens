@@ -12,7 +12,8 @@ pub struct RemoteFile {
     pub modified: i64,
 }
 
-pub trait CloudDrive {
+/// A drive is shared between the threads that move the images, hence `Send + Sync`.
+pub trait CloudDrive: Send + Sync {
     /// Files whose name starts with `prefix`.
     ///
     /// # Errors
@@ -25,6 +26,17 @@ pub trait CloudDrive {
     ///
     /// [`crate::CloudError::Network`] or [`crate::CloudError::Service`] when the request fails.
     fn upload(&self, name: &str, bytes: &[u8]) -> crate::Result<RemoteFile>;
+    /// Creates the file `name`, which the caller knows the drive does not hold (it has just listed
+    /// the folder). A drive that must look a name up before it can replace it skips that request
+    /// here; the default is [`CloudDrive::upload`]. Called with a name that exists, a drive may
+    /// end up with two files of that name, so only call it after listing.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::CloudError::Network`] or [`crate::CloudError::Service`] when the request fails.
+    fn upload_new(&self, name: &str, bytes: &[u8]) -> crate::Result<RemoteFile> {
+        self.upload(name, bytes)
+    }
     /// # Errors
     ///
     /// [`crate::CloudError::Network`] or [`crate::CloudError::Service`] when the request fails.

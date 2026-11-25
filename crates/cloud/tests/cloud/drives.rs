@@ -419,3 +419,16 @@ fn google_403_for_a_missing_drive_scope_is_the_vietnamese_permission_message() {
     let error = google(&other.base, source).list("changes/").expect_err("refused");
     assert!(matches!(error, CloudError::Service { status: 403, .. }), "{error:?}");
 }
+
+#[test]
+fn google_creates_a_file_known_to_be_new_without_looking_its_name_up() {
+    let mock = Mock::start(|req: &Seen, _| match (req.method.as_str(), req.path()) {
+        ("POST", "/upload/drive/v3/files") => Reply::ok(&gfile("new", "attachments/ab.png", 3)),
+        other => panic!("unexpected {other:?}"),
+    });
+    let (source, _) = session(Provider::Google, &mock.base, &tokens("tok", 3000));
+    let file = google(&mock.base, source).upload_new("attachments/ab.png", b"png").expect("uploads");
+    assert_eq!(file.id, "new");
+    assert_eq!(mock.requests().len(), 1, "one request, no lookup: {:?}", mock.requests());
+    assert_eq!(mock.requests()[0].param("uploadType").as_deref(), Some("multipart"));
+}
