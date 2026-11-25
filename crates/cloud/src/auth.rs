@@ -3,7 +3,7 @@
 //! for tokens. Tokens are kept by [`crate::token_store`], not here.
 
 use std::io::{ErrorKind, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{Shutdown, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -282,10 +282,12 @@ impl Default for SignInOptions {
 
 /// How often the wait looks at the listener, the cancel flag and the clock.
 const POLL: Duration = Duration::from_millis(40);
-/// How long a browser connection may take to send its request line.
+/// How long a browser connection may take, in all, to send its request head.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 /// The most of a browser request that is read; the interesting part is the first line.
 const MAX_REQUEST: usize = 16 * 1024;
+/// How long to wait for the browser to finish after the reply, before closing anyway.
+const CLOSE_GRACE: Duration = Duration::from_millis(250);
 
 /// The PKCE code challenge of `verifier`: `BASE64URL(SHA256(verifier))` (RFC 7636, section 4.2).
 pub(crate) fn pkce_challenge(verifier: &str) -> String {
@@ -485,6 +487,10 @@ fn page(title: &str, message: &str) -> String {
     )
 }
 
+/// Writes the reply and closes the connection without a reset.
+///
+/// Dropping a socket that still holds unread input makes the OS send RST instead of FIN, and the
+/// peer may then lose a reply it has not read yet. So: half-close, then drain what is left.
 fn respond(mut stream: TcpStream, status: &str, html: &str) {
     let reply = format!(
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{html}",
@@ -493,16 +499,49 @@ fn respond(mut stream: TcpStream, status: &str, html: &str) {
     // The browser may already have gone; the sign-in does not depend on this page arriving.
     if stream.write_all(reply.as_bytes()).is_err() || stream.flush().is_err() {
         log::debug!("trình duyệt đã đóng trước khi nhận trang kết quả");
+        return;
+    }
+    if stream.shutdown(Shutdown::Write).is_err() {
+        return;
+    }
+    drain(&mut stream);
+}
+
+/// Reads and discards what the peer still sends, until it closes, `CLOSE_GRACE` passes or
+/// `MAX_REQUEST` bytes are thrown away.
+fn drain(stream: &mut TcpStream) {
+    let deadline = Instant::now() + CLOSE_GRACE;
+    let mut chunk = [0_u8; 1024];
+    let mut drained = 0;
+    while drained < MAX_REQUEST {
+        let Some(left) = deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()) else { break };
+        if stream.set_read_timeout(Some(left)).is_err() {
+            break;
+        }
+        match stream.read(&mut chunk) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => drained += n,
+        }
     }
 }
 
+/// Whether `head` holds a whole request head: the blank line after the headers.
+fn head_is_complete(head: &[u8]) -> bool {
+    head.windows(4).any(|w| w == b"\r\n\r\n") || head.windows(2).any(|w| w == b"\n\n")
+}
+
 /// The first line of the request the browser sent: `GET /?code=… HTTP/1.1`.
+///
+/// The whole head is read first, so nothing is left unread when the reply is sent (see
+/// [`respond`]). A client that stalls, closes early or sends too much still yields its first line.
 fn read_request_line(stream: &mut TcpStream) -> Option<String> {
     stream.set_nonblocking(false).ok()?;
-    stream.set_read_timeout(Some(REQUEST_TIMEOUT)).ok()?;
+    let deadline = Instant::now() + REQUEST_TIMEOUT;
     let mut buf = Vec::new();
     let mut chunk = [0_u8; 1024];
-    while buf.len() < MAX_REQUEST && !buf.contains(&b'\n') {
+    while buf.len() < MAX_REQUEST && !head_is_complete(&buf) {
+        let Some(left) = deadline.checked_duration_since(Instant::now()).filter(|d| !d.is_zero()) else { break };
+        stream.set_read_timeout(Some(left)).ok()?;
         match stream.read(&mut chunk) {
             Ok(0) | Err(_) => break,
             Ok(n) => buf.extend_from_slice(&chunk[..n]),
@@ -622,6 +661,14 @@ mod tests {
         assert!(Tokens { access_token: String::new(), ..tokens.clone() }.is_expired(0), "no access token is expired");
         let shown = format!("{tokens:?}");
         assert!(!shown.contains("secret") && !shown.contains("also"), "{shown}");
+    }
+
+    #[test]
+    fn a_request_head_is_complete_at_the_blank_line() {
+        assert!(!head_is_complete(b""));
+        assert!(!head_is_complete(b"GET / HTTP/1.1\r\nHost: x\r\n"), "headers still to come");
+        assert!(head_is_complete(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n"));
+        assert!(head_is_complete(b"GET / HTTP/1.1\nHost: x\n\n"), "bare line feeds");
     }
 
     #[test]
