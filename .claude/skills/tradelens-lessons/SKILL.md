@@ -86,6 +86,10 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
   - After changing UI code, run `cargo test -p nsh-app-tradelens --lib -- --nocapture --test-threads=1 2>&1 | grep -c "panicked"`. It must print 0.
   - Such a panic is a real bug to find the cause of, not teardown noise.
   - To narrow it down fast, split the harness into small probe components.
+- **"invalid metadata" / "can't find crate" on Windows:** read the `note:` lines before blaming the cache.
+  - `os error 1455` ("The paging file is too small") means rustc ran out of virtual memory: twelve parallel jobs each linking a test binary with full debug info.
+  - The cache is fine, so deleting `target` only costs a full rebuild. Build with `CARGO_BUILD_JOBS=4 cargo test --workspace --no-run` first, then run `scripts/quality.sh`, which reuses that build.
+  - Also don't run `quality.sh` in the background as a turn ends. The `Stop` hook runs it at the same time over the same `target`.
 - **Temp dirs:** every test database lives in a `tempfile::TempDir` through `Fixture`, so it is removed afterwards. Leaked `.tmp*` folders once filled the disk.
 - **Regression tests:** before trusting a new test, revert the fix, confirm the test fails, then restore the fix.
 
