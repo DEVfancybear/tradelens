@@ -459,7 +459,7 @@ mod tests {
 
     use nsh_core::{Size, platform::Os};
     use nsh_engine::{Clock, EngineConfig, Root};
-    use nsh_testing::Headless;
+    use nsh_testing::{DragOptions, Headless};
     use tradelens_core::attachments::Source;
 
     use super::*;
@@ -534,7 +534,7 @@ mod tests {
         let mut config = EngineConfig {
             viewport: Size::new(px(1000.0), px(700.0)),
             data_dir: Some(dir.path().to_path_buf()),
-            ..EngineConfig::new(Root::of::<Harness>())
+            ..EngineConfig::new(nsh_testing::windowed_root::<Harness>())
         };
         // A desktop that delivers keys to the focused view, and takes dropped files.
         config.environment.os = Os::Linux;
@@ -556,7 +556,8 @@ mod tests {
     fn dragging_a_handle_reports_the_new_order() {
         let (_dir, mut app) = fixture();
         // One tile and a gap to the right: the first picture lands second.
-        app.drag("label:Kéo để đổi thứ tự Ảnh chart 1", point(px(210.0), px(0.0))).expect("drags");
+        app.drag("label:Kéo để đổi thứ tự Ảnh chart 1", point(px(210.0), px(0.0)), DragOptions::default())
+            .expect("drags");
         app.wait_for("order images/b.png,images/a.png,images/c.png").expect("the callback got the new order");
     }
 

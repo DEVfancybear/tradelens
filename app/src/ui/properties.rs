@@ -1216,8 +1216,8 @@ mod tests {
     use std::time::Duration;
 
     use nsh_core::{Size, platform::Os};
-    use nsh_engine::{EngineConfig, Root};
-    use nsh_testing::{DialogAnswer, Headless};
+    use nsh_engine::EngineConfig;
+    use nsh_testing::{DialogAnswer, DragOptions, Headless};
 
     use super::*;
 
@@ -1375,8 +1375,10 @@ mod tests {
     const ORDER: &str = "order Kế hoạch ngày|Tổng kết|Tâm trạng|Khung vào lệnh|Ghi chú riêng";
 
     fn start() -> Headless {
-        let mut config =
-            EngineConfig { viewport: Size::new(px(1000.0), px(900.0)), ..EngineConfig::new(Root::of::<Harness>()) };
+        let mut config = EngineConfig {
+            viewport: Size::new(px(1000.0), px(900.0)),
+            ..EngineConfig::new(nsh_testing::windowed_root::<Harness>())
+        };
         config.environment.os = Os::Linux;
         let mut app = Headless::start(config).expect("the engine starts");
         app.wait_for(ORDER).expect("the harness shows");
@@ -1404,7 +1406,8 @@ mod tests {
     #[test]
     fn dragging_a_row_reorders_the_layout() {
         let mut app = start();
-        app.drag("label:Kéo để đổi thứ tự Kế hoạch ngày", point(px(0.0), px(900.0))).expect("drags");
+        app.drag("label:Kéo để đổi thứ tự Kế hoạch ngày", point(px(0.0), px(900.0)), DragOptions::default())
+            .expect("drags");
         app.wait_for("order Tổng kết|Tâm trạng|Khung vào lệnh|Ghi chú riêng|Kế hoạch ngày").expect("it went last");
     }
 

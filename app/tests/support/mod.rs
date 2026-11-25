@@ -11,7 +11,7 @@ use std::{
 };
 
 use nsh_core::{Size, prelude::px};
-use nsh_engine::{EngineConfig, Root};
+use nsh_engine::EngineConfig;
 use nsh_testing::Headless;
 use tradelens_core::Db;
 
@@ -52,7 +52,7 @@ impl Fixture {
         let mut config = EngineConfig {
             viewport: Size::new(px(width), px(height)),
             data_dir: Some(self.path().to_path_buf()),
-            ..EngineConfig::new(Root::of::<nsh_app_tradelens::Workspace>())
+            ..EngineConfig::new(nsh_testing::windowed_root::<nsh_app_tradelens::Workspace>())
         };
         tweak(&mut config);
         let mut app = Headless::start(config).expect("the app starts");
