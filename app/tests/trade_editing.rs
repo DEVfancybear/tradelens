@@ -506,3 +506,30 @@ fn enter_on_the_row_the_keyboard_selected_opens_that_trade() {
     app.wait_for_within("Chi tiết lệnh", WAIT).expect("a trade opens");
     assert!(app.screen().shows("EURUSD"), "the trade is the next row's: {:?}", app.screen().texts());
 }
+
+#[test]
+fn the_last_column_ends_at_the_right_edge_of_the_table_whatever_the_window() {
+    let fixture = Fixture::new();
+    let mut db = fixture.db();
+    typed_in(&mut db, &typed("EURUSD", "2026.11.19 08:00:00", "2026.11.19 09:00:00"));
+    drop(db);
+    // The columns of the figures keep their widths and the Setup column grows into the rest, so the
+    // last title stands the same distance from the table's right edge in a window and in a wider one.
+    let distance_to_right_edge = |width: f32| {
+        let mut app = fixture.start(width, 900.0, |_| {});
+        app.press("role:button[Lệnh]").expect("the trades row");
+        app.wait_for_within("Hiển thị 1 / 1 lệnh", WAIT).expect("the trade");
+        app.wait_for_within("Nhật ký", WAIT).expect("the last title");
+        let table = app.screen().layout("label:Danh sách lệnh").expect("one table").expect("the table is on screen");
+        let nodes = app.screen().layout_nodes();
+        let title = nodes
+            .iter()
+            .find(|node| node.text.as_ref().is_some_and(|shown| shown.text.text == "Nhật ký"))
+            .expect("the title of the last column is on screen");
+        table.bounds.origin.x.0 + table.bounds.size.width.0 - title.bounds.origin.x.0
+    };
+    let narrow = distance_to_right_edge(1400.0);
+    let wide = distance_to_right_edge(1700.0);
+    assert!((wide - narrow).abs() < 2.0, "the last title is {narrow} points from the edge, then {wide}");
+    assert!(narrow < 120.0, "the last column is its own width from the edge, not a setup column's: {narrow}");
+}

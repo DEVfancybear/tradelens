@@ -72,7 +72,7 @@ const SORT_BUTTON: f32 = 20.0;
 /// The width of the column of selection boxes.
 const SELECT_WIDTH: f32 = 44.0;
 
-/// The least the setup column gets; it takes what the others leave.
+/// The least the setup column gets; it grows into what the others leave.
 const SETUP_MIN: f32 = 96.0;
 
 /// Which columns a table has: the trades page has them all, the overview's list the design's seven.
@@ -100,11 +100,11 @@ fn figure_column(title: &str, figure: usize, sorting: Sortable) -> f32 {
     (CELL_PADDING + sort + widest).ceil()
 }
 
-/// The columns of a table `available` points wide: the widths below, and what is left over goes to
-/// the setup column, so that the rows reach the right edge of the card. The figure columns have the
-/// width their figures and titles need; the setup column is the one that gives (its chip is cut with
-/// an ellipsis when it is narrow).
-fn columns(sorting: Sortable, shape: Shape, available: f32) -> Vec<DataTableColumn> {
+/// The columns of a table. The figure columns start from the width their figures and titles need and
+/// are fitted to what they show once the rows come (`auto_fit`), never narrower than that start; the
+/// setup column grows into what is left, so that the rows reach the right edge of the card (its chip
+/// is cut with an ellipsis when it is narrow).
+fn columns(sorting: Sortable, shape: Shape) -> Vec<DataTableColumn> {
     use DataTableAlign::{End, Start};
     use Sortable::No;
     let lot = figure_column("Lot", 5, sorting);
@@ -133,13 +133,26 @@ fn columns(sorting: Sortable, shape: Shape, available: f32) -> Vec<DataTableColu
             column("setup", "Setup", SETUP_MIN, No, Start),
         ],
     };
-    let used: f32 = list.iter().filter_map(|c| c.width).map(|w| w.0).sum();
-    let spare = (available - used).max(0.0);
-    if let Some(setup) = list.iter_mut().find(|c| c.key.as_ref() == "setup") {
-        let own = setup.width.map_or(0.0, |w| w.0);
-        setup.width = Some(px(own + spare));
+    for column in &mut list {
+        match column.key.as_ref() {
+            "setup" => {
+                column.min_width = column.width;
+                column.grow = Some(1.0);
+            }
+            "symbol" | "lot" | "hold" | "net" | "r" => fit_to_content(column, sorting),
+            _ => {}
+        }
     }
     list
+}
+
+/// Lets the column fit its widest text and title once the rows come, from the width it starts with up.
+/// A cell is padded and a sortable title ends in its sort button, which the fit does not measure.
+fn fit_to_content(column: &mut DataTableColumn, sorting: Sortable) {
+    let sort = if sorting == Sortable::Yes { SORT_BUTTON } else { 0.0 };
+    column.min_width = column.width;
+    column.fit_padding = Some(px(CELL_PADDING + sort));
+    column.auto_fit = true;
 }
 
 fn rows_of(cells: &[TradeCells]) -> DataTableRows {
@@ -282,8 +295,6 @@ fn build(
     (on_open, on_select): (impl Fn(usize) + Copy + 'static, impl Fn(usize, bool) + Copy + 'static),
     empty: impl Fn() -> (String, String) + Copy + 'static,
 ) -> impl IntoElement {
-    // The width the table has: its columns share it, so that the rows reach the card's right edge.
-    let available = signal(0.0_f32);
     let mut classes = DataTableClasses::default();
     classes.root = Some("rounded-lg border border-border bg-card".into());
     classes.header = Some("border-b border-border bg-secondary/50".into());
@@ -303,74 +314,62 @@ fn build(
         Some(Sorting { current, change }) => (Some(current), Some(change), Sortable::Yes),
         None => (None, None, Sortable::No),
     };
-    view()
-        .flex_1()
-        .min_w(px(0.0))
-        .on_layout(move |bounds: &Bounds<Points>| {
-            let width = bounds.size.width.0;
-            if (available.get_untracked() - width).abs() > 0.5 {
-                available.set(width);
-            }
-        })
-        .child(
-            data_table()
-                .flex_1()
-                .accessibility_label("Danh sách lệnh")
-                .columns(move || columns(sortable, shape, available.get() - TABLE_BORDER))
-                .data(move || rows_of(&rows()))
-                .row_height(px(ROW_HEIGHT))
-                .header_height(px(HEADER_HEIGHT))
-                .column_selectable(false)
-                .movable_columns(false)
-                .classes(classes)
-                .sort(move || {
-                    current.as_ref().and_then(|current| current()).map(|s| {
-                        let mut sort = DataTableSort::default();
-                        sort.key = s.key;
-                        sort.direction = if s.ascending {
-                            DataTableSortDirection::Ascending
-                        } else {
-                            DataTableSortDirection::Descending
-                        };
-                        sort
-                    })
+    view().flex_1().min_w(px(0.0)).child(
+        data_table()
+            .flex_1()
+            .accessibility_label("Danh sách lệnh")
+            .columns(columns(sortable, shape))
+            .data(move || rows_of(&rows()))
+            .row_height(px(ROW_HEIGHT))
+            .header_height(px(HEADER_HEIGHT))
+            .column_selectable(false)
+            .movable_columns(false)
+            .classes(classes)
+            .sort(move || {
+                current.as_ref().and_then(|current| current()).map(|s| {
+                    let mut sort = DataTableSort::default();
+                    sort.key = s.key;
+                    sort.direction = if s.ascending {
+                        DataTableSortDirection::Ascending
+                    } else {
+                        DataTableSortDirection::Descending
+                    };
+                    sort
                 })
-                .on_sort_change(move |next: &Option<DataTableSort>| {
-                    if let Some(change) = &change {
-                        change(next.as_ref().map(|s| TableSort {
-                            key: s.key.clone(),
-                            ascending: s.direction == DataTableSortDirection::Ascending,
-                        }));
-                    }
-                })
-                // The rows the trader ticked are lit, as the design lights them.
-                .row_classes(move || {
-                    rows()
-                        .iter()
-                        .map(|cells| SharedString::from(if cells.select.starts_with('1') { "bg-accent" } else { "" }))
-                        .collect::<Vec<_>>()
-                })
-                .on_row_press(move |press: &DataTablePress| {
-                    if let Ok(row) = usize::try_from(press.row) {
-                        // The first column of the full table holds the boxes: a press there selects, a press
-                        // anywhere else on the row opens it.
-                        if shape == Shape::Full && press.column == Some(0) {
-                            on_select(row, press.shift);
-                        } else {
-                            on_open(row);
-                        }
-                    }
-                })
-                // Enter on the row the keyboard selected opens it, as a press on it does.
-                .on_row_activate(move |row: &u32| {
-                    if let Ok(row) = usize::try_from(*row) {
+            })
+            .on_sort_change(move |next: &Option<DataTableSort>| {
+                if let Some(change) = &change {
+                    change(next.as_ref().map(|s| TableSort {
+                        key: s.key.clone(),
+                        ascending: s.direction == DataTableSortDirection::Ascending,
+                    }));
+                }
+            })
+            // The rows the trader ticked are lit, as the design lights them.
+            .row_classes(move || {
+                rows()
+                    .iter()
+                    .map(|cells| SharedString::from(if cells.select.starts_with('1') { "bg-accent" } else { "" }))
+                    .collect::<Vec<_>>()
+            })
+            .on_row_press(move |press: &DataTablePress| {
+                if let Ok(row) = usize::try_from(press.row) {
+                    // The first column of the full table holds the boxes: a press there selects, a press
+                    // anywhere else on the row opens it.
+                    if shape == Shape::Full && press.column == Some(0) {
+                        on_select(row, press.shift);
+                    } else {
                         on_open(row);
                     }
-                })
-                .render_cell(move |c: &DataTableCell| cell(c, sortable, on_open))
-                .empty(empty_state(move || empty().0, move || empty().1)),
-        )
+                }
+            })
+            // Enter on the row the keyboard selected opens it, as a press on it does.
+            .on_row_activate(move |row: &u32| {
+                if let Ok(row) = usize::try_from(*row) {
+                    on_open(row);
+                }
+            })
+            .render_cell(move |c: &DataTableCell| cell(c, sortable, on_open))
+            .empty(empty_state(move || empty().0, move || empty().1)),
+    )
 }
-
-/// The card's border, left and right, which the columns do not have.
-const TABLE_BORDER: f32 = 2.0;
