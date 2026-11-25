@@ -88,6 +88,12 @@ pub(crate) enum Load {
 
 type SharedDb = Arc<Mutex<Db>>;
 
+/// Work that waits for the database to open; it is given the database, or `None` when opening failed.
+type WhenOpen = Box<dyn FnOnce(Option<SharedDb>)>;
+
+/// What a read or a write says when the database could not be opened.
+const NOT_OPEN: &str = "Chưa mở được cơ sở dữ liệu.";
+
 #[derive(Clone, Copy)]
 pub(crate) struct Store {
     pub(crate) accounts: Signal<AccountFilter>,
@@ -106,6 +112,9 @@ pub(crate) struct Store {
     db: Stored<Option<SharedDb>>,
     /// The newest read asked for: an older one finishing later is dropped.
     generation: Stored<u64>,
+    /// What was asked of the database before it was open: each runs once it is, or once opening has
+    /// failed (`None`).
+    waiting: Stored<Vec<WhenOpen>>,
 }
 
 impl Store {
@@ -121,6 +130,7 @@ impl Store {
             ready: signal(false),
             db: stored(None),
             generation: stored(0),
+            waiting: stored(Vec::new()),
         }
     }
 
@@ -189,21 +199,44 @@ impl Store {
         op: impl FnOnce(&Db) -> Result<T, DbError> + Send + 'static,
         done: impl FnOnce(Result<T, String>) + 'static,
     ) {
-        let Some(db) = self.db.get() else {
-            return done(Err("Chưa mở được cơ sở dữ liệu.".to_owned()));
-        };
-        spawn(async move {
-            let read = blocking(move || {
-                let db = db.lock().expect("database lock poisoned");
-                op(&db)
-            })
-            .await;
-            done(match read {
-                Ok(Ok(value)) => Ok(value),
-                Ok(Err(error)) => Err(format!("Không đọc được dữ liệu: {error}")),
-                Err(error) => Err(format!("Luồng đọc dữ liệu bị dừng: {error}")),
+        self.when_open(move |db| {
+            let Some(db) = db else {
+                return done(Err(NOT_OPEN.to_owned()));
+            };
+            spawn(async move {
+                let read = blocking(move || {
+                    let db = db.lock().expect("database lock poisoned");
+                    op(&db)
+                })
+                .await;
+                done(match read {
+                    Ok(Ok(value)) => Ok(value),
+                    Ok(Err(error)) => Err(format!("Không đọc được dữ liệu: {error}")),
+                    Err(error) => Err(format!("Luồng đọc dữ liệu bị dừng: {error}")),
+                });
             });
         });
+    }
+
+    /// Runs `job` with the database: at once when it is open, else as soon as it is (or, when opening
+    /// failed, at once with `None`). Nothing is polled: [`Store::open`] hands the database over.
+    fn when_open(self, job: impl FnOnce(Option<SharedDb>) + 'static) {
+        if let Some(db) = self.db.get() {
+            return job(Some(db));
+        }
+        if matches!(self.load.get_untracked(), Load::Failed(_)) {
+            return job(None);
+        }
+        let mut jobs = self.waiting.replace(Vec::new());
+        jobs.push(Box::new(job));
+        self.waiting.replace(jobs);
+    }
+
+    /// Hands the database (`None`: opening failed) to what waited for it.
+    fn flush_waiting(self, db: Option<&SharedDb>) {
+        for job in self.waiting.replace(Vec::new()) {
+            job(db.map(Arc::clone));
+        }
     }
 
     /// Replaces the database file with another one, for restoring a backup. The open database is
@@ -270,15 +303,20 @@ impl Store {
             .await;
             match opened {
                 Ok(Ok(db)) => {
-                    self.db.replace(Some(db));
+                    self.db.replace(Some(Arc::clone(&db)));
                     self.ready.set(true);
+                    self.flush_waiting(Some(&db));
                     self.reload();
                 }
                 Ok(Err(error)) => {
                     log::error!("database: {error}");
                     self.load.set(Load::Failed(format!("Không mở được cơ sở dữ liệu: {error}")));
+                    self.flush_waiting(None);
                 }
-                Err(error) => self.load.set(Load::Failed(format!("Luồng mở dữ liệu bị dừng: {error}"))),
+                Err(error) => {
+                    self.load.set(Load::Failed(format!("Luồng mở dữ liệu bị dừng: {error}")));
+                    self.flush_waiting(None);
+                }
             }
         });
     }
@@ -510,31 +548,35 @@ impl Writer {
         done: impl FnOnce(Result<T, String>) + 'static,
     ) {
         let store = self.store;
-        let Some(db) = store.db.get() else {
-            return done(Err("Chưa mở được cơ sở dữ liệu.".to_owned()));
-        };
-        spawn(async move {
-            let written = blocking(move || {
-                let mut db = db.lock().expect("database lock poisoned");
-                let stored = op(&mut db);
-                if stored.is_ok() {
-                    // Bumped on the writing thread, not after the await: the screen that asked may
-                    // be left while this runs, which ends its task, and the pages must still read
-                    // the change (the store's poll sees the revision).
-                    data_changed();
-                }
-                stored
-            })
-            .await;
-            let outcome = match written {
-                Ok(Ok(value)) => Ok(value),
-                Ok(Err(error)) => Err(format!("Không ghi được dữ liệu: {error}")),
-                Err(error) => Err(format!("Luồng ghi dữ liệu bị dừng: {error}")),
+        // A write asked for while the database is still opening (a file dropped right after the
+        // launch) waits for it; it fails only when opening did.
+        store.when_open(move |db| {
+            let Some(db) = db else {
+                return done(Err(NOT_OPEN.to_owned()));
             };
-            if outcome.is_ok() {
-                store.revision.set(revision().get());
-            }
-            done(outcome);
+            spawn(async move {
+                let written = blocking(move || {
+                    let mut db = db.lock().expect("database lock poisoned");
+                    let stored = op(&mut db);
+                    if stored.is_ok() {
+                        // Bumped on the writing thread, not after the await: the screen that asked
+                        // may be left while this runs, which ends its task, and the pages must still
+                        // read the change (the store's poll sees the revision).
+                        data_changed();
+                    }
+                    stored
+                })
+                .await;
+                let outcome = match written {
+                    Ok(Ok(value)) => Ok(value),
+                    Ok(Err(error)) => Err(format!("Không ghi được dữ liệu: {error}")),
+                    Err(error) => Err(format!("Luồng ghi dữ liệu bị dừng: {error}")),
+                };
+                if outcome.is_ok() {
+                    store.revision.set(revision().get());
+                }
+                done(outcome);
+            });
         });
     }
 }
@@ -656,6 +698,62 @@ mod tests {
             app.press("Ghi a hai").expect("the second write");
             app.wait_for_within("got Some(\"two\")", Duration::from_secs(5)).expect("and again after the next");
             app.wait_for("loading false").expect("a read that is done is not loading");
+        }
+
+        /// Asks for a write and a read while it is being built, before the database has had the time
+        /// to open on its own thread, and says how each went.
+        #[component]
+        fn EarlyAsks() -> impl IntoElement {
+            crate::ui::theme::install();
+            provide();
+            let wrote = signal(String::from("write waiting"));
+            let read = signal(String::from("read waiting"));
+            writer().run(
+                |db| db.set_setting("early", "yes"),
+                move |result| wrote.set(format!("write {}", result.map_or_else(|error| error, |()| "ok".to_owned()))),
+            );
+            store().read(
+                |db| db.setting("early"),
+                move |result| {
+                    read.set(format!("read {}", result.map_or_else(|error| error, |value| format!("{value:?}"))));
+                },
+            );
+            view().child(text(move || wrote.get())).child(text(move || read.get()))
+        }
+
+        fn start_early(database: impl FnOnce(&std::path::Path)) -> (tempfile::TempDir, Headless) {
+            let dir = tempfile::tempdir().expect("a temp dir");
+            database(&dir.path().join(DB_FILE));
+            let config = EngineConfig {
+                viewport: Size::new(nsh_core::prelude::px(600.0), nsh_core::prelude::px(500.0)),
+                data_dir: Some(dir.path().to_path_buf()),
+                ..EngineConfig::new(Root::of::<EarlyAsks>())
+            };
+            (dir, Headless::start(config).expect("the engine starts"))
+        }
+
+        #[test]
+        fn a_write_asked_for_before_the_database_opens_is_applied_once_it_does() {
+            let (dir, mut app) = start_early(|path| {
+                Db::open(path).expect("the database opens");
+            });
+            app.wait_for_within("write ok", Duration::from_secs(30)).expect("the early write was applied");
+            let stored = Db::open(dir.path().join(DB_FILE)).expect("opens").setting("early").expect("reads");
+            assert_eq!(stored.as_deref(), Some("yes"), "the write reached the database");
+            // The read asked for at the same time ran after the database opened too (order of the two is
+            // theirs: it saw the value or not, but it did not fail).
+            app.wait_for_within("text:/^read (None|Some)/", Duration::from_secs(30))
+                .expect("the early read was served");
+        }
+
+        #[test]
+        fn a_write_asked_for_before_the_database_opens_fails_once_opening_has() {
+            // A folder where the database file should be: opening it fails.
+            let (_dir, mut app) = start_early(|path| std::fs::create_dir(path).expect("a folder in the way"));
+            app.wait_for_within("write Chưa mở được cơ sở dữ liệu.", Duration::from_secs(30))
+                .expect("the write is told the database is not open");
+            app.wait_for_within("read Chưa mở được cơ sở dữ liệu.", Duration::from_secs(30))
+                .expect("and so is the read");
         }
 
         #[test]
