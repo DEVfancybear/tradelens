@@ -7,6 +7,7 @@ use tradelens_core::{
     Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, Rules, TradeKey, model::AccountInfo, time::parse_mt5_time,
 };
 
+mod server_clock;
 #[expect(dead_code, reason = "this file waits on the screen only, never on a background write")]
 mod support;
 use support::WAIT;
@@ -212,6 +213,7 @@ fn the_overview_shows_todays_discipline_the_month_and_the_symbols() {
     let mut deals = closed_at(1, "EURUSD", now_ms(), 30.0);
     deals.extend(closed_at(2, "XAUUSD", now_ms(), -50.0));
     db.upsert_batch(&batch(deals), "test").expect("the batch is stored");
+    server_clock::on_utc(&mut db);
     let account = db.accounts().expect("accounts read").remove(0).id;
     let rules = Rules { max_daily_loss: Some(300.0), max_daily_trades: Some(5), ..Rules::default() };
     db.save_rules(account, &rules).expect("the rules are stored");

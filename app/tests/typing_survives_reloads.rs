@@ -309,7 +309,8 @@ fn a_review_stored_elsewhere_while_its_answers_are_typed_does_not_take_the_typin
     app.wait_for("label:3 điều làm tốt tuần này").expect("the questions show");
 
     // Another window (or another device's sync) stores this week's review while the trader writes.
-    let start_of_week = Period::Week.bounds(chrono::Utc::now().date_naive()).0;
+    // No account is known, so the page counts the week on the machine's own clock.
+    let start_of_week = Period::Week.bounds(chrono::Local::now().date_naive()).0;
     let mut other = fixture.db();
     let mut rating = 0;
     type_through_changes(&mut app, "label:3 điều làm tốt tuần này", &["cho", "retest", "dung"], || {

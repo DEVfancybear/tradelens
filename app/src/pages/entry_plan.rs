@@ -29,6 +29,7 @@ use crate::{
         parts::{error_line, warning_banner},
         theme as tokens,
     },
+    zone,
 };
 
 /// Width of the dialog's panel, in points.
@@ -125,12 +126,6 @@ pub(crate) fn reward_risk_text(entry: Option<f64>, stop_loss: Option<f64>, take_
     plan.reward_risk().map_or_else(|| "—".to_owned(), |rr| format!("1 : {rr:.1}"))
 }
 
-/// The time of writing on the broker server's clock, which is what trades are timed in, so
-/// that "written before the close" compares like with like.
-pub(crate) fn server_time(now_utc_ms: i64, server_offset_min: Option<i32>) -> i64 {
-    now_utc_ms + server_offset_min.map_or(0, |m| i64::from(m) * 60_000)
-}
-
 /// The rules of the account that the plan, as it stands, would break by taking the trade:
 /// the risk per trade (the planned `risk` in money over the account's balance), the trades of
 /// the day, the day's loss and the losing streak. One line each, in Vietnamese; empty when
@@ -145,6 +140,7 @@ fn plan_warnings(
     request: &PlanRequest,
     planned_risk: Option<f64>,
     now_utc_ms: i64,
+    local_offset_min: i32,
 ) -> Result<Vec<String>, DbError> {
     let key = request.target.clone();
     let rules = db.rules(key.account_id)?;
@@ -155,7 +151,7 @@ fn plan_warnings(
         key: key.clone(),
         symbol: request.symbol.clone(),
         side: request.side,
-        open_time: server_time(now_utc_ms, own.account.server_offset_min),
+        open_time: zone::stored_now(own.account.server_offset_min, local_offset_min, now_utc_ms),
         close_time: None,
         volume: request.volume.unwrap_or_default(),
         open_price: request.seed.entry.unwrap_or_default(),
@@ -235,7 +231,13 @@ struct Draft {
 }
 
 /// Writes the plan, the setup and the checklist over the entry stored now.
-fn save_plan(db: &mut Db, key: &TradeKey, draft: &Draft, now_utc_ms: i64) -> Result<(), DbError> {
+fn save_plan(
+    db: &mut Db,
+    key: &TradeKey,
+    draft: &Draft,
+    now_utc_ms: i64,
+    local_offset_min: i32,
+) -> Result<(), DbError> {
     let offset = db.accounts()?.into_iter().find(|a| a.id == key.account_id).and_then(|a| a.server_offset_min);
     let mut entry = db.journal(key)?.unwrap_or_default();
     entry.plan = Some(EntryPlan {
@@ -245,7 +247,8 @@ fn save_plan(db: &mut Db, key: &TradeKey, draft: &Draft, now_utc_ms: i64) -> Res
         take_profit: draft.take_profit,
         risk: draft.risk,
         timeframe: draft.timeframe.clone().unwrap_or_default(),
-        written_at: server_time(now_utc_ms, offset),
+        // On the scale trade times are stored on, so "written before the close" compares like with like.
+        written_at: zone::stored_now(offset, local_offset_min, now_utc_ms),
     });
     if draft.playbook_id.is_some() {
         entry.playbook_id = draft.playbook_id;
@@ -428,7 +431,9 @@ fn setup_fields(fields: Fields, choices: Reading<Choices>) -> impl IntoElement {
 fn rule_warnings(request: PlanRequest, risk: Signal<Option<f64>>) -> Memo<Vec<String>> {
     let read = query_with(
         move || risk.get(),
-        move |db, _, risk| plan_warnings(db, &request, *risk, chrono::Utc::now().timestamp_millis()),
+        move |db, _, risk| {
+            plan_warnings(db, &request, *risk, chrono::Utc::now().timestamp_millis(), zone::local_offset_min())
+        },
     );
     computed(move || read.value().map_or_default(|lines| lines.to_vec()))
 }
@@ -451,7 +456,9 @@ fn panel(request: &PlanRequest) -> impl IntoElement {
             failure.set(None);
             let saved = target.clone();
             write.run(
-                move |db| save_plan(db, &target, &draft, chrono::Utc::now().timestamp_millis()),
+                move |db| {
+                    save_plan(db, &target, &draft, chrono::Utc::now().timestamp_millis(), zone::local_offset_min())
+                },
                 move |result| {
                     busy.set(false);
                     match result {
@@ -632,9 +639,44 @@ mod tests {
     }
 
     #[test]
-    fn the_time_of_writing_is_on_the_servers_clock() {
-        assert_eq!(server_time(1_000_000, Some(120)), 1_000_000 + 7_200_000);
-        assert_eq!(server_time(1_000_000, None), 1_000_000);
+    fn the_time_of_writing_is_on_the_scale_trade_times_are_stored_on() {
+        use tradelens_core::{AccountInfo, time::parse_mt5_time};
+        let mut db = Db::in_memory().expect("opens");
+        let draft = Draft {
+            thesis: "Phá đỉnh".into(),
+            entry: None,
+            stop_loss: None,
+            take_profit: None,
+            risk: None,
+            timeframe: None,
+            playbook_id: None,
+            grade: None,
+            emotion: None,
+            checklist: Vec::new(),
+        };
+        // 17:06 UTC on the 25th: 00:06 on the 26th for a trader at UTC+7, 19:06 on the 25th at UTC+2.
+        let now = parse_mt5_time("2026.11.25 17:06:00").expect("a time");
+        for (server_offset_min, written) in [(None, "2026.11.26 00:06:00"), (Some(120), "2026.11.25 19:06:00")] {
+            let login = format!("{server_offset_min:?}");
+            let account = db
+                .upsert_account(&AccountInfo { login, server: "S".into(), server_offset_min, ..AccountInfo::default() })
+                .expect("account");
+            let key = TradeKey { account_id: account, position_id: 1, segment: 0 };
+            save_plan(&mut db, &key, &draft, now, 420).expect("the plan is saved");
+            let plan = db.journal(&key).expect("reads").and_then(|entry| entry.plan).expect("a plan");
+            assert_eq!(plan.written_at, parse_mt5_time(written).expect("a time"), "offset {server_offset_min:?}");
+        }
+    }
+
+    #[test]
+    fn the_planned_trade_is_judged_on_the_day_the_trader_is_on() {
+        let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(1), ..Rules::default() });
+        // The account has no offset and a trade at 09:00 on the 20th, on the trader's own clock.
+        // 17:06 UTC on the 20th is still the 20th for a trader at UTC+0 (the day's second trade) but
+        // 00:06 on the 21st at UTC+7 (the first trade of its day).
+        let now = tradelens_core::time::parse_mt5_time("2026.11.20 17:06:00").expect("a time");
+        assert_eq!(plan_warnings(&db, &request, None, now, 0).expect("reads").len(), 1);
+        assert_eq!(plan_warnings(&db, &request, None, now, 420).expect("reads"), no_warnings());
     }
 
     /// An account with a balance of 10,000, one closed trade today, and `rules`.
@@ -693,30 +735,33 @@ mod tests {
     #[test]
     fn a_planned_risk_over_the_accounts_limit_is_warned_about() {
         let (db, request) = account_with_rules(&Rules { max_risk_pct: Some(1.5), ..Rules::default() });
-        let warned = plan_warnings(&db, &request, Some(300.0), at_noon()).expect("reads");
+        let warned = plan_warnings(&db, &request, Some(300.0), at_noon(), 0).expect("reads");
         assert_eq!(warned, ["Risk 3.0% vượt quy tắc 1.5% của tài khoản 52012345 · Demo."]);
-        assert!(plan_warnings(&db, &request, Some(100.0), at_noon()).expect("reads").is_empty(), "1% is within it");
-        assert!(plan_warnings(&db, &request, None, at_noon()).expect("reads").is_empty(), "no risk, nothing to judge");
+        assert!(plan_warnings(&db, &request, Some(100.0), at_noon(), 0).expect("reads").is_empty(), "1% is within it");
+        assert!(
+            plan_warnings(&db, &request, None, at_noon(), 0).expect("reads").is_empty(),
+            "no risk, nothing to judge"
+        );
     }
 
     #[test]
     fn the_trades_of_the_day_count_this_one() {
         let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(1), ..Rules::default() });
-        let warned = plan_warnings(&db, &request, None, at_noon()).expect("reads");
+        let warned = plan_warnings(&db, &request, None, at_noon(), 0).expect("reads");
         assert_eq!(warned, ["Lệnh thứ 2 trong ngày vượt quy tắc 1 lệnh/ngày của tài khoản 52012345 · Demo."]);
         let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(2), ..Rules::default() });
-        assert_eq!(plan_warnings(&db, &request, None, at_noon()).expect("reads"), no_warnings());
+        assert_eq!(plan_warnings(&db, &request, None, at_noon(), 0).expect("reads"), no_warnings());
         // Another day: the earlier trade is not today's.
         let tomorrow = at_noon() + 24 * 3_600_000;
         let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(1), ..Rules::default() });
-        assert_eq!(plan_warnings(&db, &request, None, tomorrow).expect("reads"), no_warnings());
+        assert_eq!(plan_warnings(&db, &request, None, tomorrow, 0).expect("reads"), no_warnings());
     }
 
     #[test]
     fn a_losing_streak_and_a_blown_day_are_warned_about() {
         let rules = Rules { max_consecutive_losses: Some(1), max_daily_loss: Some(40.0), ..Rules::default() };
         let (db, request) = account_with_rules(&rules);
-        let warned = plan_warnings(&db, &request, None, at_noon()).expect("reads");
+        let warned = plan_warnings(&db, &request, None, at_noon(), 0).expect("reads");
         assert_eq!(warned.len(), 2, "{warned:?}");
         assert!(warned.iter().any(|w| w.starts_with("Lỗ trong ngày 50.00 đã vượt quy tắc 40.00")));
         assert!(warned.iter().any(|w| w.starts_with("Vào lệnh sau 1 lệnh thua liên tiếp")));
@@ -725,9 +770,9 @@ mod tests {
     #[test]
     fn an_account_without_rules_or_unknown_has_no_warnings() {
         let (db, request) = account_with_rules(&Rules::default());
-        assert_eq!(plan_warnings(&db, &request, Some(5_000.0), at_noon()).expect("reads"), no_warnings());
+        assert_eq!(plan_warnings(&db, &request, Some(5_000.0), at_noon(), 0).expect("reads"), no_warnings());
         let stranger = request_for(request.target.account_id + 1);
-        assert_eq!(plan_warnings(&db, &stranger, Some(5_000.0), at_noon()).expect("reads"), no_warnings());
+        assert_eq!(plan_warnings(&db, &stranger, Some(5_000.0), at_noon(), 0).expect("reads"), no_warnings());
     }
     #[test]
     fn saving_a_plan_writes_it_and_leaves_the_review_flag_as_it_was() {
@@ -754,7 +799,7 @@ mod tests {
             emotion: None,
             checklist: vec![1],
         };
-        save_plan(&mut db, &key, &draft, 5_000).expect("the plan is saved");
+        save_plan(&mut db, &key, &draft, 5_000, 0).expect("the plan is saved");
         let entry = db.journal(&key).expect("reads").expect("an entry");
         let plan = entry.plan.expect("a plan");
         assert_eq!(plan.thesis, "Phá đỉnh phiên Á");
