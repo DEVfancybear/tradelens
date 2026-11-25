@@ -495,8 +495,8 @@ pub(crate) fn commit_field(
 }
 
 /// A one-line field that adds what is typed: Enter, or leaving the field, hands the text to `on_add`
-/// and empties the field, ready for the next one. (A [`commit_field`] over a value that is always
-/// empty would keep the text it added, and add it again when the field is left.)
+/// and empties the field, ready for the next one; Enter keeps the focus in it. (A [`commit_field`] over a
+/// value that is always empty would keep the text it added, and add it again when the field is left.)
 pub(crate) fn add_field(
     label: impl Into<SharedString>,
     placeholder: &'static str,
@@ -516,6 +516,8 @@ pub(crate) fn add_field(
         text_input(label.into(), placeholder, move || draft.get())
             .on_change(move |typed: &str| draft.set(typed.to_owned()))
             .on_submit(move |_: &str| on_enter())
+            // Enter keeps the focus (the default unfocuses): the next one is typed straight away.
+            .submit_behavior(SubmitBehavior::Submit)
             .on_blur(move || add()),
     )
 }
@@ -726,7 +728,9 @@ mod tests {
     }
 
     fn start() -> Headless {
-        let mut app = Headless::start(EngineConfig::new(Root::of::<Harness>())).expect("the engine starts");
+        let mut config = EngineConfig::new(Root::of::<Harness>());
+        config.environment.os = nsh_core::platform::Os::Linux;
+        let mut app = Headless::start(config).expect("the engine starts");
         app.wait_for("pressed ").expect("the harness shows");
         app
     }
@@ -787,10 +791,16 @@ mod tests {
         app.submit("label:Thêm").expect("Enter adds it");
         app.wait_for("added một").expect("it was handed over");
         assert_eq!(app.screen().input_text("label:Thêm"), Ok(Some("")), "and the field is empty again");
+        // Enter keeps the focus: the next keys go to the field, with no click in between.
+        app.press_key("h").expect("typed on the focused field");
+        app.press_key("a").expect("typed on the focused field");
+        assert_eq!(app.screen().input_text("label:Thêm"), Ok(Some("ha")), "the field still has the focus");
+        app.submit("label:Thêm").expect("Enter adds the next");
+        app.wait_for("added một|ha").expect("both were handed over, in order");
         // Leaving the field adds nothing a second time.
         app.press("Đọc lại").expect("takes the focus away");
         app.wait(Duration::from_millis(200)).expect("the app runs");
-        assert!(app.screen().shows("added một"), "added once: {:?}", app.screen().texts());
+        assert!(app.screen().shows("added một|ha"), "each added once: {:?}", app.screen().texts());
     }
 
     #[test]

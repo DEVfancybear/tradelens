@@ -160,7 +160,7 @@ fn editing_the_checklist_keeps_the_ids_of_the_items() {
     app.type_text("label:Checklist dùng chung: mục 1", " (đã sửa)").expect("renames");
     app.submit("label:Checklist dùng chung: mục 1").expect("Enter keeps the name");
     app.type_text("label:Checklist dùng chung: mục mới", "Risk 1.5%").expect("types a new item");
-    app.press("role:button[Thêm vào Checklist dùng chung]").expect("adds it");
+    app.submit("label:Checklist dùng chung: mục mới").expect("Enter adds it");
 
     wait_until("the checklist being saved", || db.checklist(None).expect("reads").len() == 3);
     let after = db.checklist(None).expect("reads");
@@ -373,4 +373,17 @@ fn the_time_display_setting_changes_the_times_the_pages_show() {
     app.press("role:button[Giờ hiển thị: Giờ của bạn]").expect("the trader's clock is chosen again");
     app.press("role:button[Lệnh]").expect("back to the trades");
     app.wait_for(&on_machine).expect("the trader's clock is back");
+}
+
+#[test]
+fn the_settings_button_opens_the_form_editor() {
+    let fixture = Fixture::new();
+    let mut app = fixture.start();
+    app.press("role:button[Cài đặt]").expect("the settings row is a button");
+    app.wait_for("Chế độ màu").expect("the page opens");
+    assert!(app.screen().enabled("role:button[Mở Tuỳ biến form]").expect("the button"), "the button is on");
+    app.press("role:button[Mở Tuỳ biến form]").expect("opens the form editor");
+    app.wait_for("Tuỳ biến form nhập liệu").expect("the editor opens over the page");
+    app.press("Xong").expect("closes the editor");
+    app.wait_for("Chế độ màu").expect("back on the settings");
 }

@@ -5,12 +5,13 @@
 
 use nsh_base::theme;
 use nsh_core::prelude::*;
-use tradelens_core::{Db, DbError, time::TimeDisplay};
+use tradelens_core::{Db, DbError, catalog::FieldScope, time::TimeDisplay};
 
 use crate::{
+    nav,
     store::{Reading, query, writer},
     ui::{
-        controls::{Variant, action_when, segmented},
+        controls::{Variant, action, action_when, segmented},
         forms::setting_row,
         parts::{card, page},
         theme::loss,
@@ -248,11 +249,11 @@ fn data_card(stored: Reading<Stored>) -> impl IntoElement {
                     .pt_3()
                     .child(text("Tuỳ biến form").text_sm().font_weight(FontWeight::MEDIUM))
                     .child(
-                        text("Đổi tên, sắp xếp, ẩn và thêm thuộc tính riêng cho lệnh, nhật ký ngày. Trang này có ở bản tới; hiện có thể sửa thuộc tính ngay trên form ở Nhật ký ngày.")
+                        text("Đổi tên, sắp xếp, ẩn, thêm thuộc tính riêng và đổi kiểu cho từng form: nhật ký lệnh, kế hoạch lúc vào, nhật ký ngày, lệnh bỏ lỡ và tổng kết tuần/tháng. Giá trị đã ghi ở các lệnh cũ được giữ lại.")
                             .text_xs()
                             .text_color(move || theme().muted_foreground),
                     )
-                    .child(action_when("Mở Tuỳ biến form", Variant::Secondary, || false, || {})),
+                    .child(view().flex_row().child(action("Mở Tuỳ biến form", Variant::Secondary, || nav::open_form_editor(FieldScope::Trade)))),
             ),
     )
 }
