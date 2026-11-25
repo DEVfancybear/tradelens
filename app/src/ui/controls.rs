@@ -730,7 +730,7 @@ mod tests {
     }
 
     fn start() -> Headless {
-        let mut config = EngineConfig::new(Root::of::<Harness>());
+        let mut config = EngineConfig::new(nsh_testing::windowed_root::<Harness>());
         config.environment.os = nsh_core::platform::Os::Linux;
         let mut app = Headless::start(config).expect("the engine starts");
         app.wait_for("pressed ").expect("the harness shows");

@@ -458,7 +458,7 @@ mod tests {
     use std::time::Duration;
 
     use nsh_core::{Size, platform::Os};
-    use nsh_engine::{Clock, EngineConfig, Root};
+    use nsh_engine::{Clock, EngineConfig};
     use nsh_testing::{DragOptions, Headless};
     use tradelens_core::attachments::Source;
 
@@ -602,7 +602,7 @@ mod tests {
             viewport: Size::new(px(1000.0), px(700.0)),
             data_dir: Some(dir.path().to_path_buf()),
             clock: Clock::manual(std::time::SystemTime::UNIX_EPOCH),
-            ..EngineConfig::new(Root::of::<Harness>())
+            ..EngineConfig::new(nsh_testing::windowed_root::<Harness>())
         };
         config.environment.os = Os::Linux;
         let mut app = Headless::start(config).expect("the engine starts");

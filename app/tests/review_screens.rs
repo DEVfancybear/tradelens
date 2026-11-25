@@ -338,7 +338,9 @@ fn a_template_is_edited_and_asks_one_more_question() {
     let fixture = Fixture::new();
     let mut app = fixture.start();
     open_page(&mut app, "Tổng kết & xem lại", "Mẫu ghi chú");
-    common::press_until(&mut app, "label:Sửa mẫu Tổng kết tuần", |screen| screen.shows("Thêm câu hỏi"));
+    common::press_until(&mut app, "label:Sửa mẫu Tổng kết tuần", |screen| {
+        screen.matches("role:button[Thêm câu hỏi]").unwrap_or(false)
+    });
     app.press("role:button[Thêm câu hỏi]").expect("a question is added");
     app.type_text("label:Câu hỏi 5", "Điều gì làm bạn bất ngờ?").expect("the question is typed");
     app.press("role:button[Lưu mẫu]").expect("the template is saved");
