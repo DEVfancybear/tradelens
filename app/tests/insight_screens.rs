@@ -212,7 +212,13 @@ fn the_overview_shows_todays_discipline_the_month_and_the_symbols() {
     let mut deals = closed_at(1, "EURUSD", now_ms(), 30.0);
     deals.extend(closed_at(2, "XAUUSD", now_ms(), -50.0));
     db.upsert_batch(&batch(deals), "test").expect("the batch is stored");
-    let account = db.accounts().expect("accounts read").remove(0).id;
+    // A server on UTC: the times above are the clock's own, so they are today on the server's day
+    // whatever the machine's zone is. Without an offset the page uses the machine's day, which
+    // between its midnight and UTC's is another day than the one these trades closed on.
+    let mut account = db.accounts().expect("accounts read").remove(0);
+    account.server_offset_min = Some(0);
+    db.update_account(&account).expect("the server offset is stored");
+    let account = account.id;
     let rules = Rules { max_daily_loss: Some(300.0), max_daily_trades: Some(5), ..Rules::default() };
     db.save_rules(account, &rules).expect("the rules are stored");
     drop(db);
