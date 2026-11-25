@@ -397,3 +397,25 @@ fn onedrive_refreshes_on_401_like_google() {
     onedrive(&mock.base, source).list("changes/").expect("lists after the refresh");
     assert_eq!(store.load(Provider::Microsoft).expect("loads").expect("saved").access_token, "fresh");
 }
+
+#[test]
+fn google_403_for_a_missing_drive_scope_is_the_vietnamese_permission_message() {
+    // What Google answers when the token was granted without the Drive permission.
+    let body = json!({"error": {
+        "code": 403,
+        "message": "Request had insufficient authentication scopes.",
+        "errors": [{"message": "Insufficient Permission", "domain": "global", "reason": "insufficientPermissions"}],
+        "status": "PERMISSION_DENIED"
+    }});
+    let mock = Mock::start(move |_, _| Reply::json(403, &body));
+    let (source, _) = session(Provider::Google, &mock.base, &tokens("tok", 3000));
+    let error = google(&mock.base, source).list("changes/").expect_err("refused");
+    assert!(matches!(error, CloudError::DriveNotGranted), "{error:?}");
+    assert!(error.to_string().contains("tick ô quyền Google Drive"), "{error}");
+
+    // Any other 403 keeps the service's own words.
+    let other = Mock::start(|_, _| Reply::json(403, &json!({"error": {"code": 403, "message": "Quota exceeded"}})));
+    let (source, _) = session(Provider::Google, &other.base, &tokens("tok", 3000));
+    let error = google(&other.base, source).list("changes/").expect_err("refused");
+    assert!(matches!(error, CloudError::Service { status: 403, .. }), "{error:?}");
+}

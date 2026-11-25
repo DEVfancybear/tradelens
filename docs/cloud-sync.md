@@ -170,7 +170,11 @@ có tem thì ghi, tem = `updated_at` của journal, các thứ khác tem 0 để
    app trả một trang tiếng Việt nhỏ ("Đăng nhập thành công, bạn có thể đóng tab này").
    Yêu cầu có `state` sai (tab khác, favicon) bị bỏ qua; chờ tối đa `SignInOptions::timeout` (5 phút), hoặc
    dừng ngay khi `SignInOptions::cancel` được bật (nút Huỷ) → `CloudError::Cancelled`.
-3. Đổi `code` lấy token, rồi đọc email và tên từ endpoint `userinfo`.
+3. Đổi `code` lấy token, rồi đọc email và tên từ endpoint `userinfo`. Màn đồng ý của Google cho người dùng bỏ
+   tick quyền Google Drive mà vẫn đăng nhập được, nên với Google, nếu trường `scope` của câu trả lời không có
+   `drive.appdata`, đăng nhập bị từ chối (`CloudError::DriveNotGranted`: «Bạn chưa cho phép TradeLens dùng Google
+   Drive…»), token bị thu hồi và không được lưu. Một lỗi 403 «insufficient authentication scopes» từ Drive
+   (phiên cũ đã đăng nhập thiếu quyền) cũng đổi thành chính thông báo đó.
 4. `TokenSource` giữ phiên: tự làm mới access token khi sắp hết hạn (đệm 60 giây) hoặc khi API trả 401
    (làm mới đúng một lần rồi gọi lại; 401 lần hai → `CloudError::SignedOut`). Refresh token bị thu hồi
    (`invalid_grant`) thì phiên bị xoá và app phải đăng nhập lại.

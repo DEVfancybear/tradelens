@@ -83,6 +83,15 @@ impl Provider {
         }
     }
 
+    /// The scope the app cannot work without: the consent screen lets the user untick it, and the
+    /// sign-in still succeeds. Only Google reports the scopes it granted in a form to check.
+    fn required_scope(self) -> Option<&'static str> {
+        match self {
+            Self::Google => Some("https://www.googleapis.com/auth/drive.appdata"),
+            Self::Microsoft => None,
+        }
+    }
+
     /// Extra parameters of the consent page. Google hands out a refresh token only on
     /// consent, so ask for it every time; Microsoft lets the user pick the account.
     fn authorize_extras(self) -> &'static [(&'static str, &'static str)] {
@@ -328,6 +337,8 @@ fn authorize_url(client: &ClientConfig, redirect_uri: &str, state: &str, challen
 /// # Errors
 ///
 /// [`CloudError::Cancelled`] when the user cancels, here or on the consent page;
+/// [`CloudError::DriveNotGranted`] when the user unticked the Drive permission on Google's consent
+/// screen;
 /// [`CloudError::Auth`] when the provider refuses or the wait times out;
 /// [`CloudError::Network`] when it cannot be reached.
 pub fn sign_in(
@@ -348,7 +359,7 @@ pub fn sign_in(
 
     let code = wait_for_code(&listener, &state, options)?;
     let http = Http::default();
-    let tokens = exchange(
+    let (tokens, granted) = exchange_granted(
         &http,
         client,
         &[
@@ -359,6 +370,11 @@ pub fn sign_in(
         ],
         None,
     )?;
+    if !grants_required_scope(client.provider, granted.as_deref()) {
+        // The tokens are useless to the app: do not keep them, and tell the provider.
+        revoke(client, &tokens);
+        return Err(CloudError::DriveNotGranted);
+    }
     let identity = userinfo(&http, client, &tokens.access_token)?;
     Ok((identity, tokens))
 }
@@ -418,6 +434,8 @@ struct TokenResponse {
     access_token: String,
     refresh_token: Option<String>,
     expires_in: Option<i64>,
+    /// The scopes granted, separated by spaces.
+    scope: Option<String>,
 }
 
 /// Posts a grant to the token endpoint. `keep_refresh` is the refresh token to keep when the
@@ -428,6 +446,16 @@ fn exchange(
     grant: &[(&str, &str)],
     keep_refresh: Option<&str>,
 ) -> crate::Result<Tokens> {
+    exchange_granted(http, client, grant, keep_refresh).map(|(tokens, _)| tokens)
+}
+
+/// As [`exchange`], with the scopes the provider says it granted.
+fn exchange_granted(
+    http: &Http,
+    client: &ClientConfig,
+    grant: &[(&str, &str)],
+    keep_refresh: Option<&str>,
+) -> crate::Result<(Tokens, Option<String>)> {
     let mut fields: Vec<(&str, &str)> = vec![("client_id", &client.client_id)];
     fields.extend(grant);
     if let Some(secret) = &client.client_secret {
@@ -447,11 +475,20 @@ fn exchange(
         }));
     }
     let parsed: TokenResponse = response.json()?;
-    Ok(Tokens {
+    let tokens = Tokens {
         access_token: parsed.access_token,
         refresh_token: parsed.refresh_token.or_else(|| keep_refresh.map(str::to_owned)),
         expires_at: unix_now() + parsed.expires_in.unwrap_or(DEFAULT_LIFETIME_SECS),
-    })
+    };
+    Ok((tokens, parsed.scope))
+}
+
+/// Whether the scopes `granted` (space-separated, as the token endpoint reports them) include the
+/// one the app needs from `provider`. An answer that lists no scopes is taken as granted: it cannot
+/// be told otherwise, and the first call to the drive then says so.
+fn grants_required_scope(provider: Provider, granted: Option<&str>) -> bool {
+    let Some(required) = provider.required_scope() else { return true };
+    granted.is_none_or(|scopes| scopes.split_whitespace().any(|scope| scope == required))
 }
 
 #[derive(Deserialize)]

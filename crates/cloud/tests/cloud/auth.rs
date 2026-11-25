@@ -270,3 +270,45 @@ fn sign_out_forgets_even_when_the_provider_refuses() {
     assert_eq!(store.load(Provider::Microsoft).expect("loads"), None);
     assert!(offline.requests().is_empty());
 }
+
+/// Signs in to Google against a provider whose token endpoint reports `granted` as the scopes.
+fn google_sign_in_granting(granted: &str) -> (Mock, Result<(Identity, Tokens), CloudError>) {
+    let granted = granted.to_owned();
+    let mock = Mock::start(move |req: &Seen, _| match req.path() {
+        "/token" => Reply::ok(&json!({
+            "access_token": "at-1", "refresh_token": "rt-1", "expires_in": 3600, "scope": granted
+        })),
+        "/userinfo" => Reply::ok(&json!({"email": "dat@example.com", "name": "Dat Le"})),
+        "/revoke" => Reply::status(200),
+        _ => Reply::status(404),
+    });
+    let client = ClientConfig::new(Provider::Google, "c").with_endpoints(endpoints(&mock.base));
+    let mut browser = None;
+    let signed = auth::sign_in(&client, &quick(), |url| {
+        let params = params_of(url);
+        let (redirect, state) = (params["redirect_uri"].clone(), params["state"].clone());
+        browser = Some(thread::spawn(move || visit(&redirect, &format!("/?code=c&state={state}"))));
+    });
+    browser.expect("opened").join().expect("done");
+    (mock, signed)
+}
+
+#[test]
+fn google_sign_in_without_the_drive_permission_fails_in_vietnamese_and_revokes() {
+    // The user unticked the Drive box on the consent screen: only the identity scopes came back.
+    let (mock, signed) = google_sign_in_granting("openid https://www.googleapis.com/auth/userinfo.email");
+    let error = signed.expect_err("a sign-in without the Drive permission is refused");
+    assert!(matches!(error, CloudError::DriveNotGranted), "{error:?}");
+    assert!(error.to_string().starts_with("Bạn chưa cho phép TradeLens dùng Google Drive"), "{error}");
+    assert!(mock.requests_to("/userinfo").is_empty(), "nothing else was asked of the account");
+    assert_eq!(mock.requests_to("/revoke")[0].form_value("token").as_deref(), Some("rt-1"), "the grant is revoked");
+}
+
+#[test]
+fn google_sign_in_with_the_drive_permission_among_others_succeeds() {
+    let (mock, signed) = google_sign_in_granting(
+        "openid https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.appdata",
+    );
+    signed.expect("the Drive permission is there");
+    assert!(mock.requests_to("/revoke").is_empty());
+}
