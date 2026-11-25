@@ -44,11 +44,25 @@ fn params_of(url: &str) -> HashMap<String, String> {
         .collect()
 }
 
-/// What a browser does on the redirect: one GET to the app's loopback port. Returns the raw reply.
+/// What a browser does on the redirect: one GET with a few headers to the app's loopback port.
+/// Returns the raw reply.
+///
+/// The headers follow the request line after a pause, and the reply is read only after another, so
+/// a listener that answers (and closes) on the first line leaves unread input behind and the OS
+/// resets the connection before this side has read the page.
 fn visit(redirect_uri: &str, path_and_query: &str) -> String {
+    const PAUSE: Duration = Duration::from_millis(150);
     let address = redirect_uri.trim_start_matches("http://");
     let mut stream = TcpStream::connect(address).expect("the loopback listener is up");
-    write!(stream, "GET {path_and_query} HTTP/1.1\r\nHost: {address}\r\nConnection: close\r\n\r\n").expect("sent");
+    stream.write_all(format!("GET {path_and_query} HTTP/1.1\r\n").as_bytes()).expect("request line sent");
+    stream.flush().expect("flushed");
+    thread::sleep(PAUSE);
+    let headers = format!(
+        "Host: {address}\r\nUser-Agent: test-browser\r\nAccept: text/html\r\nAccept-Language: vi\r\n\
+         Connection: close\r\n\r\n"
+    );
+    stream.write_all(headers.as_bytes()).expect("headers sent");
+    thread::sleep(PAUSE);
     let mut reply = String::new();
     stream.read_to_string(&mut reply).expect("the app answers the browser");
     reply

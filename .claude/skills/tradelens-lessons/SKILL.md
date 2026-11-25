@@ -84,6 +84,11 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
 - **Temp dirs:** every test database lives in a `tempfile::TempDir` through `Fixture`, so it is removed afterwards. Leaked `.tmp*` folders once filled the disk.
 - **Regression tests:** before trusting a new test, revert the fix, confirm the test fails, then restore the fix.
 
+### 3.1 A loopback HTTP listener reads the whole request head, then closes gracefully
+- **Rule:** a hand-made listener (the OAuth redirect in `crates/cloud/src/auth.rs`) reads until the blank line (`\r\n\r\n`), with the total time and size bounded, before it replies. After writing it calls `shutdown(Shutdown::Write)` and drains the input for a moment before the stream is dropped. Never reply after reading only the request line.
+- **Why:** closing a socket that still holds unread input makes the OS send RST instead of FIN. On macOS CI the reset beat the reply, so the client got `ConnectionReset` on its first request and the sign-in test timed out; a real browser could likewise miss the "Đăng nhập thành công" page.
+- **Check:** the test client sends the request line, pauses, sends the headers, pauses, and only then reads the reply (`visit` in `crates/cloud/tests/cloud/auth.rs`). Reverting the fix makes it fail every time, on Windows too.
+
 ## 4. `crates/core`: data and migrations
 
 - **Migrations** change structure only; they never guess what old data means.
