@@ -555,6 +555,8 @@ impl Cloud {
         self.write.run(
             move |db| {
                 db.set_setting(ACTIVE_SETTING, provider.key())?;
+                // Another account may be the one signed in now: what the drive holds is asked again.
+                db.forget_uploaded(provider.key())?;
                 if demo {
                     db.set_setting(DEMO_USER_SETTING, provider.key())?;
                 }
@@ -593,8 +595,18 @@ impl Cloud {
             .await
             .unwrap_or_else(|error| Err(format!("Luồng đăng xuất bị dừng: {error}")));
             match result {
-                Ok(()) if demo => self.write.run(|db| db.set_setting(DEMO_USER_SETTING, ""), move |_| self.refresh()),
-                Ok(()) => self.refresh(),
+                Ok(()) => self.write.run(
+                    move |db| {
+                        // The next account to sign in may not be the one whose drive these images went to.
+                        db.forget_uploaded(provider.key())?;
+                        if demo {
+                            db.set_setting(DEMO_USER_SETTING, "")?;
+                            db.forget_uploaded("demo")?;
+                        }
+                        Ok(())
+                    },
+                    move |_| self.refresh(),
+                ),
                 Err(message) => self.state.update(|s| s.notice = Some(message)),
             }
         });
@@ -823,11 +835,19 @@ mod tests {
         assert_eq!(identities(&env), vec![identity], "the session is read back from memory");
         env.save_secret("thu-nghiem", "bí mật").expect("kept in memory");
         assert_eq!(env.load_secret("thu-nghiem").expect("read"), Some("bí mật".to_owned()));
-        assert_eq!(
-            KeyringStore::new().load_secret("thu-nghiem").expect("the OS store is read"),
-            None,
-            "the secret did not go to the operating system's store"
-        );
+        let in_os_store = KeyringStore::new().load_secret("thu-nghiem");
+        if cfg!(target_os = "linux") {
+            // A CI runner has no Secret Service, so there is no store at all: that holds nothing
+            // either. Only an entry found there means the secret leaked.
+            assert!(matches!(in_os_store, Err(_) | Ok(None)), "the secret did not go to the operating system's store");
+        } else {
+            // Windows and macOS have a store: it must answer, and have nothing.
+            assert_eq!(
+                in_os_store.expect("the OS store is read"),
+                None,
+                "the secret did not go to the operating system's store"
+            );
+        }
         env.clear_secret("thu-nghiem").expect("forgotten");
         env.token_store().clear(Provider::Microsoft).expect("forgotten");
         assert_eq!(identities(&env), Vec::new(), "signed out");

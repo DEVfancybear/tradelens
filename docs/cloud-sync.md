@@ -120,19 +120,40 @@ có tem thì ghi, tem = `updated_at` của journal, các thứ khác tem 0 để
 
 ## Đẩy và kéo
 
-1. `Db::log_existing()` (một lần), rồi ảnh: ảnh nào journal/lệnh bỏ lỡ/setup nhắc tới và có file trong thư mục dữ
-   liệu thì tính sha256, ghi thực thể `attachment` (đường dẫn → sha) và upload `attachments/<sha256>.<ext>` nếu
-   ổ chưa có.
+Thứ tự có chủ ý: **nhật ký (vài trăm KB) đi trước, ảnh (hàng chục MB) đi sau cùng**, để máy khác khôi phục được
+dữ liệu ngay cả khi ảnh chưa lên hết hoặc đường truyền chậm.
+
+1. `Db::log_existing()` (một lần), rồi **ghi nhận ảnh** (chỉ việc cục bộ): ảnh nào journal/lệnh bỏ lỡ/setup nhắc tới
+   và có file trong thư mục dữ liệu mà chưa có mã băm thì tính sha256 (một lần duy nhất, nhớ trong `sync_attachments`; đọc
+   file trên 4 luồng, mọi mã băm đọc được ghi trong một giao dịch) và ghi thực thể
+   `attachment` (đường dẫn → sha) vào log, để nó đi cùng lần push ngay sau. Chưa upload byte nào ở bước này.
 2. **Push:** các dòng `seq > pushed_seq` của máy này, tối đa 500 dòng mỗi file `changes/<device>/<từ>-<đến>.json`;
    upload xong mới ghi `pushed_seq` (bị ngắt giữa chừng thì lần sau gửi lại cùng tên file, ghi đè).
 3. **Pull:** liệt kê `changes/`, bỏ file của chính máy này; mỗi thiết bị khác, tải các file có `đến` ≥ mốc+1
    theo thứ tự, lấy các dòng `seq` liên tiếp từ mốc+1. Gặp lỗ hổng (thiếu file) thì **dừng ở đó và ghi cảnh báo**
    chứ không bỏ qua; file hỏng thì báo `CloudError::Corrupt` và không áp gì. Áp tất cả trong một giao dịch cùng với
    việc nâng mốc `pulled` (bảng `cloud_state`, mỗi nhà cung cấp một dòng), nên sập giữa chừng không lặp, không sót.
-4. Tải ảnh còn thiếu (tải xong đối chiếu sha256; đường dẫn ảnh từ xa không được thoát khỏi thư mục dữ liệu).
-5. Nếu bản snapshot mới nhất đã ≥ 7 ngày (hoặc chưa có): upload snapshot. Ghi `devices.json` (id, tên, lần sync cuối;
-   ghi đè theo kiểu đọc-sửa-ghi, mất một dòng khi hai máy ghi cùng lúc thì lần sync sau tự thêm lại).
-6. Chạy khi bấm *Sync ngay*, mỗi 15 phút khi bật tự động, và khi đóng app.
+4. Nếu bản snapshot mới nhất đã ≥ 7 ngày (hoặc chưa có): upload snapshot. Ghi `devices.json` (id, tên, lần sync cuối;
+   ghi đè theo kiểu đọc-sửa-ghi, mất một dòng khi hai máy ghi cùng lúc thì lần sau tự thêm lại), rồi đánh dấu đã sync.
+5. **Upload ảnh:** chỉ ảnh **chưa được ghi nhận là đã nằm trên ổ** (bảng `sync_uploaded`, theo nhà cung cấp; migration
+   0014). Sync không có gì mới thì không đọc file ảnh nào và không liệt kê `attachments/`. Có ảnh cần xét thì liệt kê
+   `attachments/` một lần: ảnh ổ đã có chỉ được ghi nhận; ảnh chưa có thì upload `attachments/<sha256>.<ext>` (hai đường
+   dẫn cùng nội dung chỉ một file), tối đa 4 ảnh cùng lúc. Với Google Drive dùng `CloudDrive::upload_new` (tên đã biết là
+   chưa có nên bỏ yêu cầu tìm tên: 1 request/ảnh thay vì 2). Ảnh lên xong được ghi nhận trong một giao dịch; một ảnh lỗi
+   không làm mất ảnh đã lên; sau 5 ảnh lỗi thì không bắt đầu ảnh mới, và lần sync sau gửi tiếp phần còn lại.
+   `sync_uploaded` chỉ là bộ nhớ đệm của ổ nên được đối chiếu lại với một lần liệt kê thật mỗi khi chụp snapshot (lần sync
+   đầu rồi mỗi tuần): ảnh bị mất khỏi Drive sẽ lên lại trong vòng một tuần. Đăng nhập, đăng xuất (đổi tài khoản) và khôi phục
+   sang máy mới xoá bảng này nên lần sync kế tiếp hỏi lại ổ.
+6. **Tải ảnh:** ảnh journal nhắc tới mà **file không có** trên máy này (chỉ kiểm sự tồn tại, không băm file nào) và ổ đã
+   có thì tải về (tối đa 8 luồng; tải xong đối chiếu sha256, ghi vào file tạm rồi đổi tên nên không bao giờ có ảnh ghi dở;
+   đường dẫn ảnh từ xa không được thoát khỏi thư mục dữ liệu). Không có ảnh nào thiếu thì không liệt kê gì. Ảnh ổ chưa
+   có (máy kia chưa upload xong) thì **bỏ qua, không phải lỗi**: lần sync sau tải tiếp. Ảnh nào lỗi ở bước 5 hoặc 6
+   (mạng, dịch vụ, file không đọc được) **không làm hỏng lần sync hay lần khôi phục**: được ghi log, đếm vào
+   `SyncReport::attachments_failed` (màn hình hiện «N ảnh chưa chuyển được») và thử lại lần sau; chỉ mất phiên, thiếu
+   quyền Drive hoặc lỗi DB mới báo lỗi. Một ảnh không đọc được lúc băm (bước 1) cũng chỉ bị bỏ qua lần đó. Khôi phục
+   sang máy mới (`restore`) đi đúng đường này nên cũng tải song song, và một ảnh lỗi không làm mất bước ghi lại
+   cài đặt riêng của máy.
+7. Chạy khi bấm *Sync ngay*, mỗi 15 phút khi bật tự động, và khi đóng app.
 
 ## Snapshot và khôi phục sang máy mới
 
@@ -170,7 +191,11 @@ có tem thì ghi, tem = `updated_at` của journal, các thứ khác tem 0 để
    app trả một trang tiếng Việt nhỏ ("Đăng nhập thành công, bạn có thể đóng tab này").
    Yêu cầu có `state` sai (tab khác, favicon) bị bỏ qua; chờ tối đa `SignInOptions::timeout` (5 phút), hoặc
    dừng ngay khi `SignInOptions::cancel` được bật (nút Huỷ) → `CloudError::Cancelled`.
-3. Đổi `code` lấy token, rồi đọc email và tên từ endpoint `userinfo`.
+3. Đổi `code` lấy token, rồi đọc email và tên từ endpoint `userinfo`. Màn đồng ý của Google cho người dùng bỏ
+   tick quyền Google Drive mà vẫn đăng nhập được, nên với Google, nếu trường `scope` của câu trả lời không có
+   `drive.appdata`, đăng nhập bị từ chối (`CloudError::DriveNotGranted`: «Bạn chưa cho phép TradeLens dùng Google
+   Drive…»), token bị thu hồi và không được lưu. Một lỗi 403 «insufficient authentication scopes» từ Drive
+   (phiên cũ đã đăng nhập thiếu quyền) cũng đổi thành chính thông báo đó.
 4. `TokenSource` giữ phiên: tự làm mới access token khi sắp hết hạn (đệm 60 giây) hoặc khi API trả 401
    (làm mới đúng một lần rồi gọi lại; 401 lần hai → `CloudError::SignedOut`). Refresh token bị thu hồi
    (`invalid_grant`) thì phiên bị xoá và app phải đăng nhập lại.

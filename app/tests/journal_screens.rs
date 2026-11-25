@@ -3,7 +3,7 @@
 
 mod common;
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use nsh_core::platform::Os;
 use nsh_testing::{DialogAnswer, Headless};
@@ -312,8 +312,26 @@ fn changing_a_propertys_type_in_the_form_editor_converts_every_entry() {
 
     app.on_dialog(|_| DialogAnswer::Press("Đổi kiểu".to_owned()));
     app.press("label:Sửa thuộc tính Khung vào lệnh").expect("picks the property");
-    app.press("label:Kiểu").expect("the kind drop-down");
-    app.press("text:# Số").expect("the number kind");
+    app.wait_for_within("label:Kiểu", WAIT).expect("the property's panel is built");
+    // A press can land while the page is still laid out again, on a drop-down that closes under it:
+    // choose again until the kind is stored (the question is answered by the dialog handler above).
+    let kind_is_number = || db.field_defs(FieldScope::Trade).expect("reads")[0].kind == FieldKind::Number;
+    let started = Instant::now();
+    while !kind_is_number() {
+        assert!(
+            started.elapsed() < WAIT,
+            "the kind did not become a number within {WAIT:?}: {:?}",
+            app.screen().texts()
+        );
+        let chosen = app.press("label:Kiểu").is_ok() && app.press("text:# Số").is_ok();
+        let attempt = Instant::now();
+        while !kind_is_number() && attempt.elapsed() < Duration::from_secs(3) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        if !chosen {
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    }
     wait_until("the stored values following the new type", || {
         let value =
             |position| db.journal(&key_of(&db, position)).expect("reads").and_then(|e| e.custom.get("focus").cloned());

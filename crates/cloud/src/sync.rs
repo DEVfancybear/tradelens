@@ -15,7 +15,8 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
@@ -32,6 +33,20 @@ const CHANGES_PER_FILE: usize = 500;
 
 /// A snapshot is due when the newest is this many days old.
 const SNAPSHOT_EVERY_DAYS: i64 = 7;
+
+/// Images uploaded at the same time: enough to hide each request's round trip, few enough to leave
+/// the (often slow) uplink to the bytes.
+const UPLOAD_WORKERS: usize = 4;
+
+/// Images downloaded at the same time: a restore of hundreds is bound by the round trip of each
+/// request, not by the bytes, so the downlink takes more.
+const DOWNLOAD_WORKERS: usize = 8;
+
+/// Images read and hashed at the same time on a first sync.
+const HASH_WORKERS: usize = 4;
+
+/// After this many images failed in one sync no new one starts; the rest wait for the next sync.
+const MAX_IMAGE_FAILURES: usize = 5;
 
 const CHANGES_DIR: &str = "changes/";
 const SNAPSHOTS_DIR: &str = "snapshots/";
@@ -51,6 +66,9 @@ pub struct SyncReport {
     pub attachments_uploaded: usize,
     /// Images downloaded.
     pub attachments_downloaded: usize,
+    /// Images that could not be moved this time (the link failed, a file would not read); the
+    /// next sync tries them again. The journal is synced all the same.
+    pub attachments_failed: usize,
     /// Whether this sync also uploaded the weekly snapshot.
     pub snapshot_taken: bool,
 }
@@ -117,27 +135,35 @@ impl<'drive> SyncEngine<'drive> {
         self
     }
 
-    /// Uploads this device's new changes and images, downloads and applies the others', fetches
-    /// the images that are missing and, when the last snapshot is a week old, uploads a new one.
+    /// Uploads this device's new changes, downloads and applies the others', uploads a new
+    /// snapshot when the last is a week old, and only then moves the images: the ones this device
+    /// has and the drive lacks go up, the ones the journal names and this device lacks come down.
+    /// The journal is small and what another device needs first, so it never waits behind images.
     /// Safe to run at any time: an interrupted sync resumes where it stopped, and a change that
-    /// arrives twice is applied once.
+    /// arrives twice is applied once. An image another device has not uploaded yet is fetched by
+    /// a later sync.
     ///
     /// # Errors
     ///
-    /// [`CloudError`] when the provider, the network or the database fails.
+    /// [`CloudError`] when the provider, the network or the database fails, or the session is
+    /// gone. Images that cannot be moved are not an error: they are counted in
+    /// [`SyncReport::attachments_failed`] and the next sync tries them again.
     pub fn sync(&self, db: &mut Db) -> Result<SyncReport> {
         let mut report = SyncReport::default();
         db.log_existing()?;
-        self.upload_attachments(db, &mut report)?;
+        // Hashing is local and logs the `attachment` entity, so it must come before the push.
+        let images = self.record_attachments(db)?;
         self.push(db, &mut report)?;
         self.pull(db, &mut report)?;
-        self.download_attachments(db, &mut report)?;
         if self.snapshot_due()? {
             self.snapshot(db)?;
             report.snapshot_taken = true;
         }
         self.publish_device(db)?;
         db.mark_synced(&self.provider, (self.now)())?;
+        let not_sent = self.upload_attachments(db, images, &mut report)?;
+        let not_fetched = self.download_attachments(db, &mut report)?;
+        report.attachments_failed = not_sent + not_fetched;
         Ok(report)
     }
 
@@ -316,65 +342,257 @@ impl<'drive> SyncEngine<'drive> {
     }
 
     // --- images -------------------------------------------------------------------------------
+    //
+    // Only what changed moves, like the change files: the database knows each image's hash (so a
+    // file is read once, ever) and which images the drive holds (`Db::uploaded_images`), so a
+    // sync with nothing new reads no image and lists no folder of them. The database is used on
+    // this thread only; the workers read files, hash them and talk to the drive.
 
     fn remote_images(&self) -> Result<BTreeMap<String, RemoteFile>> {
         Ok(self.drive.list(ATTACHMENTS_DIR)?.into_iter().map(|file| (file.name.clone(), file)).collect())
     }
 
-    fn upload_attachments(&self, db: &mut Db, report: &mut SyncReport) -> Result<()> {
-        let Some(folder) = &self.attachments else { return Ok(()) };
-        let mut remote: Option<HashSet<String>> = None;
+    /// Hashes the images the journal names that are on this machine and have no hash yet, and
+    /// writes the `attachment` entity (path to hash) to the change log, so that it goes out with
+    /// the next push. Returns the images on this machine, one per
+    /// file name. No byte leaves the machine here.
+    fn record_attachments(&self, db: &mut Db) -> Result<Vec<LocalImage>> {
+        let Some(folder) = &self.attachments else { return Ok(Vec::new()) };
+        let known = db.attachment_shas()?;
+        let mut candidates = Vec::new();
+        let mut unhashed = Vec::new();
         for path in db.attachment_paths()? {
             let Some(local) = inside(folder, &path) else { continue };
             if !local.is_file() {
                 continue;
             }
-            let known = db.attachment_sha(&path)?;
-            let bytes = std::fs::read(&local)?;
-            let sha = if let Some(sha) = known {
-                sha
-            } else {
-                let sha = sha256_hex(&bytes);
-                db.record_attachment(&path, &sha)?;
-                sha
-            };
-            let name = image_name(&sha, &path);
-            if remote.is_none() {
-                remote = Some(self.remote_images()?.into_keys().collect());
-            }
-            if remote.as_ref().is_some_and(|names| !names.contains(&name)) {
-                self.drive.upload(&name, &bytes)?;
-                report.attachments_uploaded += 1;
+            match known.get(&path) {
+                Some(sha) => candidates.push(LocalImage { name: image_name(sha, &path), local }),
+                None => unhashed.push((path, local)),
             }
         }
-        Ok(())
+        // Reading a local file says nothing about the link, so no failure stops the others.
+        let pooled = run_pool(HASH_WORKERS, usize::MAX, unhashed, |(path, local)| match std::fs::read(&local) {
+            Ok(bytes) => Ok(Some((path, local, sha256_hex(&bytes)))),
+            // Deleted since it was listed: nothing to hash.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e.into()),
+        });
+        let mut hashed = pooled.done;
+        hashed.sort();
+        // The hashes that were read are kept even when another file could not be read; that one
+        // (locked by another program, say) is tried again by the next sync and holds nothing back.
+        let rows: Vec<(String, String)> = hashed.iter().map(|(path, _, sha)| (path.clone(), sha.clone())).collect();
+        db.record_attachments(&rows)?;
+        if let Some(error) = pooled.error {
+            log::warn!("sync: có ảnh không đọc được, bỏ qua lần này: {error}");
+        }
+        candidates
+            .extend(hashed.into_iter().map(|(path, local, sha)| LocalImage { name: image_name(&sha, &path), local }));
+
+        // Two journal entries may hold the same picture: it goes up once.
+        let mut named = HashSet::new();
+        candidates.retain(|image| named.insert(image.name.clone()));
+        Ok(candidates)
     }
 
-    fn download_attachments(&self, db: &Db, report: &mut SyncReport) -> Result<()> {
-        let Some(folder) = &self.attachments else { return Ok(()) };
-        let mut remote: Option<BTreeMap<String, RemoteFile>> = None;
+    /// Uploads the images the drive does not hold yet: one listing (only when there is an image
+    /// the drive is not known to hold), then one request per image, several at a time. The images
+    /// that went up stay up, and are remembered, when another fails. Returns how many could not
+    /// be sent this time.
+    fn upload_attachments(&self, db: &mut Db, images: Vec<LocalImage>, report: &mut SyncReport) -> Result<usize> {
+        if images.is_empty() {
+            return Ok(0);
+        }
+        let total = images.len();
+        // What the database says is on the drive is a cache. It is corrected against a listing
+        // whenever a snapshot is taken (the first sync, then weekly), so that a file lost from the
+        // drive is sent again within a week.
+        let mut listing = None;
+        if report.snapshot_taken {
+            match self.remote_images() {
+                Ok(remote) => {
+                    let names: Vec<String> = remote.keys().cloned().collect();
+                    db.replace_uploaded(&self.provider, &names)?;
+                    listing = Some(remote);
+                }
+                Err(error) => return carry_on(error, total),
+            }
+        }
+        let known = db.uploaded_images(&self.provider)?;
+        let images: Vec<LocalImage> = images.into_iter().filter(|image| !known.contains(&image.name)).collect();
+        if images.is_empty() {
+            return Ok(0);
+        }
+        let total = images.len();
+        let remote = match listing.map_or_else(|| self.remote_images(), Ok) {
+            Ok(remote) => remote,
+            Err(error) => return carry_on(error, total),
+        };
+        let (held, missing): (Vec<LocalImage>, Vec<LocalImage>) =
+            images.into_iter().partition(|image| remote.contains_key(&image.name));
+        let to_send = missing.len();
+        let pooled = run_pool(UPLOAD_WORKERS, MAX_IMAGE_FAILURES, missing, |image| {
+            let bytes = match std::fs::read(&image.local) {
+                Ok(bytes) => bytes,
+                // Deleted since it was listed: nothing to send.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                Err(e) => return Err(e.into()),
+            };
+            self.drive.upload_new(&image.name, &bytes)?;
+            Ok(Some(image.name))
+        });
+        let unsent = to_send - pooled.done.len() - pooled.skipped;
+        report.attachments_uploaded += pooled.done.len();
+        let on_drive: Vec<String> = held.into_iter().map(|image| image.name).chain(pooled.done).collect();
+        db.mark_uploaded(&self.provider, &on_drive)?;
+        pooled.error.map_or(Ok(0), |error| carry_on(error, unsent))
+    }
+
+    /// Downloads the images the journal names that are not on this machine (the file's absence is
+    /// all it looks at: nothing is hashed). One the drive does not hold yet (the other device has
+    /// not uploaded it) is left for a later sync. Several at a time; a file appears whole or not at
+    /// all. Returns how many could not be fetched this time.
+    fn download_attachments(&self, db: &mut Db, report: &mut SyncReport) -> Result<usize> {
+        let Some(folder) = &self.attachments else { return Ok(0) };
+        let shas = db.attachment_shas()?;
+        let mut wanted = Vec::new();
         for path in db.attachment_paths()? {
             let Some(local) = inside(folder, &path) else { continue };
-            if local.exists() {
-                continue;
+            let Some(sha) = shas.get(&path) else { continue };
+            if !local.exists() {
+                wanted.push((path, local, sha.clone()));
             }
-            let Some(sha) = db.attachment_sha(&path)? else { continue };
-            if remote.is_none() {
-                remote = Some(self.remote_images()?);
+        }
+        if wanted.is_empty() {
+            return Ok(0);
+        }
+        let remote = match self.remote_images() {
+            Ok(remote) => remote,
+            Err(error) => return carry_on(error, wanted.len()),
+        };
+        let jobs: Vec<WantedImage> = wanted
+            .into_iter()
+            .filter_map(|(path, local, sha)| {
+                let file = remote.get(&image_name(&sha, &path))?.clone();
+                Some(WantedImage { path, local, sha, file })
+            })
+            .collect();
+        // The drive holds these whether or not this sync manages to fetch them.
+        let on_drive: Vec<String> = jobs.iter().map(|image| image.file.name.clone()).collect();
+        let to_fetch = jobs.len();
+        let pooled = run_pool(DOWNLOAD_WORKERS, MAX_IMAGE_FAILURES, jobs, |image| {
+            let bytes = self.drive.download(&image.file)?;
+            if sha256_hex(&bytes) != image.sha {
+                return Err(CloudError::Corrupt(format!("ảnh {} tải về không khớp mã băm", image.path)));
             }
-            let Some(file) = remote.as_ref().and_then(|files| files.get(&image_name(&sha, &path))) else { continue };
-            let bytes = self.drive.download(file)?;
-            if sha256_hex(&bytes) != sha {
-                log::warn!("sync: ảnh {path} tải về không khớp mã băm, bỏ qua");
-                continue;
-            }
-            if let Some(parent) = local.parent() {
+            if let Some(parent) = image.local.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::write(&local, &bytes)?;
-            report.attachments_downloaded += 1;
+            write_whole(&image.local, &bytes)?;
+            Ok(Some(()))
+        });
+        let unfetched = to_fetch - pooled.done.len() - pooled.skipped;
+        report.attachments_downloaded += pooled.done.len();
+        db.mark_uploaded(&self.provider, &on_drive)?;
+        pooled.error.map_or(Ok(0), |error| carry_on(error, unfetched))
+    }
+}
+
+/// What an image error means for the sync. The journal is already on the drive when images move,
+/// so a failure of the link, the service or a file only leaves `unmoved` images for the next sync
+/// (logged, and counted by the caller). A lost session, a refused permission or a broken database
+/// still ends the sync: the screen has to react to those.
+fn carry_on(error: CloudError, unmoved: usize) -> Result<usize> {
+    if ends_sync(&error) {
+        return Err(error);
+    }
+    log::warn!("sync: {unmoved} ảnh chưa chuyển được, lần sync sau thử lại: {error}");
+    Ok(unmoved)
+}
+
+/// Whether an image error is one the sync cannot carry on after.
+fn ends_sync(error: &CloudError) -> bool {
+    matches!(error, CloudError::SignedOut | CloudError::DriveNotGranted | CloudError::Config(_) | CloudError::Db(_))
+}
+
+/// Writes `bytes` to `target` through a temporary file next to it, so that a reader (or a sync
+/// that dies half way) never sees half an image. The temporary file does not stay behind.
+fn write_whole(target: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut part = target.as_os_str().to_owned();
+    part.push(".part");
+    let part = PathBuf::from(part);
+    let written = std::fs::write(&part, bytes).and_then(|()| std::fs::rename(&part, target));
+    written.inspect_err(|_| drop(std::fs::remove_file(&part)))
+}
+
+/// An image on this machine that the drive may lack.
+struct LocalImage {
+    local: PathBuf,
+    /// `attachments/<sha256>.<ext>`.
+    name: String,
+}
+
+/// An image the journal names, absent here, that the drive holds.
+struct WantedImage {
+    path: String,
+    local: PathBuf,
+    sha: String,
+    file: RemoteFile,
+}
+
+/// What [`run_pool`] got done.
+struct Pooled<R> {
+    /// What the jobs that answered `Ok(Some(_))` produced.
+    done: Vec<R>,
+    /// Jobs that answered `Ok(None)`: nothing to do for them any more.
+    skipped: usize,
+    /// The first error.
+    error: Option<CloudError>,
+}
+
+/// Runs `job` over `items` on up to `workers` threads. A failed item does not stop the others,
+/// but once `max_failures` have failed no new item starts (the link is probably down).
+fn run_pool<T: Send, R: Send>(
+    workers: usize,
+    max_failures: usize,
+    items: Vec<T>,
+    job: impl Fn(T) -> Result<Option<R>> + Sync,
+) -> Pooled<R> {
+    let workers = workers.min(items.len());
+    let queue = Mutex::new(items.into_iter());
+    let results = Mutex::new(Vec::new());
+    let skipped = AtomicUsize::new(0);
+    let failures = AtomicUsize::new(0);
+    let first_error: Mutex<Option<CloudError>> = Mutex::new(None);
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                while failures.load(Ordering::Relaxed) < max_failures {
+                    let next = queue.lock().expect("lock poisoned").next();
+                    let Some(item) = next else { break };
+                    match job(item) {
+                        Ok(Some(result)) => results.lock().expect("lock poisoned").push(result),
+                        Ok(None) => {
+                            skipped.fetch_add(1, Ordering::Relaxed);
+                        }
+                        Err(error) => {
+                            failures.fetch_add(1, Ordering::Relaxed);
+                            // An error that ends the sync is kept over one that does not.
+                            let mut kept = first_error.lock().expect("lock poisoned");
+                            if kept.as_ref().is_none_or(|old| !ends_sync(old) && ends_sync(&error)) {
+                                *kept = Some(error);
+                            }
+                        }
+                    }
+                }
+            });
         }
-        Ok(())
+    });
+    Pooled {
+        done: results.into_inner().expect("lock poisoned"),
+        skipped: skipped.into_inner(),
+        error: first_error.into_inner().expect("lock poisoned"),
     }
 }
 

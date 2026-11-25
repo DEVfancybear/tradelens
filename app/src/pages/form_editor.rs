@@ -16,7 +16,7 @@ use tradelens_core::{
 
 use crate::{
     nav,
-    store::{Reading, Writer, query, writer},
+    store::{Reading, Store, Writer, query, store, writer},
     ui::{
         chips::{Tone, chip},
         controls::{
@@ -150,6 +150,7 @@ struct Ops {
     picked: Signal<Option<FieldRef>>,
     notice: Signal<Option<String>>,
     write: Writer,
+    store: Store,
     /// The editor's own owner: a write started from a popup or a dialog must not end with it.
     owner: Owner,
 }
@@ -262,10 +263,12 @@ impl Ops {
         };
         let notice = self.notice;
         let key = key.to_owned();
-        // Under the editor's owner: this runs from the drop-down's popup, which closes at once.
-        let write = self.write;
+        // Under the editor's owner: this runs from the drop-down's popup, which closes at once. What
+        // would be lost is only read: a write announces a change, and the pages that read again on it
+        // can end the owner this answer is waiting for.
+        let store = self.store;
         self.owner.run(|| {
-            write.run(
+            store.read(
                 move |db| db.kind_change_impact(scope, &key, to),
                 move |result| match result {
                     Ok(KindImpact { lost, .. }) if lost > 0 => {
@@ -307,6 +310,7 @@ fn editor(scope: FieldScope) -> impl IntoElement {
         picked: signal(None),
         notice: signal(None),
         write: writer(),
+        store: store(),
         owner: Owner::current(),
     };
     let rows = computed(move || rows_of(&layout.get(), &defs.get()));

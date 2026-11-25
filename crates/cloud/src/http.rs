@@ -190,8 +190,27 @@ impl Response {
     }
 
     pub(crate) fn service_error(&self) -> CloudError {
-        CloudError::Service { status: self.status, message: error_message(&self.value(), &self.text()) }
+        let body = self.value();
+        if self.status == 403 && google_lacks_drive_scope(&body) {
+            return CloudError::DriveNotGranted;
+        }
+        CloudError::Service { status: self.status, message: error_message(&body, &self.text()) }
     }
+}
+
+/// Whether a 403 body is Google saying the token lacks the Drive scope (the user unticked it on
+/// the consent screen): the English message, the `insufficientPermissions` reason, or the
+/// `ACCESS_TOKEN_SCOPE_INSUFFICIENT` detail. These are Google's own words, so the message that
+/// follows may name Google Drive; no other service's 403 is taken for it.
+fn google_lacks_drive_scope(body: &serde_json::Value) -> bool {
+    let has_reason = |list: &serde_json::Value, wanted: &str| {
+        list.as_array().is_some_and(|items| items.iter().any(|item| item["reason"] == wanted))
+    };
+    body["error"]["message"]
+        .as_str()
+        .is_some_and(|message| message.to_ascii_lowercase().contains("insufficient authentication scopes"))
+        || has_reason(&body["error"]["errors"], "insufficientPermissions")
+        || has_reason(&body["error"]["details"], "ACCESS_TOKEN_SCOPE_INSUFFICIENT")
 }
 
 /// The human part of an error body: Google and Graph (`error.message`), OAuth

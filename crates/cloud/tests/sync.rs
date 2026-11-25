@@ -2,13 +2,15 @@
 //!
 //! Each "machine" is its own database file; all of them share one [`MemoryDrive`].
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::{Condvar, Mutex};
 use std::time::Duration;
 
 use tempfile::TempDir;
 use tradelens_cloud::CloudError;
-use tradelens_cloud::drive::CloudDrive;
+use tradelens_cloud::drive::{CloudDrive, RemoteFile};
 use tradelens_cloud::memory::{Link, MemoryDrive};
 use tradelens_cloud::sync::{SyncEngine, SyncReport};
 use tradelens_core::{
@@ -671,6 +673,453 @@ fn the_drive_is_a_plain_folder_of_named_files() {
     assert!(names.iter().any(|n| n == "devices.json"));
     let listed = drive.list("changes/").expect("lists");
     assert!(listed.iter().all(|f| f.size > 0));
+}
+
+// --- the order of a sync, and what an image costs ----------------------------------------------
+
+/// What a [`Spy`] refuses to upload.
+#[derive(Debug, Default)]
+enum Refuse {
+    #[default]
+    Nothing,
+    /// Every image.
+    Images,
+    /// The image with exactly these bytes, going up or coming down.
+    Bytes(Vec<u8>),
+}
+
+/// The images in flight in a [`Spy`] now, and the most that ever were at once.
+#[derive(Debug, Default)]
+struct Flight {
+    running: usize,
+    peak: usize,
+}
+
+/// A drive that writes down every call, can refuse images, and tells how many images moved at once.
+#[derive(Default)]
+struct Spy {
+    inner: MemoryDrive,
+    events: Mutex<Vec<String>>,
+    refuse: Mutex<Refuse>,
+    flight: Mutex<Flight>,
+    moved: Condvar,
+    /// Whether an image in flight waits for another to join it (see [`Spy::meet`]).
+    rendezvous: bool,
+}
+
+impl Spy {
+    fn over(inner: &MemoryDrive) -> Self {
+        Self { inner: inner.clone(), ..Self::default() }
+    }
+
+    /// A drive that holds the first image in flight until a second one arrives (or ten seconds
+    /// pass): the pool is concurrent when two meet, and no clock decides whether they do.
+    fn meeting(inner: &MemoryDrive) -> Self {
+        Self { rendezvous: true, ..Self::over(inner) }
+    }
+
+    fn log(&self, event: String) {
+        self.events.lock().expect("lock poisoned").push(event);
+    }
+
+    fn events(&self) -> Vec<String> {
+        self.events.lock().expect("lock poisoned").clone()
+    }
+
+    /// How many calls start with `prefix` (`"upload_new attachments/"`).
+    fn count(&self, prefix: &str) -> usize {
+        self.events().iter().filter(|event| event.starts_with(prefix)).count()
+    }
+
+    fn refuse(&self, what: Refuse) {
+        *self.refuse.lock().expect("lock poisoned") = what;
+    }
+
+    /// The most images that were in flight at the same time.
+    fn peak(&self) -> usize {
+        self.flight.lock().expect("lock poisoned").peak
+    }
+
+    fn refused(&self, name: &str, bytes: &[u8]) -> bool {
+        match &*self.refuse.lock().expect("lock poisoned") {
+            Refuse::Nothing => false,
+            Refuse::Images => name.starts_with("attachments/"),
+            Refuse::Bytes(wanted) => name.starts_with("attachments/") && wanted == bytes,
+        }
+    }
+
+    /// An image is in flight for as long as this call lasts.
+    fn meet(&self) {
+        let mut flight = self.flight.lock().expect("lock poisoned");
+        flight.running += 1;
+        flight.peak = flight.peak.max(flight.running);
+        self.moved.notify_all();
+        if self.rendezvous {
+            let (held, _) = self
+                .moved
+                .wait_timeout_while(flight, Duration::from_secs(10), |flight| flight.peak < 2)
+                .expect("lock poisoned");
+            flight = held;
+        }
+        flight.running -= 1;
+    }
+
+    /// The part every upload shares: time in flight, and the refusal of images.
+    fn admit(&self, name: &str, bytes: &[u8]) -> Result<(), CloudError> {
+        if name.starts_with("attachments/") {
+            self.meet();
+        }
+        if self.refused(name, bytes) {
+            return Err(CloudError::Network("ảnh bị từ chối (thử nghiệm)".into()));
+        }
+        Ok(())
+    }
+}
+
+impl CloudDrive for Spy {
+    fn list(&self, prefix: &str) -> Result<Vec<RemoteFile>, CloudError> {
+        self.log(format!("list {prefix}"));
+        self.inner.list(prefix)
+    }
+
+    fn upload(&self, name: &str, bytes: &[u8]) -> Result<RemoteFile, CloudError> {
+        self.log(format!("upload {name}"));
+        self.admit(name, bytes)?;
+        self.inner.upload(name, bytes)
+    }
+
+    fn upload_new(&self, name: &str, bytes: &[u8]) -> Result<RemoteFile, CloudError> {
+        self.log(format!("upload_new {name}"));
+        self.admit(name, bytes)?;
+        self.inner.upload_new(name, bytes)
+    }
+
+    fn download(&self, file: &RemoteFile) -> Result<Vec<u8>, CloudError> {
+        self.log(format!("download {}", file.name));
+        if file.name.starts_with("attachments/") {
+            self.meet();
+        }
+        let bytes = self.inner.download(file)?;
+        if matches!(&*self.refuse.lock().expect("lock poisoned"), Refuse::Bytes(wanted) if *wanted == bytes) {
+            return Err(CloudError::Network("ảnh bị từ chối khi tải (thử nghiệm)".into()));
+        }
+        Ok(bytes)
+    }
+
+    fn delete(&self, file: &RemoteFile) -> Result<(), CloudError> {
+        self.log(format!("delete {}", file.name));
+        self.inner.delete(file)
+    }
+}
+
+impl Machine {
+    /// A sync through any drive, the failure handed back.
+    fn try_sync(&mut self, drive: &dyn CloudDrive) -> Result<SyncReport, CloudError> {
+        SyncEngine::new(drive, PROVIDER, self.name).with_attachments(self.images()).sync(&mut self.db)
+    }
+}
+
+/// Machine A with a trade and `count` charts (`images/c<n>.png`) in its journal; B has synced.
+fn with_charts(count: usize) -> (MemoryDrive, Machine, Machine) {
+    let (drive, mut a, b) = started();
+    let paths: Vec<String> = (0..count).map(|n| format!("images/c{n}.png")).collect();
+    for (n, path) in paths.iter().enumerate() {
+        write_image(&a, path, format!("chart {n}").as_bytes());
+    }
+    a.write_journal(100, |entry| entry.screenshots = paths.iter().map(|path| shot(path, "")).collect());
+    (drive, a, b)
+}
+
+fn positions(events: &[String], wanted: impl Fn(&str) -> bool) -> Vec<usize> {
+    events.iter().enumerate().filter(|(_, event)| wanted(event)).map(|(at, _)| at).collect()
+}
+
+#[test]
+fn the_journal_goes_up_before_the_images_and_comes_down_before_them() {
+    let (drive, mut a, mut b) = with_charts(6);
+    let spy = Spy::over(&drive);
+    let report = a.try_sync(&spy).expect("syncs");
+    assert_eq!(report.attachments_uploaded, 6);
+    let events = spy.events();
+    let journal = positions(&events, |e| {
+        e.starts_with("upload changes/") || e.starts_with("upload snapshots/") || e.starts_with("upload devices.json")
+    });
+    let images = positions(&events, |e| e.starts_with("upload_new attachments/"));
+    assert_eq!((images.len(), journal.is_empty()), (6, false), "{events:?}");
+    assert!(
+        journal.iter().max() < images.iter().min(),
+        "the changes, the snapshot and the device list are on the drive before the first image: {events:?}"
+    );
+
+    let spy = Spy::over(&drive);
+    let report = b.try_sync(&spy).expect("syncs");
+    assert_eq!(report.attachments_downloaded, 6);
+    let events = spy.events();
+    let changes = positions(&events, |e| e.starts_with("download changes/"));
+    let images = positions(&events, |e| e.starts_with("download attachments/"));
+    assert!(changes.iter().max() < images.iter().min(), "the journal is read before the first image: {events:?}");
+    assert_same(&a, &b);
+}
+
+#[test]
+fn another_machine_gets_the_journal_while_the_images_cannot_be_uploaded() {
+    let (drive, mut a, mut b) = with_charts(3);
+    let spy = Spy::over(&drive);
+    spy.refuse(Refuse::Images);
+    let report = a.try_sync(&spy).expect("images that cannot go up do not fail the sync");
+    assert_eq!((report.attachments_uploaded, report.attachments_failed), (0, 3));
+    assert!(drive.names().iter().all(|name| !name.starts_with("attachments/")), "{:?}", drive.names());
+    assert!(
+        drive.names().iter().any(|name| name == "devices.json"),
+        "the sync got as far as the device list: {:?}",
+        drive.names()
+    );
+
+    // B restores everything but the pictures, and the missing ones are not an error.
+    let report = b.try_sync(&drive).expect("B syncs although the images are not on the drive");
+    assert_eq!((report.pulled > 0, report.attachments_downloaded), (true, 0));
+    assert_eq!(b.journal(100).screenshots.len(), 3, "the journal names the images");
+    assert!(!b.images().join("images/c0.png").exists());
+    assert_same(&a, &b);
+
+    // The next sync of A has nothing but the images to move; then B fetches them.
+    spy.refuse(Refuse::Nothing);
+    let report = a.try_sync(&spy).expect("syncs");
+    assert_eq!((report.pushed, report.attachments_uploaded), (0, 3));
+    let report = b.try_sync(&drive).expect("syncs");
+    assert_eq!(report.attachments_downloaded, 3);
+    assert_eq!(std::fs::read(b.images().join("images/c2.png")).expect("downloaded"), b"chart 2");
+}
+
+#[test]
+fn an_image_that_fails_does_not_lose_the_ones_that_went_up() {
+    let (drive, mut a, _) = with_charts(8);
+    let spy = Spy::over(&drive);
+    spy.refuse(Refuse::Bytes(b"chart 5".to_vec()));
+    let report = a.try_sync(&spy).expect("one refused image does not fail the sync");
+    assert_eq!((report.attachments_uploaded, report.attachments_failed), (7, 1));
+    let uploaded = drive.names().iter().filter(|name| name.starts_with("attachments/")).count();
+    assert_eq!(uploaded, 7, "every other image is on the drive: {:?}", drive.names());
+
+    spy.refuse(Refuse::Nothing);
+    let report = a.try_sync(&spy).expect("syncs");
+    assert_eq!(report.attachments_uploaded, 1, "only the one that failed is sent again");
+}
+
+#[test]
+fn a_restore_with_one_image_refused_still_restores_and_the_next_sync_fetches_it() {
+    let (drive, mut a, _) = with_charts(6);
+    a.try_sync(&Spy::over(&drive)).expect("syncs");
+    a.engine(&drive).snapshot(&a.db).expect("a snapshot that names the images");
+
+    let fresh = tempfile::tempdir().expect("a temp dir");
+    let spy = Spy::over(&drive);
+    spy.refuse(Refuse::Bytes(b"chart 3".to_vec()));
+    let engine = SyncEngine::new(&spy, PROVIDER, "Máy mới").with_attachments(fresh.path().join("attachments"));
+    let (restored, report) = engine.restore(&fresh.path().join("tradelens.db")).expect("restores despite the image");
+    assert_eq!((report.attachments_downloaded, report.attachments_failed), (5, 1));
+    for n in [0, 1, 2, 4, 5] {
+        assert!(fresh.path().join(format!("attachments/images/c{n}.png")).is_file(), "c{n}");
+    }
+    assert!(!fresh.path().join("attachments/images/c3.png").exists());
+    let mut n = Machine { dir: fresh, db: restored, name: "N" };
+    assert_eq!(n.journal(100).screenshots.len(), 6, "the journal is all there");
+
+    spy.refuse(Refuse::Nothing);
+    let report = n.try_sync(&spy).expect("syncs");
+    assert_eq!((report.attachments_downloaded, report.attachments_failed), (1, 0));
+    assert_eq!(std::fs::read(n.images().join("images/c3.png")).expect("fetched"), b"chart 3");
+}
+
+/// Makes `path` unreadable for as long as the returned value lives; `None` when this system cannot.
+#[cfg(windows)]
+fn make_unreadable(path: &Path) -> Option<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    // Opened with no sharing: every other open fails with a sharing violation.
+    std::fs::OpenOptions::new().read(true).share_mode(0).open(path).ok()
+}
+
+#[cfg(unix)]
+struct Unreadable(std::path::PathBuf);
+
+#[cfg(unix)]
+impl Drop for Unreadable {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        drop(std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o600)));
+    }
+}
+
+#[cfg(unix)]
+fn make_unreadable(path: &Path) -> Option<Unreadable> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).ok()?;
+    let lock = Unreadable(path.to_owned());
+    // A superuser reads it anyway.
+    std::fs::read(path).is_err().then_some(lock)
+}
+
+#[test]
+fn an_image_that_cannot_be_read_does_not_hold_the_journal_back() {
+    let (drive, mut a, mut b) = with_charts(3);
+    let locked = a.images().join("images/c1.png");
+    let Some(lock) = make_unreadable(&locked) else { return };
+    assert!(std::fs::read(&locked).is_err(), "the image is unreadable");
+
+    let report = a.try_sync(&Spy::over(&drive)).expect("the sync goes through");
+    assert!(report.pushed > 0, "the journal went up: {report:?}");
+    assert_eq!(report.attachments_uploaded, 2, "the other images went up");
+    let report = b.try_sync(&drive).expect("syncs");
+    assert!(report.pulled > 0 && b.journal(100).screenshots.len() == 3, "the other machine has the journal");
+
+    drop(lock);
+    let report = a.try_sync(&Spy::over(&drive)).expect("syncs");
+    assert_eq!(report.attachments_uploaded, 1, "the image is sent once it can be read");
+}
+
+#[test]
+fn an_image_costs_one_upload_and_a_listing_is_shared_by_all() {
+    let (drive, mut a, mut b) = with_charts(12);
+    // The same picture under two paths is one file on the drive.
+    write_image(&a, "images/copy.png", b"chart 0");
+    a.write_journal(100, |entry| entry.screenshots.push(shot("images/copy.png", "")));
+    let spy = Spy::meeting(&drive);
+    let report = a.try_sync(&spy).expect("syncs");
+    assert_eq!(report.attachments_uploaded, 12);
+    assert_eq!(spy.count("upload_new attachments/"), 12, "{:?}", spy.events());
+    assert_eq!(spy.count("upload attachments/"), 0, "an image is never sent through the replacing call");
+    assert_eq!(spy.count("list attachments/"), 1, "one listing for all the images");
+    let names: HashSet<String> =
+        spy.events().iter().filter_map(|e| e.strip_prefix("upload_new ").map(str::to_owned)).collect();
+    assert_eq!(names.len(), 12, "no image is sent twice");
+    assert!((2..=4).contains(&spy.peak()), "the images go up side by side, a few at a time: {}", spy.peak());
+
+    // Nothing changed: no image is sent again.
+    let spy = Spy::over(&drive);
+    assert_eq!(a.try_sync(&spy).expect("syncs").attachments_uploaded, 0);
+    assert_eq!(spy.count("upload_new"), 0);
+    assert_eq!(spy.count("list attachments/"), 0);
+
+    let spy = Spy::over(&drive);
+    let report = b.try_sync(&spy).expect("syncs");
+    assert_eq!(report.attachments_downloaded, 13, "the copy is a path of its own on B");
+    assert_eq!(spy.count("list attachments/"), 1);
+    assert_eq!(spy.count("download attachments/"), 13, "one download per path");
+}
+
+#[test]
+fn a_sync_with_nothing_new_reads_no_image_and_asks_the_drive_nothing_about_them() {
+    let (drive, mut a, mut b) = with_charts(5);
+    a.try_sync(&Spy::over(&drive)).expect("syncs");
+    b.try_sync(&Spy::over(&drive)).expect("syncs");
+
+    // The pictures on A can no longer be read as they were: a sync that opened them would find a
+    // new hash and send them again.
+    for n in 0..5 {
+        write_image(&a, &format!("images/c{n}.png"), b"changed on disk");
+    }
+    for (machine, name) in [(&mut a, "A"), (&mut b, "B")] {
+        let spy = Spy::over(&drive);
+        let report = machine.try_sync(&spy).expect("syncs");
+        assert_eq!(
+            (report.pushed, report.pulled, report.attachments_uploaded, report.attachments_downloaded),
+            (0, 0, 0, 0),
+            "{name}"
+        );
+        for call in ["upload_new", "upload attachments/", "download attachments/", "list attachments/"] {
+            assert_eq!(spy.count(call), 0, "{name}: {call} in {:?}", spy.events());
+        }
+        // What is left is the journal's own bookkeeping: the listings and the device list.
+        println!("a sync with nothing new makes {} calls on {name}: {:?}", spy.events().len(), spy.events());
+    }
+}
+
+#[test]
+fn many_images_move_side_by_side_and_a_restore_fetches_each_exactly_once() {
+    const IMAGES: usize = 16;
+    let (drive, mut a, _) = with_charts(IMAGES);
+    let spy = Spy::meeting(&drive);
+    let report = a.try_sync(&spy).expect("syncs");
+    assert_eq!(report.attachments_uploaded, IMAGES);
+    assert!((2..=4).contains(&spy.peak()), "uploads overlap, within the pool: {}", spy.peak());
+    // The snapshot a new machine restores holds the journal that names the images.
+    a.engine(&drive).snapshot(&a.db).expect("a snapshot");
+
+    let fresh = tempfile::tempdir().expect("a temp dir");
+    let spy = Spy::meeting(&drive);
+    let engine = SyncEngine::new(&spy, PROVIDER, "Máy mới").with_attachments(fresh.path().join("attachments"));
+    let (restored, report) = engine.restore(&fresh.path().join("tradelens.db")).expect("restores");
+    assert_eq!(report.attachments_downloaded, IMAGES);
+    assert_eq!(spy.count("download attachments/"), IMAGES, "one download per image: {:?}", spy.events());
+    assert_eq!(spy.count("list attachments/"), 1, "and the folder is listed once");
+    assert!((2..=8).contains(&spy.peak()), "downloads overlap, within the pool: {}", spy.peak());
+    for n in 0..IMAGES {
+        let bytes = std::fs::read(fresh.path().join(format!("attachments/images/c{n}.png"))).expect("an image");
+        assert_eq!(bytes, format!("chart {n}").as_bytes());
+    }
+    assert!(!fresh.path().join("attachments/images/c0.png.part").exists(), "no half-written file is left");
+    drop(restored);
+}
+
+static RECONCILE_NOW: AtomicI64 = AtomicI64::new(0);
+
+fn reconcile_now() -> i64 {
+    RECONCILE_NOW.load(Ordering::SeqCst)
+}
+
+#[test]
+fn an_image_lost_from_the_drive_is_sent_again_when_the_week_checks_the_drive() {
+    // A drive of its own: the one of `started` already holds a snapshot dated by the real clock.
+    let drive = MemoryDrive::new();
+    let mut a = Machine::new("A");
+    a.db.upsert_batch(&batch(vec![deal(2, 100, DealEntry::In, 0.0), deal(3, 100, DealEntry::Out, 5.0)]), "html")
+        .expect("imports");
+    let paths: Vec<String> = (0..3).map(|n| format!("images/c{n}.png")).collect();
+    for path in &paths {
+        write_image(&a, path, path.as_bytes());
+    }
+    a.write_journal(100, |entry| entry.screenshots = paths.iter().map(|path| shot(path, "")).collect());
+    let day = |n: i64| {
+        chrono::NaiveDate::from_ymd_opt(2026, 11, 1)
+            .expect("a day")
+            .and_hms_opt(12, 0, 0)
+            .expect("noon")
+            .and_utc()
+            .timestamp_millis()
+            + n * 86_400_000
+    };
+    let sync_on = |a: &mut Machine, n: i64| {
+        RECONCILE_NOW.store(day(n), Ordering::SeqCst);
+        a.engine(&drive).with_clock(reconcile_now).sync(&mut a.db).expect("syncs")
+    };
+    assert_eq!(sync_on(&mut a, 0).attachments_uploaded, 3);
+
+    // Someone removes a picture from the hidden folder.
+    let lost = drive.list("attachments/").expect("lists").remove(0);
+    drive.delete(&lost).expect("deleted");
+    let report = sync_on(&mut a, 3);
+    assert_eq!(report.attachments_uploaded, 0, "between two checks the database is trusted: {report:?}");
+    assert!(!drive.names().contains(&lost.name));
+
+    let report = sync_on(&mut a, 7);
+    assert!(report.snapshot_taken);
+    assert_eq!(report.attachments_uploaded, 1, "the weekly check finds the gap and fills it: {report:?}");
+    assert!(drive.names().contains(&lost.name));
+    assert_eq!(sync_on(&mut a, 8).attachments_uploaded, 0, "and then it is quiet again");
+}
+
+#[test]
+fn forgetting_the_drive_makes_the_next_sync_look_at_it_again() {
+    let (drive, mut a, _) = with_charts(2);
+    a.try_sync(&Spy::over(&drive)).expect("syncs");
+    let lost = drive.list("attachments/").expect("lists").remove(0);
+    drive.delete(&lost).expect("deleted");
+    assert_eq!(a.try_sync(&Spy::over(&drive)).expect("syncs").attachments_uploaded, 0);
+
+    // What the app does when another account signs in.
+    a.db.forget_uploaded(PROVIDER).expect("forgotten");
+    assert_eq!(a.try_sync(&Spy::over(&drive)).expect("syncs").attachments_uploaded, 1);
+    assert!(drive.names().contains(&lost.name));
 }
 
 /// A small deterministic generator, so that a failing run can be replayed from its seed.

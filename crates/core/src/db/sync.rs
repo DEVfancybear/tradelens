@@ -610,6 +610,8 @@ impl Db {
             tx.query_row("SELECT MAX(seq) FROM changes WHERE device_id = ?1", [&old], |r| r.get(0))?;
         tx.execute("DELETE FROM changes", [])?;
         tx.execute("DELETE FROM cloud_state WHERE provider <> ?1", [provider])?;
+        // What the old device knew of the drive says nothing sure about it now: ask the drive again.
+        tx.execute("DELETE FROM sync_uploaded", [])?;
         ensure_state(&tx, provider)?;
         let mut pulled = read_state(&tx, provider)?.pulled;
         let slot = pulled.entry(old.clone()).or_insert(0);
@@ -646,6 +648,18 @@ impl Db {
             .optional()?)
     }
 
+    /// Every image hash recorded, by the path the journal refers to the image with: one query for
+    /// all the images, not one per image.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the query fails.
+    pub fn attachment_shas(&self) -> Result<BTreeMap<String, String>> {
+        let mut stmt = self.conn.prepare("SELECT path, sha256 FROM sync_attachments")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
     /// Records the SHA-256 of the image at `path` (hex), which names it in the cloud, and logs it
     /// so that the other devices know what to download.
     ///
@@ -653,12 +667,93 @@ impl Db {
     ///
     /// [`DbError::Sqlite`] when the write fails.
     pub fn record_attachment(&mut self, path: &str, sha256: &str) -> Result<()> {
+        self.record_attachments(&[(path.to_owned(), sha256.to_owned())])
+    }
+
+    /// [`Db::record_attachment`] for many images, in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails; none of the hashes is then recorded.
+    pub fn record_attachments(&mut self, hashes: &[(String, String)]) -> Result<()> {
+        if hashes.is_empty() {
+            return Ok(());
+        }
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        logged(&tx, entity::ATTACHMENT, Some(path), || {
-            views::store(&tx, entity::ATTACHMENT, path, &Fields::from([("sha256".to_owned(), Value::from(sha256))]))?;
-            Ok((path.to_owned(), ()))
-        })?;
+        for (path, sha256) in hashes {
+            logged(&tx, entity::ATTACHMENT, Some(path), || {
+                views::store(
+                    &tx,
+                    entity::ATTACHMENT,
+                    path,
+                    &Fields::from([("sha256".to_owned(), Value::from(sha256.as_str()))]),
+                )?;
+                Ok((path.clone(), ()))
+            })?;
+        }
         tx.commit()?;
+        Ok(())
+    }
+
+    /// The names (`attachments/<sha256>.<ext>`) of the images known to be on the drive of `provider`.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the query fails.
+    pub fn uploaded_images(&self, provider: &str) -> Result<BTreeSet<String>> {
+        let mut stmt = self.conn.prepare("SELECT name FROM sync_uploaded WHERE provider = ?1")?;
+        let rows = stmt.query_map([provider], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<std::result::Result<_, _>>()?)
+    }
+
+    /// Notes that the images `names` are on the drive of `provider`, in one transaction. Nothing of
+    /// the change log: every device finds out for itself.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn mark_uploaded(&mut self, provider: &str, names: &[String]) -> Result<()> {
+        if names.is_empty() {
+            return Ok(());
+        }
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        {
+            let mut insert = tx.prepare("INSERT OR IGNORE INTO sync_uploaded (provider, name) VALUES (?1, ?2)")?;
+            for name in names {
+                insert.execute([provider, name])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Makes `names` the images known to be on the drive of `provider`, forgetting the others:
+    /// the table is a cache of the drive, and this is where it is corrected against a listing.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn replace_uploaded(&mut self, provider: &str, names: &[String]) -> Result<()> {
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute("DELETE FROM sync_uploaded WHERE provider = ?1", [provider])?;
+        {
+            let mut insert = tx.prepare("INSERT OR IGNORE INTO sync_uploaded (provider, name) VALUES (?1, ?2)")?;
+            for name in names {
+                insert.execute([provider, name])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Forgets which images are on the drive of `provider`, as when another account signs in: the
+    /// next sync looks at the drive.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn forget_uploaded(&mut self, provider: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM sync_uploaded WHERE provider = ?1", [provider])?;
         Ok(())
     }
 

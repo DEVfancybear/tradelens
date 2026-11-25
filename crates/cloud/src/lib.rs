@@ -54,6 +54,10 @@ pub enum CloudError {
     Db(#[from] tradelens_core::DbError),
     #[error(transparent)]
     Import(#[from] tradelens_core::import::ImportError),
+    /// The user unticked Google's Drive permission on the consent screen (or took it back later);
+    /// the message is the one for Google Drive because only Google reports it this way.
+    #[error("Bạn chưa cho phép TradeLens dùng Google Drive. Hãy đăng nhập lại và tick ô quyền Google Drive.")]
+    DriveNotGranted,
     #[error("chưa có bản sao lưu nào trên đám mây")]
     NoSnapshot,
     #[error("dữ liệu đồng bộ hỏng: {0}")]

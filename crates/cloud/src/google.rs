@@ -125,6 +125,15 @@ impl GoogleDrive {
         Ok(list.files.into_iter().next().map(RemoteFile::from))
     }
 
+    /// Writes `bytes` over `existing`, or as a new file `name` when there is none.
+    fn put(&self, existing: Option<&RemoteFile>, name: &str, bytes: &[u8]) -> crate::Result<RemoteFile> {
+        if bytes.len() <= self.limits.simple_max {
+            self.upload_simple(existing, name, bytes)
+        } else {
+            self.upload_resumable(existing, name, bytes)
+        }
+    }
+
     fn metadata(name: &str) -> serde_json::Value {
         json!({ "name": name, "parents": ["appDataFolder"] })
     }
@@ -254,11 +263,12 @@ impl CloudDrive for GoogleDrive {
 
     fn upload(&self, name: &str, bytes: &[u8]) -> crate::Result<RemoteFile> {
         let existing = self.find(name)?;
-        if bytes.len() <= self.limits.simple_max {
-            self.upload_simple(existing.as_ref(), name, bytes)
-        } else {
-            self.upload_resumable(existing.as_ref(), name, bytes)
-        }
+        self.put(existing.as_ref(), name, bytes)
+    }
+
+    /// One request for a small file: no lookup of a name the caller knows is free.
+    fn upload_new(&self, name: &str, bytes: &[u8]) -> crate::Result<RemoteFile> {
+        self.put(None, name, bytes)
     }
 
     fn download(&self, file: &RemoteFile) -> crate::Result<Vec<u8>> {

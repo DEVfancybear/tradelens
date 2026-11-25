@@ -468,8 +468,14 @@ fn a_price_typed_with_five_decimals_is_stored_whole_and_a_symbol_in_lower_case_i
     app.wait_for_within("Chi tiết lệnh", WAIT).expect("the trade opens");
 
     let db = fixture.db();
-    let position_id = db.deals(None).expect("deals").iter().map(|(_, d)| d.position_id).next().expect("a deal");
-    let key = TradeKey { account_id: db.accounts().expect("accounts")[0].id, position_id, segment: 0 };
+    // The page can show the trade before the background write has stored it: wait for the rows.
+    let stored_key = || {
+        let position_id = db.deals(None).expect("deals").iter().map(|(_, d)| d.position_id).next()?;
+        let key = TradeKey { account_id: db.accounts().expect("accounts")[0].id, position_id, segment: 0 };
+        db.manual_trade(&key).expect("reads").is_some().then_some(key)
+    };
+    wait_until("the manual trade being stored", || stored_key().is_some());
+    let key = stored_key().expect("the trade was stored");
     let trade = db.manual_trade(&key).expect("reads").expect("the trade");
     assert_eq!(trade.symbol, "EURUSD");
     assert_eq!((trade.open_price, trade.close_price), (Some(1.0850), Some(1.08505)), "no price is rounded");
