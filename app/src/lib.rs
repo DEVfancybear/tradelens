@@ -30,6 +30,7 @@ mod zone;
 use nsh_base::theme;
 use nsh_core::{element::desktop::window, prelude::*};
 
+pub use cloud::CREDENTIALS_SETTING;
 pub use store::{Reading, Writer, data_changed, query, query_with, writer};
 
 /// The app's UI set (`nsh.json` `"rust"`).

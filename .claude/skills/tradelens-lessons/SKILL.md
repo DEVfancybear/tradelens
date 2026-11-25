@@ -65,6 +65,11 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
 - **Why:** the R field in manual entry, the day journal while it autosaves, renaming checklist items and renaming options in the form editor all lost keystrokes whenever a re-read landed between keys. The same bug made tests flaky on CI.
 - **Check:** add a case to `app/tests/typing_survives_reloads.rs` using `type_through_reloads`, which types in pieces and forces a re-read between them.
 
+### 2.1 A rule about stored data is checked inside the write, not only on the snapshot
+- **Rule:** a check that depends on what is stored (a name already in use, say) runs again inside the `writer().run` closure, against `db`. The check on `store.snapshot_now()` before it is only quick feedback. Return the user's message as an inner `Result` (`Ok(Err(message))`) and `flatten()` it in `done`, so it is shown as written rather than as "Không ghi được dữ liệu: …".
+- **Why:** Playbook's Save checked for a duplicate name only against the snapshot. When Save was pressed before the list had been read (a loaded machine), the snapshot was empty and a second "breakout" was stored next to "Breakout". `a_second_playbook_cannot_take_a_name_in_use` failed under load on the quality gate.
+- **Check:** a test that stores the conflicting row through `fixture.db()` after the page has read its list (the screen doesn't see it), then saves through the form. See `a_name_stored_after_the_list_was_read_is_still_refused`.
+
 ## 3. Headless tests
 
 - **Waiting:**
@@ -81,6 +86,13 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
   - After changing UI code, run `cargo test -p nsh-app-tradelens --lib -- --nocapture --test-threads=1 2>&1 | grep -c "panicked"`. It must print 0.
   - Such a panic is a real bug to find the cause of, not teardown noise.
   - To narrow it down fast, split the harness into small probe components.
+- **"invalid metadata" / "can't find crate" on Windows:** read the `note:` lines before blaming the cache.
+  - `os error 1455` ("The paging file is too small") means rustc ran out of virtual memory: twelve parallel jobs each linking a test binary with full debug info.
+  - The cache is fine, so deleting `target` only costs a full rebuild. Build with `CARGO_BUILD_JOBS=4 cargo test --workspace --no-run` first, then run `scripts/quality.sh`, which reuses that build.
+  - Also don't run `quality.sh` in the background as a turn ends. The `Stop` hook runs it at the same time over the same `target`.
+- **The OS credential store is the developer's, not the test's:** `support::Fixture` sets `cloud.credentials = memory` (`CREDENTIALS_SETTING`), so sessions and secrets stay in memory. Anything new in `app/src/cloud.rs` that keeps a token goes through `Env::token_store()` / `Env::{load,save,clear}_secret`, never `KeyringStore::new()` directly.
+  - Why: after the user signed in to Google in the real app, four screen tests failed ("nobody is signed in" was false). They read the real Windows Credential Manager, and a test pressing "Đăng xuất" would have deleted the user's real token.
+  - Check: `credentials_kept_in_memory_never_reach_the_operating_system_store` in `cloud.rs`; with a real sign-in on the machine, `cargo test -p nsh-app-tradelens --test cloud_screens` still passes.
 - **Temp dirs:** every test database lives in a `tempfile::TempDir` through `Fixture`, so it is removed afterwards. Leaked `.tmp*` folders once filled the disk.
 - **Regression tests:** before trusting a new test, revert the fix, confirm the test fails, then restore the fix.
 
