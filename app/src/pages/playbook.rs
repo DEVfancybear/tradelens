@@ -592,6 +592,11 @@ fn name_taken(playbooks: &[Playbook], name: &str, own_id: i64) -> bool {
     playbooks.iter().any(|p| p.id != own_id && p.name.trim().to_lowercase() == wanted)
 }
 
+/// Why a setup cannot take `name` (in Vietnamese): another setup has it.
+fn name_taken_message(name: &str) -> String {
+    format!("Đã có playbook tên “{}”.", name.trim())
+}
+
 /// A label over a control.
 fn labelled(label: &'static str, control: impl IntoElement) -> impl IntoElement {
     view().gap_1().child(text(label).text_xs().text_color(move || theme().muted_foreground)).child(control)
@@ -634,7 +639,7 @@ impl Fields {
             return Err("Tên playbook không được để trống.".to_owned());
         }
         if name_taken(others, &name, base.id) {
-            return Err(format!("Đã có playbook tên “{}”.", name.trim()));
+            return Err(name_taken_message(&name));
         }
         Ok(Playbook {
             name: name.trim().to_owned(),
@@ -668,12 +673,17 @@ fn edit_form(base: Draft, editing: Signal<Option<Draft>>, timeframes: Reading<Ve
         write.run(
             move |db| {
                 let all = db.playbooks()?;
+                // The list on screen may not be read yet when Save is pressed: the stored setups
+                // decide whether the name is free.
+                if name_taken(&all, &setup.name, setup.id) {
+                    return Ok(Err(name_taken_message(&setup.name)));
+                }
                 let at = all.iter().position(|p| p.id == setup.id).unwrap_or(all.len());
-                save_indexed(db, &setup, at)
+                save_indexed(db, &setup, at).map(Ok)
             },
             move |result| {
                 busy.set(false);
-                match result {
+                match result.flatten() {
                     Ok(saved) => batch(|| {
                         global::<Selected>().set(Selected(Some(saved)));
                         editing.set(None);

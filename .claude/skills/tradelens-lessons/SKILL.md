@@ -65,6 +65,11 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
 - **Why:** the R field in manual entry, the day journal while it autosaves, renaming checklist items and renaming options in the form editor all lost keystrokes whenever a re-read landed between keys. The same bug made tests flaky on CI.
 - **Check:** add a case to `app/tests/typing_survives_reloads.rs` using `type_through_reloads`, which types in pieces and forces a re-read between them.
 
+### 2.1 A rule about stored data is checked inside the write, not only on the snapshot
+- **Rule:** a check that depends on what is stored (a name already in use, say) runs again inside the `writer().run` closure, against `db`. The check on `store.snapshot_now()` before it is only quick feedback. Return the user's message as an inner `Result` (`Ok(Err(message))`) and `flatten()` it in `done`, so it is shown as written rather than as "Không ghi được dữ liệu: …".
+- **Why:** Playbook's Save checked for a duplicate name only against the snapshot. When Save was pressed before the list had been read (a loaded machine), the snapshot was empty and a second "breakout" was stored next to "Breakout". `a_second_playbook_cannot_take_a_name_in_use` failed under load on the quality gate.
+- **Check:** a test that stores the conflicting row through `fixture.db()` after the page has read its list (the screen doesn't see it), then saves through the form. See `a_name_stored_after_the_list_was_read_is_still_refused`.
+
 ## 3. Headless tests
 
 - **Waiting:**

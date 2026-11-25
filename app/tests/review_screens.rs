@@ -231,6 +231,24 @@ fn a_second_playbook_cannot_take_a_name_in_use() {
     assert_eq!(fixture.db().playbooks().expect("setups read").len(), 1);
 }
 
+#[test]
+fn a_name_stored_after_the_list_was_read_is_still_refused() {
+    let fixture = Fixture::new();
+    let mut app = fixture.start();
+    open_page(&mut app, "Playbook", "Playbook của bạn");
+    app.wait_for_within("Chưa có playbook nào", WAIT).expect("the empty list is read");
+    // Stored behind the screen's back: the list it read does not have it.
+    fixture
+        .db()
+        .save_playbook(&Playbook { name: "Breakout".into(), ..Playbook::default() }, 0)
+        .expect("the setup is stored");
+    app.press("role:button[Thêm playbook]").expect("the add button");
+    app.type_text("label:Tên playbook", "breakout").expect("the name is typed");
+    app.press("role:button[Lưu]").expect("the save button");
+    app.wait_for_within("Đã có playbook tên “breakout”.", WAIT).expect("the form says why it did not save");
+    assert_eq!(fixture.db().playbooks().expect("setups read").len(), 1, "no second setup with the name");
+}
+
 // --- Lệnh bỏ lỡ -------------------------------------------------------------------------------------
 
 #[test]
