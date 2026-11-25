@@ -103,6 +103,7 @@ fn seed(db: &mut Db) {
 
 fn open_trade(app: &mut Headless, symbol: &str) {
     app.press("role:button[Lệnh]").expect("the trades row is a button");
+    app.wait_for_within(&format!("role:button[Mở nhật ký lệnh {symbol}]"), WAIT).expect("the trades load");
     app.press(&format!("role:button[Mở nhật ký lệnh {symbol}]")).expect("the trade opens");
     app.wait_for("Nhật ký lệnh").expect("the trade's page shows");
 }

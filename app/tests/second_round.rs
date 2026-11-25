@@ -10,7 +10,7 @@ use nsh_testing::Headless;
 use tradelens_core::{Db, import::notion};
 
 mod support;
-use support::{Fixture, wait_until};
+use support::{Fixture, WAIT, wait_until};
 
 fn core_fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../crates/core/tests/fixtures").join(name)
@@ -148,6 +148,7 @@ fn scroll_page_down(app: &mut Headless) {
 fn a_trade_opened_from_a_scrolled_page_opens_at_its_top() {
     let (_fixture, mut app) = started(1280.0, 680.0);
     open(&mut app, "Lệnh");
+    app.wait_for_within("role:button[Mở nhật ký lệnh BTCUSD]", WAIT).expect("the trades load");
     app.press("role:button[Mở nhật ký lệnh BTCUSD] >> nth=0").expect("a trade opens");
     app.wait_for("Nhật ký Notion · BTCUSD").expect("the trade's page");
     let top = body_top(&app, "Vào lệnh");
@@ -159,6 +160,7 @@ fn a_trade_opened_from_a_scrolled_page_opens_at_its_top() {
     open(&mut app, "Tổng quan");
     app.wait_for("Win rate").expect("the overview");
     app.press("role:button[Khoảng thời gian: Tất cả]").expect("every date");
+    app.wait_for_within("role:button[Mở nhật ký lệnh BTCUSD]", WAIT).expect("the trades load");
     app.press("role:button[Mở nhật ký lệnh BTCUSD] >> nth=0").expect("a trade of the recent list");
     app.wait_for("Nhật ký Notion · BTCUSD").expect("the trade's page again");
     assert!((body_top(&app, "Vào lệnh") - top).abs() < 0.5, "a trade's page starts at its top");
@@ -259,6 +261,7 @@ fn a_trade_of_the_journal_has_no_time_no_source_key_and_no_ea_screenshots() {
         app.screen().texts()
     );
     open(&mut app, "Lệnh");
+    app.wait_for_within("role:button[Mở nhật ký lệnh BTCUSD]", WAIT).expect("the trades load");
     app.press("role:button[Mở nhật ký lệnh BTCUSD] >> nth=0").expect("a trade opens");
     app.wait_for("Nhật ký Notion · BTCUSD").expect("the breadcrumb names the account, not its key");
     shows_nothing_like(&app, "(notion)");
