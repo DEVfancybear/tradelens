@@ -127,9 +127,14 @@ pub(crate) fn level_to(value: f64, digits: usize) -> String {
     if value > 0.0 { price_to(value, digits) } else { "—".to_owned() }
 }
 
-/// A profit factor: `1.86`, or a dash when nothing was lost yet.
+/// The profit factor from which [`ratio`] stops giving digits: one tiny loss among many wins makes it
+/// huge and meaningless (`1240.00`), and the figure must fit its column.
+const RATIO_CAP: f64 = 50.0;
+
+/// A profit factor: `1.86`; `50+` from 50 up; a dash when nothing was lost yet.
 pub(crate) fn ratio(value: Option<f64>) -> String {
-    value.map_or_else(|| "—".to_owned(), |v| format!("{v:.2}"))
+    value
+        .map_or_else(|| "—".to_owned(), |v| if v >= RATIO_CAP { format!("{RATIO_CAP:.0}+") } else { format!("{v:.2}") })
 }
 
 /// Day and month with the time: `20/11 22:44`.
@@ -282,6 +287,9 @@ mod tests {
         assert_eq!(percent(0.5833), "58.3%");
         assert_eq!(ratio(Some(1.857)), "1.86");
         assert_eq!(ratio(None), "—");
+        assert_eq!(ratio(Some(49.994)), "49.99");
+        assert_eq!(ratio(Some(55.0)), "50+", "a profit factor made by one tiny loss is capped");
+        assert_eq!(ratio(Some(1240.0)), "50+");
     }
 
     #[test]

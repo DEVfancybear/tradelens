@@ -20,9 +20,9 @@ use crate::{
     snapshot::Snapshot,
     store::{AccountFilter, Store, store, writer},
     ui::{
-        controls::{Choice, Variant, action, action_icon, action_when, segmented, select_value, text_field},
+        controls::{Choice, Variant, action, action_icon, action_when, link, segmented, select_value, text_field},
         date_picker::{Moment, MomentValue, moment_field},
-        forms::{NumberRange, number_field},
+        forms::{NumberRange, number_field_fluid},
         gallery::gallery,
         icons::Icon,
         parts::{card, page_with},
@@ -89,43 +89,126 @@ fn typed_clock(snapshot: &Snapshot, account: Option<&Account>) -> Clock {
     zone.display.clock(account.and_then(|a| a.server_offset_min), zone.local_offset_min)
 }
 
-/// The trade to store from what was typed, or what to fix, in Vietnamese.
-fn build_trade(input: &TradeInput, zone: Zone) -> Result<ManualTrade, String> {
-    let needed = zone.lead == Lead::Money;
-    let positive = |value: Option<f64>, what: &str| match value {
-        Some(v) if v.is_finite() && v > 0.0 => Ok(Some(v)),
-        Some(_) => Err(format!("{what} phải là số lớn hơn 0")),
-        None if needed => Err(format!("{what} phải là số lớn hơn 0")),
-        None => Ok(None),
-    };
-    if input.symbol.trim().is_empty() {
-        return Err("Nhập mã giao dịch (symbol).".to_owned());
+/// The parts of the trade form that can be told wrong, in the order the form shows them (a trade kept
+/// in R shows its result before the rest: see [`Part::rank`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Part {
+    Symbol,
+    Opened,
+    Closed,
+    Volume,
+    OpenPrice,
+    ClosePrice,
+    Profit,
+    ResultR,
+}
+
+impl Part {
+    const COUNT: usize = 8;
+
+    /// Which of the form's element refs it has.
+    fn index(self) -> usize {
+        match self {
+            Part::Symbol => 0,
+            Part::Opened => 1,
+            Part::Closed => 2,
+            Part::Volume => 3,
+            Part::OpenPrice => 4,
+            Part::ClosePrice => 5,
+            Part::Profit => 6,
+            Part::ResultR => 7,
+        }
     }
-    let volume = positive(input.volume, "Khối lượng")?;
-    let open_price = positive(input.open_price, "Giá vào")?;
-    let close_price = positive(input.close_price, "Giá ra")?;
-    let day = |moment: MomentValue, what: &str| {
-        moment.day.ok_or_else(|| format!("{what} chưa chọn: bấm ô để chọn ngày, rồi gõ giờ."))
+
+    /// Where the form shows it, first to last.
+    fn rank(self, lead: Lead) -> usize {
+        match (self, lead) {
+            (Part::ResultR, Lead::R) => 0,
+            (part, _) => 1 + part.index(),
+        }
+    }
+}
+
+/// What is wrong with a field of the form, in Vietnamese: it is said under that field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Problem {
+    part: Part,
+    message: String,
+}
+
+impl Problem {
+    fn new(part: Part, message: impl Into<String>) -> Self {
+        Self { part, message: message.into() }
+    }
+}
+
+/// A number that must be above zero when the form asks for money (`lead`) or when it is typed: it is
+/// noted in `problems` when it is not, and `None` is what an empty one that may be gives.
+fn positive(problems: &mut Vec<Problem>, lead: Lead, value: Option<f64>, part: Part, what: &str) -> Option<f64> {
+    match value {
+        Some(v) if v.is_finite() && v > 0.0 => Some(v),
+        Some(_) => {
+            problems.push(Problem::new(part, format!("{what} phải là số lớn hơn 0")));
+            None
+        }
+        None => {
+            if lead == Lead::Money {
+                problems.push(Problem::new(part, format!("{what} phải là số lớn hơn 0")));
+            }
+            None
+        }
+    }
+}
+
+/// The trade to store from what was typed, or everything to fix (each said under its field), first
+/// the one the form shows first.
+fn build_trade(input: &TradeInput, zone: Zone) -> Result<ManualTrade, Vec<Problem>> {
+    let needed = zone.lead == Lead::Money;
+    let mut problems = Vec::new();
+    if input.symbol.trim().is_empty() {
+        problems.push(Problem::new(Part::Symbol, "Nhập mã giao dịch (symbol)."));
+    }
+    let volume = positive(&mut problems, zone.lead, input.volume, Part::Volume, "Khối lượng");
+    let open_price = positive(&mut problems, zone.lead, input.open_price, Part::OpenPrice, "Giá vào");
+    let close_price = positive(&mut problems, zone.lead, input.close_price, Part::ClosePrice, "Giá ra");
+    let mut day = |moment: MomentValue, part: Part, what: &str| {
+        let day = moment.day;
+        if day.is_none() {
+            problems.push(Problem::new(part, format!("{what} chưa chọn: bấm ô để chọn ngày, rồi gõ giờ.")));
+        }
+        day
     };
-    let (open_day, close_day) = (day(input.opened, "Thời gian vào")?, day(input.closed, "Thời gian ra")?);
+    let (open_day, close_day) =
+        (day(input.opened, Part::Opened, "Thời gian vào"), day(input.closed, Part::Closed, "Thời gian ra"));
     // Without a time of day on either end the trade is kept by its days; one typed makes both known.
     let date_only =
         (zone.lead == Lead::R || zone.date_only_ok) && input.opened.time.is_none() && input.closed.time.is_none();
     let time = |day: chrono::NaiveDate, time: Option<chrono::NaiveTime>| {
         zone.clock.server_ms(day.and_time(time.unwrap_or(chrono::NaiveTime::MIN)))
     };
-    let (open_time, close_time) = (time(open_day, input.opened.time), time(close_day, input.closed.time));
-    if close_time < open_time {
-        return Err("Thời gian ra phải sau thời gian vào.".to_owned());
+    let times =
+        open_day.zip(close_day).map(|(open, close)| (time(open, input.opened.time), time(close, input.closed.time)));
+    if let Some((open, close)) = times
+        && close < open
+    {
+        problems.push(Problem::new(Part::Closed, "Thời gian ra phải sau thời gian vào."));
     }
-    let finite = |value: Option<f64>, what: &str| match value {
-        Some(v) if !v.is_finite() => Err(format!("{what} phải là một số")),
-        other => Ok(other),
+    let mut finite = |value: Option<f64>, part: Part, what: &str| match value {
+        Some(v) if !v.is_finite() => {
+            problems.push(Problem::new(part, format!("{what} phải là một số")));
+            None
+        }
+        other => other,
     };
-    let profit = finite(input.profit, "Lãi/lỗ")?;
-    if needed && profit.is_none() {
-        return Err("Nhập lãi/lỗ của lệnh (chưa gồm commission và swap).".to_owned());
+    let profit = finite(input.profit, Part::Profit, "Lãi/lỗ");
+    let result_r = finite(input.result_r, Part::ResultR, "Kết quả R");
+    if needed && input.profit.is_none() {
+        problems.push(Problem::new(Part::Profit, "Nhập lãi/lỗ của lệnh (chưa gồm commission và swap)."));
     }
+    let (Some((open_time, close_time)), true) = (times, problems.is_empty()) else {
+        problems.sort_by_key(|problem| problem.part.rank(zone.lead));
+        return Err(problems);
+    };
     let mut trade = ManualTrade {
         symbol: input.symbol.trim().to_owned(),
         side: input.side,
@@ -140,12 +223,15 @@ fn build_trade(input: &TradeInput, zone: Zone) -> Result<ManualTrade, String> {
         profit,
         commission: input.commission.unwrap_or(0.0),
         swap: input.swap.unwrap_or(0.0),
-        result_r: finite(input.result_r, "Kết quả R")?,
+        result_r,
     };
     if trade.profit.is_none() && trade.result_r.is_none() {
         // A trade without money is kept by its R: the one the prices and the stop say.
         trade.result_r = Some(trade.computed_r().ok_or_else(|| {
-            "Nhập kết quả (R) của lệnh, hoặc giá vào, giá ra và stop loss để app tự tính R.".to_owned()
+            vec![Problem::new(
+                Part::ResultR,
+                "Nhập kết quả (R) của lệnh, hoặc giá vào, giá ra và stop loss để app tự tính R.",
+            )]
         })?);
     }
     Ok(trade)
@@ -204,9 +290,26 @@ fn computed_line(input: &TradeInput, zone: Zone, currency: &str) -> String {
     format!("Tự tính: {}", parts.join(" · "))
 }
 
+/// The elements of the form's fields, to bring one into view.
+#[derive(Clone, Copy)]
+struct Marks([ElementRef; Part::COUNT]);
+
+impl Marks {
+    fn new() -> Self {
+        Self(std::array::from_fn(|_| element_ref()))
+    }
+
+    fn of(self, part: Part) -> ElementRef {
+        self.0[part.index()]
+    }
+}
+
 /// The signals of the trade's own fields.
 #[derive(Clone, Copy)]
 struct Inputs {
+    /// What is wrong with the fields after a save; each is said under its field and goes when it is edited.
+    problems: Signal<Vec<Problem>>,
+    marks: Marks,
     account: Signal<String>,
     symbol: Signal<String>,
     side: Signal<Side>,
@@ -227,6 +330,8 @@ impl Inputs {
     /// A blank form for `account`.
     fn new(account: String) -> Self {
         Self {
+            problems: signal(Vec::new()),
+            marks: Marks::new(),
             account: signal(account),
             symbol: signal(String::new()),
             side: signal(Side::Long),
@@ -252,6 +357,8 @@ impl Inputs {
         };
         let some = |value: f64| (value != 0.0).then_some(value);
         Self {
+            problems: signal(Vec::new()),
+            marks: Marks::new(),
             account: signal(account),
             symbol: signal(trade.symbol.clone()),
             side: signal(trade.side),
@@ -306,9 +413,53 @@ impl Inputs {
         }
     }
 
-    /// What is wrong with a time typed, if anything.
-    fn time_problem(&self) -> Option<String> {
-        self.opened.problem().or_else(|| self.closed.problem())
+    /// The trade the form holds. When it holds none, says under each field what is wrong (a time that
+    /// could not be read is said by its own field already) and brings the first such field into view.
+    fn checked(&self, zone: Zone) -> Option<ManualTrade> {
+        let stuck: Vec<Part> = [(Part::Opened, &self.opened), (Part::Closed, &self.closed)]
+            .into_iter()
+            .filter(|(_, moment)| moment.problem().is_some())
+            .map(|(part, _)| part)
+            .collect();
+        let (trade, mut problems) = match build_trade(&self.input(), zone) {
+            Ok(trade) => (Some(trade), Vec::new()),
+            Err(problems) => (None, problems),
+        };
+        problems.retain(|problem| !stuck.contains(&problem.part));
+        let first = problems.iter().map(|problem| problem.part).chain(stuck).min_by_key(|part| part.rank(zone.lead));
+        self.problems.set(problems);
+        match first {
+            Some(part) => {
+                self.marks.of(part).reveal(RevealOptions::default().vertical(ScrollAlignment::Center));
+                None
+            }
+            None => trade,
+        }
+    }
+
+    /// Forgets what was said about `part` as soon as the field is edited: `changed` reads what it holds.
+    fn forget_on_edit<T>(self, part: Part, changed: impl Fn() -> T + 'static) {
+        effect(move || {
+            let _ = changed();
+            untracked(|| {
+                if self.problems.with(|all| all.iter().any(|problem| problem.part == part)) {
+                    self.problems.update(|all| all.retain(|problem| problem.part != part));
+                }
+            });
+        });
+    }
+
+    /// Makes every field forget what was said about it when it is edited. Call once, while the page is built.
+    fn watching(self) -> Self {
+        self.forget_on_edit(Part::Symbol, move || self.symbol.get());
+        self.forget_on_edit(Part::Opened, move || self.opened.tracked());
+        self.forget_on_edit(Part::Closed, move || (self.opened.tracked(), self.closed.tracked()));
+        self.forget_on_edit(Part::Volume, move || self.volume.get());
+        self.forget_on_edit(Part::OpenPrice, move || self.open_price.get());
+        self.forget_on_edit(Part::ClosePrice, move || self.close_price.get());
+        self.forget_on_edit(Part::Profit, move || self.profit.get());
+        self.forget_on_edit(Part::ResultR, move || (self.result_r.get(), self.open_price.get(), self.sl.get()));
+        self
     }
 }
 
@@ -360,7 +511,7 @@ fn entry_page(round: Signal<u32>, notice: Signal<Option<String>>) -> impl IntoEl
             store.snapshot_now().accounts.first().map_or_else(|| MANUAL_ACCOUNT.to_owned(), |a| a.id.to_string())
         }
     };
-    let inputs = Inputs::new(default_account);
+    let inputs = Inputs::new(default_account).watching();
     let fields = JournalFields::of(Draft::default());
     let shots = signal(Vec::<Attachment>::new());
     let busy = signal(false);
@@ -370,9 +521,6 @@ fn entry_page(round: Signal<u32>, notice: Signal<Option<String>>) -> impl IntoEl
         if busy.get_untracked() {
             return;
         }
-        if let Some(problem) = inputs.time_problem() {
-            return failure.set(Some(problem));
-        }
         let snapshot = store.snapshot_now();
         let account = inputs.account.get_untracked();
         let account_row = account.parse::<i64>().ok().and_then(|id| snapshot.accounts.iter().find(|a| a.id == id));
@@ -381,10 +529,7 @@ fn entry_page(round: Signal<u32>, notice: Signal<Option<String>>) -> impl IntoEl
             lead: lead_of(&snapshot, &account),
             date_only_ok: false,
         };
-        let trade = match build_trade(&inputs.input(), zone) {
-            Ok(trade) => trade,
-            Err(message) => return failure.set(Some(message)),
-        };
+        let Some(trade) = inputs.checked(zone) else { return };
         let mut entry = JournalEntry::default();
         fields.draft().apply(&mut entry);
         entry.screenshots = shots.get_untracked();
@@ -434,27 +579,69 @@ fn entry_page(round: Signal<u32>, notice: Signal<Option<String>>) -> impl IntoEl
                     .min_w(px(520.0))
                     .gap_6()
                     .child(dynamic(move || notice.get().map(|line| text(line).text_sm().text_color(tokens::warning()))))
+                    .child(failure_line(failure))
                     .child(trade_card(inputs, String::new(), TradeMode::New))
                     .child(card("2 · Nhật ký", journal_form(fields, shot_count, None, failure))),
             )
-            .child(attachments_column(shots, failure)),
+            .child(attachments_column(shots)),
     )
 }
 
-/// The column of chart images beside the form, and what went wrong with the save.
-fn attachments_column(shots: Signal<Vec<Attachment>>, failure: Signal<Option<String>>) -> impl IntoElement {
-    view()
-        .w(px(380.0))
-        .gap_6()
-        .child(card(
-            "Ảnh & đính kèm",
-            view().gap_2().child(gallery("Ảnh chart", move || shots.get(), move |list| shots.set(list))).child(
-                text("Ảnh lưu cùng dữ liệu trên máy, theo lệnh sau khi bấm Lưu lệnh.")
+/// What went wrong with a save that no field is to blame for (the database, the form's layout), at the
+/// top of the form where the save buttons are; what is wrong with a field is said under that field.
+fn failure_line(failure: Signal<Option<String>>) -> impl IntoElement {
+    dynamic(move || failure.get().map(|error| text(error).text_sm().text_color(tokens::loss())))
+}
+
+/// The column of chart images beside the form.
+fn attachments_column(shots: Signal<Vec<Attachment>>) -> impl IntoElement {
+    view().w(px(SIDE_WIDTH)).gap_6().child(card(
+        "Ảnh & đính kèm",
+        view().gap_2().child(gallery("Ảnh chart", move || shots.get(), move |list| shots.set(list))).child(
+            text("Ảnh lưu cùng dữ liệu trên máy, theo lệnh sau khi bấm Lưu lệnh.")
+                .text_xs()
+                .text_color(move || theme().muted_foreground),
+        ),
+    ))
+}
+
+/// The width of the column beside the form (images, or the summary of what a trade being edited keeps).
+const SIDE_WIDTH: f32 = 380.0;
+
+/// What the side card of the edit form says of the journal and images the trade keeps: they are not
+/// edited here, and the link goes to where they are.
+fn kept_card(key: TradeKey) -> impl IntoElement {
+    let store = store();
+    let summary = move || {
+        let entry = store.snapshot().journal(&key);
+        let mut kept = Vec::new();
+        if !entry.is_empty() {
+            kept.push("đã có nhật ký".to_owned());
+        }
+        if entry.rating > 0 {
+            kept.push(format!("chấm {}/5", entry.rating));
+        }
+        if !entry.screenshots.is_empty() {
+            kept.push(format!("{} ảnh chart", entry.screenshots.len()));
+        }
+        if kept.is_empty() {
+            "Lệnh chưa có nhật ký hay ảnh.".to_owned()
+        } else {
+            format!("Lệnh {}.", kept.join(", "))
+        }
+    };
+    card(
+        "Nhật ký & ảnh",
+        view()
+            .gap_2()
+            .child(text(summary).text_sm())
+            .child(
+                text("Sửa số liệu không đụng tới nhật ký, ảnh và liên kết của lệnh: chúng giữ nguyên.")
                     .text_xs()
                     .text_color(move || theme().muted_foreground),
-            ),
-        ))
-        .child(dynamic(move || failure.get().map(|error| text(error).text_sm().text_color(tokens::loss()))))
+            )
+            .child(view().flex_row().child(link("Nhật ký và ảnh sửa ở trang lệnh", nav::close_edit_trade))),
+    )
 }
 
 /// The page that edits the facts of the trade `key`: the same form as a new trade's, filled with
@@ -505,7 +692,7 @@ fn edit_page(key: &TradeKey, stored: &ManualTrade) -> impl IntoElement {
     let snapshot = store.snapshot_now();
     let account_row = snapshot.accounts.iter().find(|a| a.id == key.account_id);
     let clock = typed_clock(&snapshot, account_row);
-    let inputs = Inputs::of(key.account_id.to_string(), stored, clock);
+    let inputs = Inputs::of(key.account_id.to_string(), stored, clock).watching();
     // A trade that lacks something (money, a lot, prices, a time of day) may stay without it; one that
     // has everything is held to it, as when it was typed.
     let complete =
@@ -520,13 +707,7 @@ fn edit_page(key: &TradeKey, stored: &ManualTrade) -> impl IntoElement {
             if busy.get_untracked() {
                 return;
             }
-            if let Some(problem) = inputs.time_problem() {
-                return failure.set(Some(problem));
-            }
-            let trade = match build_trade(&inputs.input(), zone) {
-                Ok(trade) => trade,
-                Err(message) => return failure.set(Some(message)),
-            };
+            let Some(trade) = inputs.checked(zone) else { return };
             busy.set(true);
             failure.set(None);
             let key = key.clone();
@@ -555,29 +736,57 @@ fn edit_page(key: &TradeKey, stored: &ManualTrade) -> impl IntoElement {
         "Số liệu của lệnh; nhật ký, ảnh và liên kết của lệnh giữ nguyên",
         actions,
         view()
+            .flex_row()
+            .flex_wrap()
+            .items_start()
             .gap_6()
-            .max_w(px(920.0))
-            .child(trade_card(inputs, account, TradeMode::Edit(zone.lead)))
-            .child(dynamic(move || failure.get().map(|error| text(error).text_sm().text_color(tokens::loss())))),
+            .child(view().flex_1().min_w(px(520.0)).gap_6().child(failure_line(failure)).child(trade_card(
+                inputs,
+                account,
+                TradeMode::Edit(zone.lead),
+            )))
+            .child(view().w(px(SIDE_WIDTH)).gap_6().child(kept_card(key.clone()))),
     )
 }
 
+/// The least a field of the grid is wide: a number field with a unit (`1.08505`, `100.00 lot`) fits it.
+const FIELD_MIN: f32 = 184.0;
+
 /// A caption over a control, in the form's grid.
-fn field(label: &'static str, control: impl IntoElement) -> impl IntoElement {
+fn field(label: &'static str, control: impl IntoElement) -> View {
     view()
         .flex_1()
-        .min_w(px(150.0))
+        .min_w(px(FIELD_MIN))
         .gap_1()
         .child(text(label).text_xs().text_color(move || theme().muted_foreground))
         .child(control)
 }
 
-/// A number the trader types, empty until they do.
-fn number(label: &'static str, unit: Option<&'static str>, value: Signal<Option<f64>>, step: f64) -> impl IntoElement {
-    field(
-        label,
-        number_field(label, unit, NumberRange::any().stepping(step), move || value.get(), move |n| value.set(n)),
-    )
+/// A [`field`] that says what is wrong with it under it, and can be brought into view.
+fn checked_field(inputs: Inputs, part: Part, label: &'static str, control: impl IntoElement) -> impl IntoElement {
+    field(label, control).element_ref(&inputs.marks.of(part)).child(dynamic(move || {
+        inputs
+            .problems
+            .with(|all| all.iter().find(|problem| problem.part == part).map(|problem| problem.message.clone()))
+            .map(|message| text(message).text_xs().text_color(tokens::loss()))
+    }))
+}
+
+/// A number the trader types, empty until they do; it takes the width of its cell.
+fn number(
+    inputs: Inputs,
+    part: Option<Part>,
+    label: &'static str,
+    unit: Option<&'static str>,
+    value: Signal<Option<f64>>,
+    step: f64,
+) -> impl IntoElement {
+    let control =
+        number_field_fluid(label, unit, NumberRange::any().stepping(step), move || value.get(), move |n| value.set(n));
+    match part {
+        Some(part) => checked_field(inputs, part, label, control).into_element(),
+        None => field(label, control).into_element(),
+    }
 }
 
 /// The "tự tính" line: the net result, how long the trade was held and its R, once the form has
@@ -628,7 +837,9 @@ fn who_row(inputs: Inputs, account_title: String, mode: TradeMode) -> impl IntoE
                     .into_element(),
             },
         ))
-        .child(field(
+        .child(checked_field(
+            inputs,
+            Part::Symbol,
             "Symbol",
             text_field("Symbol", None, "XAUUSD", move || symbol.get(), move |t| symbol.set(t.to_owned())),
         ))
@@ -641,14 +852,34 @@ fn when_row(inputs: Inputs) -> impl IntoElement {
         .flex_row()
         .flex_wrap()
         .gap_3()
-        .child(field("Thời gian vào", moment_field("Thời gian vào", "Giờ vào", inputs.opened)))
-        .child(field("Thời gian ra", moment_field("Thời gian ra", "Giờ ra", inputs.closed)))
-        .child(number("Khối lượng", Some("lot"), inputs.volume, 0.01))
+        .child(checked_field(
+            inputs,
+            Part::Opened,
+            "Thời gian vào",
+            moment_field("Thời gian vào", "Giờ vào", inputs.opened),
+        ))
+        .child(checked_field(
+            inputs,
+            Part::Closed,
+            "Thời gian ra",
+            moment_field("Thời gian ra", "Giờ ra", inputs.closed),
+        ))
+        .child(number(inputs, Some(Part::Volume), "Khối lượng", Some("lot"), inputs.volume, 0.01))
 }
+
+/// The widest the field of the result in R grows: it is one number, not a row of them.
+const RESULT_MAX: f32 = 280.0;
 
 /// The result in R, which leads the form of a trade kept in R.
 fn r_row(inputs: Inputs) -> impl IntoElement {
-    view().flex_row().flex_wrap().gap_3().child(number("Kết quả (R)", Some("R"), inputs.result_r, 0.1))
+    view().flex_row().flex_wrap().gap_3().max_w(px(RESULT_MAX)).child(number(
+        inputs,
+        Some(Part::ResultR),
+        "Kết quả (R)",
+        Some("R"),
+        inputs.result_r,
+        0.1,
+    ))
 }
 
 fn trade_card(inputs: Inputs, account_title: String, mode: TradeMode) -> impl IntoElement {
@@ -690,19 +921,19 @@ fn trade_card(inputs: Inputs, account_title: String, mode: TradeMode) -> impl In
                     .flex_row()
                     .flex_wrap()
                     .gap_3()
-                    .child(number("Giá vào", None, inputs.open_price, 0.01))
-                    .child(number("Giá ra", None, inputs.close_price, 0.01))
-                    .child(number("Stop loss", None, inputs.sl, 0.01))
-                    .child(number("Take profit", None, inputs.tp, 0.01)),
+                    .child(number(inputs, Some(Part::OpenPrice), "Giá vào", None, inputs.open_price, 0.01))
+                    .child(number(inputs, Some(Part::ClosePrice), "Giá ra", None, inputs.close_price, 0.01))
+                    .child(number(inputs, None, "Stop loss", None, inputs.sl, 0.01))
+                    .child(number(inputs, None, "Take profit", None, inputs.tp, 0.01)),
             )
             .child(
                 view()
                     .flex_row()
                     .flex_wrap()
                     .gap_3()
-                    .child(number("Lãi/lỗ", None, inputs.profit, 1.0))
-                    .child(number("Commission", None, inputs.commission, 0.1))
-                    .child(number("Swap", None, inputs.swap, 0.1)),
+                    .child(number(inputs, Some(Part::Profit), "Lãi/lỗ", None, inputs.profit, 1.0))
+                    .child(number(inputs, None, "Commission", None, inputs.commission, 0.1))
+                    .child(number(inputs, None, "Swap", None, inputs.swap, 0.1)),
             )
             .child(dynamic(move || leads_money.get().then(|| untracked(|| r_row(inputs)))))
             .child(view().p_3().rounded(move || theme().radius).border_1().border_color(move || theme().border).child(
@@ -788,18 +1019,34 @@ mod tests {
     }
 
     #[test]
-    fn what_is_wrong_is_said_in_words() {
+    fn what_is_wrong_is_said_in_words_and_under_the_field_it_concerns() {
         let fix = |edit: fn(&mut TradeInput)| {
             let mut input = input();
             edit(&mut input);
-            build_trade(&input, zone(Lead::Money)).expect_err("must be refused")
+            build_trade(&input, zone(Lead::Money)).expect_err("must be refused").remove(0)
         };
-        assert!(fix(|i| i.symbol = " ".into()).contains("symbol"));
-        assert!(fix(|i| i.volume = None).starts_with("Khối lượng"));
-        assert!(fix(|i| i.close_price = Some(0.0)).starts_with("Giá ra"));
-        assert!(fix(|i| i.opened = MomentValue::default()).starts_with("Thời gian vào"));
-        assert!(fix(|i| i.closed = moment(20, 15, 0)).contains("sau thời gian vào"));
-        assert!(fix(|i| i.profit = None).starts_with("Nhập lãi/lỗ"));
+        let said = |problem: Problem, part: Part, text: &str| {
+            assert_eq!(problem.part, part, "{}", problem.message);
+            assert!(problem.message.contains(text), "{}", problem.message);
+        };
+        said(fix(|i| i.symbol = " ".into()), Part::Symbol, "symbol");
+        said(fix(|i| i.volume = None), Part::Volume, "Khối lượng");
+        said(fix(|i| i.close_price = Some(0.0)), Part::ClosePrice, "Giá ra");
+        said(fix(|i| i.opened = MomentValue::default()), Part::Opened, "Thời gian vào");
+        said(fix(|i| i.closed = moment(20, 15, 0)), Part::Closed, "sau thời gian vào");
+        said(fix(|i| i.profit = None), Part::Profit, "Nhập lãi/lỗ");
+    }
+
+    #[test]
+    fn every_problem_is_listed_the_one_the_form_shows_first_first() {
+        let empty =
+            TradeInput { symbol: String::new(), closed: MomentValue::default(), volume: None, profit: None, ..input() };
+        let parts: Vec<Part> =
+            build_trade(&empty, zone(Lead::Money)).expect_err("refused").iter().map(|p| p.part).collect();
+        assert_eq!(parts, [Part::Symbol, Part::Closed, Part::Volume, Part::Profit]);
+        // A journal kept in R shows its result before the rest.
+        assert!(Part::ResultR.rank(Lead::R) < Part::Symbol.rank(Lead::R));
+        assert!(Part::ResultR.rank(Lead::Money) > Part::Profit.rank(Lead::Money));
     }
 
     #[test]
@@ -817,7 +1064,9 @@ mod tests {
             ..input()
         };
         let refused = build_trade(&bare, zone(Lead::R)).expect_err("nothing says how it went");
-        assert!(refused.contains("kết quả (R)"), "{refused}");
+        assert_eq!(refused.len(), 1);
+        assert_eq!(refused[0].part, Part::ResultR, "said under the result in R");
+        assert!(refused[0].message.contains("kết quả (R)"), "{}", refused[0].message);
         let with_r = build_trade(&TradeInput { result_r: Some(-1.0), ..bare.clone() }, zone(Lead::R)).expect("valid");
         assert_eq!((with_r.profit, with_r.result_r, with_r.volume, with_r.date_only), (None, Some(-1.0), None, true));
         assert_eq!(
@@ -834,7 +1083,7 @@ mod tests {
     #[test]
     fn the_money_form_keeps_asking_for_money_even_when_an_r_is_typed() {
         let typed = TradeInput { profit: None, result_r: Some(1.0), ..input() };
-        assert!(build_trade(&typed, zone(Lead::Money)).expect_err("refused").starts_with("Nhập lãi/lỗ"));
+        assert!(build_trade(&typed, zone(Lead::Money)).expect_err("refused")[0].message.starts_with("Nhập lãi/lỗ"));
         assert!(build_trade(&typed, zone(Lead::R)).is_ok());
     }
 

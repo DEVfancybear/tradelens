@@ -48,7 +48,7 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 | `action_icon` / `action_icon_when` (icon trước nhãn), `icon_action` (chỉ icon, bắt buộc `accessibility_label`) | `controls.rs` | có |
 | `sidebar_row` (icon), `segmented`, `select_field`, `select_value`, `text_field`, `commit_field`, `textarea`, `tag_picker`, `rating` / `rating_of` | `controls.rs` | có |
 | `icon(Icon, size)`, `Icon` (bộ icon nét 1.75 của thiết kế) | `icons.rs` (`pub`) | có |
-| `number_field`, `switch_row`, `setting_row`, `check_box`, `checklist`, `progress_rule` | `forms.rs` (`pub`) | có |
+| `number_field` (rộng vừa số 5 lẻ, lot 100.00 và đơn vị) / `number_field_fluid` (rộng theo ô của lưới, không nhỏ hơn mức đó), `switch_row`, `setting_row`, `check_box`, `checklist`, `progress_rule` | `forms.rs` (`pub`) | có |
 | `dropzone`, `image_slot`, `Accept`, `pick_files`, `pasted_images`, `paths_of_uris` | `files.rs` (`pub`) | có |
 | `gallery` (ảnh, chú thích, kéo/phím đổi thứ tự, Thêm ảnh; bấm ảnh mở `viewer`; "Xem" và ✕ ở góc ô khi rê chuột / có focus; xoá hoàn tác được 6 giây) | `gallery.rs` (`pub`) | có |
 | `viewer::overlay()` (gắn một lần, cuối `shell`) + `viewer::open(Request)` (trình xem ảnh phủ cả cửa sổ: vừa khung, bộ đếm, trước / sau, phóng to, kéo để di chuyển, mở bằng ứng dụng khác) | `viewer.rs` (`pub`) | có |
@@ -66,7 +66,7 @@ Lưới 4 pt; trang lề 32, thẻ đệm 20, khoảng giữa thẻ 24. Bo `radi
 | `bar_chart(items, label, height)` + `BarItem`, `histogram(buckets, label, height)`, `heatmap(grid)` + `HeatGrid`, `diverging_bars(items)` + `DivergingItem`, `mistake_cost_bar(name, trades, net, r, share)` | `charts.rs` | có |
 | `r_curve_chart(points, generation)` + `RPoint` (tổng R tích luỹ) | `r_chart.rs` | có |
 | `month_grid(weeks, figure, selected, currency, today, on_pick)` + `Figure`, `mini_month(weeks, today)` (tuần lấy từ `metrics::month_weeks`) | `month_grid.rs` | có |
-| `breakdown_table(name_title, rows, empty)` + `BreakdownRow` (bảng nhóm: lệnh, win rate, net, PF, R TB) | `breakdown.rs` | có |
+| `breakdown_table(name_title, rows, empty)` + `BreakdownRow` (bảng nhóm: lệnh, win rate, net, PF, R TB; cột số rộng đúng số dài nhất hoặc tiêu đề, cách nhau 20 pt khi thẻ đủ chỗ và 6 pt khi chật, tên chiếm phần còn lại; PF từ 50 trở lên hiện "50+") | `breakdown.rs` | có |
 | `columns(main, side)` (hai cột tự xuống dòng), `titled_card(title, trailing, body)` | `layout.rs` | có |
 | `toast` | — | v0.1 |
 
