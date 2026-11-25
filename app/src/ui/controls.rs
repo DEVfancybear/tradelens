@@ -229,7 +229,9 @@ fn button_shell(variant: Variant, enabled: Enabled, on_press: impl Fn() + 'stati
         .items_center()
         .justify_center()
         .rounded(move || theme().radius)
-        .bg(variant.fill())
+        // Read as the theme changes, not once here: a read here would tie a `dynamic` holding the
+        // button to the theme, and make it again (and drop the button half-drawn) when it changes.
+        .bg(move || variant.fill())
         // A button with no fill of its own shows the hover as a fill.
         .hover(move |s| match variant {
             Variant::Ghost => s.bg(move || theme().accent),
@@ -881,5 +883,33 @@ mod tests {
         app.answer_dialog(DialogAnswer::Press("Huỷ".to_owned())).expect("answers");
         app.wait(Duration::from_millis(400)).expect("the app runs");
         assert!(!app.screen().shows("đã thay"), "cancelling acts on nothing");
+    }
+
+    /// How many times [`ThemedHolder`]'s `dynamic` has made its button.
+    static HOLDER_BUILDS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+    /// A button inside a `dynamic`, with the theme set after the first frame starts, as every test
+    /// harness (and a theme switch) does.
+    #[component]
+    fn ThemedHolder() -> impl IntoElement {
+        crate::ui::theme::install();
+        let shown = signal(0_u32);
+        view()
+            .child(dynamic(move || {
+                let _ = shown.get();
+                HOLDER_BUILDS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                action("Trong dynamic", Variant::Secondary, || {})
+            }))
+            .child(text("ready"))
+    }
+
+    #[test]
+    fn a_button_does_not_tie_the_dynamic_holding_it_to_the_theme() {
+        let mut app = Headless::start(EngineConfig::new(Root::of::<ThemedHolder>())).expect("the engine starts");
+        app.wait_for("Trong dynamic").expect("the button shows");
+        app.wait(Duration::from_millis(300)).expect("the app runs");
+        // Made twice, the first button was dropped before it was drawn ("a prop read or written
+        // after its owner was disposed" on the engine thread).
+        assert_eq!(HOLDER_BUILDS.load(std::sync::atomic::Ordering::SeqCst), 1, "the button is made once");
     }
 }
