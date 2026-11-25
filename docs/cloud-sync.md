@@ -146,9 +146,12 @@ dữ liệu ngay cả khi ảnh chưa lên hết hoặc đường truyền chậ
 6. **Tải ảnh:** ảnh journal nhắc tới mà **file không có** trên máy này (chỉ kiểm sự tồn tại, không băm file nào) và ổ đã
    có thì tải về (tối đa 8 luồng; tải xong đối chiếu sha256, ghi vào file tạm rồi đổi tên nên không bao giờ có ảnh ghi dở;
    đường dẫn ảnh từ xa không được thoát khỏi thư mục dữ liệu). Không có ảnh nào thiếu thì không liệt kê gì. Ảnh ổ chưa
-   có (máy kia chưa upload xong) thì **bỏ qua, không phải lỗi**: lần sync sau tải tiếp. Nếu bước 5 hoặc 6 lỗi thì lần
-   sync báo lỗi, nhưng nhật ký, snapshot và danh sách thiết bị đã nằm trên ổ. Khôi phục sang máy mới (`restore`) đi
-   đúng đường này nên cũng tải song song.
+   có (máy kia chưa upload xong) thì **bỏ qua, không phải lỗi**: lần sync sau tải tiếp. Ảnh nào lỗi ở bước 5 hoặc 6
+   (mạng, dịch vụ, file không đọc được) **không làm hỏng lần sync hay lần khôi phục**: được ghi log, đếm vào
+   `SyncReport::attachments_failed` (màn hình hiện «N ảnh chưa chuyển được») và thử lại lần sau; chỉ mất phiên, thiếu
+   quyền Drive hoặc lỗi DB mới báo lỗi. Một ảnh không đọc được lúc băm (bước 1) cũng chỉ bị bỏ qua lần đó. Khôi phục
+   sang máy mới (`restore`) đi đúng đường này nên cũng tải song song, và một ảnh lỗi không làm mất bước ghi lại
+   cài đặt riêng của máy.
 7. Chạy khi bấm *Sync ngay*, mỗi 15 phút khi bật tự động, và khi đóng app.
 
 ## Snapshot và khôi phục sang máy mới

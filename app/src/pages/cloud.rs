@@ -164,6 +164,9 @@ fn counts(report: &SyncReport) -> String {
     if report.attachments_uploaded + report.attachments_downloaded > 0 {
         parts.push(format!("ảnh: {} lên, {} xuống", report.attachments_uploaded, report.attachments_downloaded));
     }
+    if report.attachments_failed > 0 {
+        parts.push(format!("{} ảnh chưa chuyển được, lần sync sau sẽ thử lại", report.attachments_failed));
+    }
     if report.snapshot_taken {
         parts.push("đã chụp bản sao tuần".to_owned());
     }
@@ -342,9 +345,11 @@ mod tests {
         assert_eq!(counts(&report), "đẩy 12 thay đổi, nhận 3");
         report.conflicts_resolved = 2;
         report.attachments_uploaded = 1;
+        report.attachments_failed = 3;
         report.snapshot_taken = true;
         let line = counts(&report);
         assert!(line.contains("2 chỗ hai máy sửa khác nhau") && line.contains("ảnh: 1 lên, 0 xuống"), "{line}");
+        assert!(line.contains("3 ảnh chưa chuyển được"), "{line}");
         assert!(line.ends_with("đã chụp bản sao tuần"));
     }
 

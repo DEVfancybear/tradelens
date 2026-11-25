@@ -684,7 +684,7 @@ enum Refuse {
     Nothing,
     /// Every image.
     Images,
-    /// The image with exactly these bytes.
+    /// The image with exactly these bytes, going up or coming down.
     Bytes(Vec<u8>),
 }
 
@@ -778,7 +778,11 @@ impl CloudDrive for Spy {
         if file.name.starts_with("attachments/") {
             std::thread::sleep(self.delay);
         }
-        self.inner.download(file)
+        let bytes = self.inner.download(file)?;
+        if matches!(&*self.refuse.lock().expect("lock poisoned"), Refuse::Bytes(wanted) if *wanted == bytes) {
+            return Err(CloudError::Network("ảnh bị từ chối khi tải (thử nghiệm)".into()));
+        }
+        Ok(bytes)
     }
 
     fn delete(&self, file: &RemoteFile) -> Result<(), CloudError> {
@@ -841,8 +845,8 @@ fn another_machine_gets_the_journal_while_the_images_cannot_be_uploaded() {
     let (drive, mut a, mut b) = with_charts(3);
     let spy = Spy::over(&drive);
     spy.refuse(Refuse::Images);
-    let failure = a.try_sync(&spy).expect_err("the images are refused");
-    assert!(matches!(failure, CloudError::Network(_)), "{failure:?}");
+    let report = a.try_sync(&spy).expect("images that cannot go up do not fail the sync");
+    assert_eq!((report.attachments_uploaded, report.attachments_failed), (0, 3));
     assert!(drive.names().iter().all(|name| !name.starts_with("attachments/")), "{:?}", drive.names());
     assert!(
         drive.names().iter().any(|name| name == "devices.json"),
@@ -871,13 +875,85 @@ fn an_image_that_fails_does_not_lose_the_ones_that_went_up() {
     let (drive, mut a, _) = with_charts(8);
     let spy = Spy::over(&drive);
     spy.refuse(Refuse::Bytes(b"chart 5".to_vec()));
-    a.try_sync(&spy).expect_err("one image is refused");
+    let report = a.try_sync(&spy).expect("one refused image does not fail the sync");
+    assert_eq!((report.attachments_uploaded, report.attachments_failed), (7, 1));
     let uploaded = drive.names().iter().filter(|name| name.starts_with("attachments/")).count();
     assert_eq!(uploaded, 7, "every other image is on the drive: {:?}", drive.names());
 
     spy.refuse(Refuse::Nothing);
     let report = a.try_sync(&spy).expect("syncs");
     assert_eq!(report.attachments_uploaded, 1, "only the one that failed is sent again");
+}
+
+#[test]
+fn a_restore_with_one_image_refused_still_restores_and_the_next_sync_fetches_it() {
+    let (drive, mut a, _) = with_charts(6);
+    a.try_sync(&Spy::over(&drive)).expect("syncs");
+    a.engine(&drive).snapshot(&a.db).expect("a snapshot that names the images");
+
+    let fresh = tempfile::tempdir().expect("a temp dir");
+    let spy = Spy::over(&drive);
+    spy.refuse(Refuse::Bytes(b"chart 3".to_vec()));
+    let engine = SyncEngine::new(&spy, PROVIDER, "Máy mới").with_attachments(fresh.path().join("attachments"));
+    let (restored, report) = engine.restore(&fresh.path().join("tradelens.db")).expect("restores despite the image");
+    assert_eq!((report.attachments_downloaded, report.attachments_failed), (5, 1));
+    for n in [0, 1, 2, 4, 5] {
+        assert!(fresh.path().join(format!("attachments/images/c{n}.png")).is_file(), "c{n}");
+    }
+    assert!(!fresh.path().join("attachments/images/c3.png").exists());
+    let mut n = Machine { dir: fresh, db: restored, name: "N" };
+    assert_eq!(n.journal(100).screenshots.len(), 6, "the journal is all there");
+
+    spy.refuse(Refuse::Nothing);
+    let report = n.try_sync(&spy).expect("syncs");
+    assert_eq!((report.attachments_downloaded, report.attachments_failed), (1, 0));
+    assert_eq!(std::fs::read(n.images().join("images/c3.png")).expect("fetched"), b"chart 3");
+}
+
+/// Makes `path` unreadable for as long as the returned value lives; `None` when this system cannot.
+#[cfg(windows)]
+fn make_unreadable(path: &Path) -> Option<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    // Opened with no sharing: every other open fails with a sharing violation.
+    std::fs::OpenOptions::new().read(true).share_mode(0).open(path).ok()
+}
+
+#[cfg(unix)]
+struct Unreadable(std::path::PathBuf);
+
+#[cfg(unix)]
+impl Drop for Unreadable {
+    fn drop(&mut self) {
+        use std::os::unix::fs::PermissionsExt;
+        drop(std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o600)));
+    }
+}
+
+#[cfg(unix)]
+fn make_unreadable(path: &Path) -> Option<Unreadable> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000)).ok()?;
+    let lock = Unreadable(path.to_owned());
+    // A superuser reads it anyway.
+    std::fs::read(path).is_err().then_some(lock)
+}
+
+#[test]
+fn an_image_that_cannot_be_read_does_not_hold_the_journal_back() {
+    let (drive, mut a, mut b) = with_charts(3);
+    let locked = a.images().join("images/c1.png");
+    let Some(lock) = make_unreadable(&locked) else { return };
+    assert!(std::fs::read(&locked).is_err(), "the image is unreadable");
+
+    let report = a.try_sync(&Spy::over(&drive)).expect("the sync goes through");
+    assert!(report.pushed > 0, "the journal went up: {report:?}");
+    assert_eq!(report.attachments_uploaded, 2, "the other images went up");
+    let report = b.try_sync(&drive).expect("syncs");
+    assert!(report.pulled > 0 && b.journal(100).screenshots.len() == 3, "the other machine has the journal");
+
+    drop(lock);
+    let report = a.try_sync(&Spy::over(&drive)).expect("syncs");
+    assert_eq!(report.attachments_uploaded, 1, "the image is sent once it can be read");
 }
 
 #[test]
