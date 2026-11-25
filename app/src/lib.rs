@@ -28,7 +28,7 @@ pub mod ui;
 mod zone;
 
 use nsh_base::theme;
-use nsh_core::prelude::*;
+use nsh_core::{element::desktop::window, prelude::*};
 
 pub use store::{Reading, Writer, data_changed, query, query_with, writer};
 
@@ -42,12 +42,11 @@ fn native(registry: &mut Registry) {
     registry.assets(assets!());
 }
 
-/// The root: the main window's content, [`Workspace`]. The platform makes the window itself, sized by
-/// the `window` of `nsh.json` ([`root`]); a `window()` element here would open a second window of
-/// its own, at the default size of a dialog.
+/// The root: the main window, showing [`Workspace`]. A desktop root declares its window; the first one
+/// takes the launch defaults (size, minimum size) of the `window` of `nsh.json` ([`root`]).
 #[component]
 pub fn App() -> impl IntoElement {
-    workspace()
+    window().id("main").content(workspace)
 }
 
 /// The text of `nsh.json`: the app's id and the main window's size come from it, whoever starts the app.
