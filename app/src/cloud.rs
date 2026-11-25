@@ -823,11 +823,10 @@ mod tests {
         assert_eq!(identities(&env), vec![identity], "the session is read back from memory");
         env.save_secret("thu-nghiem", "bí mật").expect("kept in memory");
         assert_eq!(env.load_secret("thu-nghiem").expect("read"), Some("bí mật".to_owned()));
-        assert_eq!(
-            KeyringStore::new().load_secret("thu-nghiem").expect("the OS store is read"),
-            None,
-            "the secret did not go to the operating system's store"
-        );
+        // An unavailable OS store (no Secret Service on a CI runner) holds nothing either; only an
+        // entry found there means the secret leaked.
+        let in_os_store = KeyringStore::new().load_secret("thu-nghiem");
+        assert!(matches!(in_os_store, Err(_) | Ok(None)), "the secret did not go to the operating system's store");
         env.clear_secret("thu-nghiem").expect("forgotten");
         env.token_store().clear(Provider::Microsoft).expect("forgotten");
         assert_eq!(identities(&env), Vec::new(), "signed out");
