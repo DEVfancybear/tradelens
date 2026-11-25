@@ -104,7 +104,7 @@ pub fn checklist_editor(
 #[cfg(test)]
 mod tests {
     use nsh_core::{Size, platform::Os};
-    use nsh_engine::{EngineConfig, Root};
+    use nsh_engine::EngineConfig;
     use nsh_testing::Headless;
 
     use super::*;
@@ -145,8 +145,10 @@ mod tests {
     }
 
     fn start() -> Headless {
-        let mut config =
-            EngineConfig { viewport: Size::new(px(900.0), px(600.0)), ..EngineConfig::new(Root::of::<Harness>()) };
+        let mut config = EngineConfig {
+            viewport: Size::new(px(900.0), px(600.0)),
+            ..EngineConfig::new(nsh_testing::windowed_root::<Harness>())
+        };
         config.environment.os = Os::Linux;
         let mut app = Headless::start(config).expect("the engine starts");
         app.wait_for("saved 4=Cùng chiều trend H4|9=Có vùng cản rõ").expect("the harness shows");

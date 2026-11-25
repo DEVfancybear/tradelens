@@ -190,14 +190,16 @@ fn a_playbook_is_created_edited_and_deleted() {
     // The detail (and its edit button) shows once the store has read the setup back; the rule
     // text above may still be the form's own field on a slow runner.
     app.wait_for_within("role:button[Sửa]", WAIT).expect("the saved setup's detail shows");
-    app.press("role:button[Sửa]").expect("the edit button");
+    common::press_until(&mut app, "role:button[Sửa]", |screen| screen.shows("Sửa playbook"));
     app.type_text("label:Tên playbook", " H1").expect("the name is extended");
     app.press("role:button[Lưu]").expect("the save button");
     wait_until("the setup being renamed", || {
         fixture.db().playbooks().is_ok_and(|p| p.first().is_some_and(|p| p.name == "Pullback EMA20 H1"))
     });
 
-    app.press("role:button[Sửa]").expect("the edit button again");
+    // The form closes once the rename is written; the next press must open a fresh one.
+    app.wait_until("the edit form closing", WAIT, |screen| !screen.shows("Sửa playbook")).expect("the form closes");
+    common::press_until(&mut app, "role:button[Sửa]", |screen| screen.shows("Sửa playbook"));
     // Cancelled, or never answered: the setup stays.
     app.on_dialog(|_| nsh_testing::DialogAnswer::Press("Huỷ".to_owned()));
     app.press("role:button[Xoá playbook]").expect("the delete button");
@@ -336,7 +338,9 @@ fn a_template_is_edited_and_asks_one_more_question() {
     let fixture = Fixture::new();
     let mut app = fixture.start();
     open_page(&mut app, "Tổng kết & xem lại", "Mẫu ghi chú");
-    app.press("label:Sửa mẫu Tổng kết tuần").expect("the pencil of the weekly template");
+    common::press_until(&mut app, "label:Sửa mẫu Tổng kết tuần", |screen| {
+        screen.accessibility_state("role:button[Thêm câu hỏi]").is_ok()
+    });
     app.press("role:button[Thêm câu hỏi]").expect("a question is added");
     app.type_text("label:Câu hỏi 5", "Điều gì làm bạn bất ngờ?").expect("the question is typed");
     app.press("role:button[Lưu mẫu]").expect("the template is saved");

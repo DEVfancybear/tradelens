@@ -2,7 +2,7 @@
 //! states and placeholders.
 
 use nsh_base::theme;
-use nsh_core::prelude::*;
+use nsh_core::{LiveRegion, prelude::*};
 
 use super::{
     chips::Tone,
@@ -169,4 +169,27 @@ pub(crate) fn warning_banner(message: impl IntoReactive<SharedString>) -> impl I
         .bg(move || warning().opacity(0.12))
         .child(icon(Icon::Warning, 16.0).text_color(warning))
         .child(text(message).flex_1().text_xs().text_color(warning))
+}
+
+/// A line saying a save failed or a field is wrong, in the colour of loss. Screen readers read it
+/// out at once when it shows (an assertive live region).
+pub(crate) fn error_line(line: impl IntoReactive<SharedString>) -> Text {
+    text(line).text_sm().text_color(super::theme::loss).accessibility_live_region(|| LiveRegion::Assertive)
+}
+
+/// [`error_line`] in the small size that sits under a control.
+pub(crate) fn error_note(line: impl IntoReactive<SharedString>) -> Text {
+    text(line).text_xs().text_color(super::theme::loss).accessibility_live_region(|| LiveRegion::Assertive)
+}
+
+/// A line telling the trader something to heed that is not a failure (a trade was saved and the form
+/// is ready for the next one). Screen readers read it out when they are idle (a polite live region).
+pub(crate) fn warning_line(line: impl IntoReactive<SharedString>) -> Text {
+    text(line).text_sm().text_color(warning).accessibility_live_region(|| LiveRegion::Polite)
+}
+
+/// What a save is doing or has done ("Đang lưu…", "Đã lưu"), muted. The text changes in place, which
+/// screen readers announce when they are idle (a polite live region); the caller sets the size.
+pub(crate) fn save_status(status: impl IntoReactive<SharedString>) -> Text {
+    text(status).text_color(move || theme().muted_foreground).accessibility_live_region(|| LiveRegion::Polite)
 }

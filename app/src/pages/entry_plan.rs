@@ -26,7 +26,7 @@ use crate::{
         forms::{NumberRange, checklist, number_field},
         icons::Icon,
         modal::{self, Modal},
-        parts::warning_banner,
+        parts::{error_line, warning_banner},
         theme as tokens,
     },
 };
@@ -483,7 +483,7 @@ fn panel(request: &PlanRequest) -> impl IntoElement {
         ))
         .child(levels(fields.entry, fields.stop, fields.take, fields.risk))
         .child(setup_fields(fields, choices))
-        .child(dynamic(move || failure.get().map(|error| text(error).text_sm().text_color(tokens::loss))))
+        .child(dynamic(move || failure.get().map(error_line)))
         .child(footer(busy, save))
 }
 

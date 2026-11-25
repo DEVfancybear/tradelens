@@ -29,7 +29,7 @@ use crate::{
         icons::Icon,
         lines::{filled, line_list},
         list_item::{Column, mini_table},
-        parts::{card, empty_state, page_with, stat_tile},
+        parts::{card, empty_state, error_line, page_with, save_status, stat_tile},
         queue::queue_row,
     },
 };
@@ -209,7 +209,7 @@ fn report_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
                             move || privacy.get(),
                             move |next| privacy.set(next),
                         ))
-                        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
+                        .child(dynamic(move || failure.get().map(error_line)))
                         .child(dynamic(move || {
                             note.get().map(|line| text(line).text_sm().text_color(move || theme().muted_foreground))
                         }))
@@ -637,7 +637,7 @@ fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement
                 .child(text("Điểm kỷ luật của kỳ").text_xs().text_color(move || theme().muted_foreground))
                 .child(rating("Điểm kỷ luật", move || grade.get(), move |next| grade.set(next))),
         )
-        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
+        .child(dynamic(move || failure.get().map(error_line)))
         .child(
             view()
                 .flex_row()
@@ -645,7 +645,7 @@ fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement
                 .justify_between()
                 .gap_3()
                 .child(
-                    text(move || {
+                    save_status(move || {
                         if busy.get() {
                             "Đang lưu…"
                         } else if dirty.get() {
@@ -654,8 +654,7 @@ fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement
                             "Đã lưu"
                         }
                     })
-                    .text_xs()
-                    .text_color(move || theme().muted_foreground),
+                    .text_xs(),
                 )
                 .child(action_icon_when(
                     Icon::Check,
@@ -835,6 +834,8 @@ fn templates_card() -> impl IntoElement {
     let week = query(|db, _| db.review_template(Period::Week));
     let month = query(|db, _| db.review_template(Period::Month));
     let editing = signal(None::<Period>);
+    // Whether each template has been read: a memo, so that a re-read does not rebuild the editor.
+    let (week_read, month_read) = (computed(move || week.value().is_some()), computed(move || month.value().is_some()));
     card(
         "Mẫu ghi chú",
         view()
@@ -843,9 +844,14 @@ fn templates_card() -> impl IntoElement {
             .child(template_row(Period::Month, month, editing))
             .child(dynamic(move || {
                 let period = editing.get()?;
-                let source = if period == Period::Week { week } else { month };
-                // Only pressing the pencil builds the editor: a re-read of the template while its
-                // questions are being typed must not throw the typing away.
+                let (source, read) = if period == Period::Week { (week, week_read) } else { (month, month_read) };
+                // A pencil pressed before the template is read opens the editor as soon as it is: the
+                // press leaves `editing` set, and setting it again would change nothing.
+                if !read.get() {
+                    return None;
+                }
+                // Only that builds the editor: a re-read of the template while its questions are being
+                // typed must not throw the typing away.
                 untracked(|| {
                     let template = source.value().map(|t| ReviewTemplate::clone(&t))?;
                     Some(template_editor(template, editing).into_element())
@@ -923,7 +929,7 @@ fn template_editor(template: ReviewTemplate, editing: Signal<Option<Period>>) ->
                 .text_color(move || theme().muted_foreground),
         )
         .child(line_list("Câu hỏi", "Thêm câu hỏi", move || prompts.get(), move |next| prompts.set(next)))
-        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
+        .child(dynamic(move || failure.get().map(error_line)))
         .child(
             view()
                 .flex_row()

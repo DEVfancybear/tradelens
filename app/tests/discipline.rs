@@ -272,8 +272,7 @@ fn going_to_another_day_saves_the_edits_of_this_one() {
 fn settings_are_kept_in_the_database() {
     let fixture = Fixture::new();
     let mut app = fixture.start();
-    app.press("role:button[Cài đặt]").expect("the settings row is a button");
-    app.wait_for("Chế độ màu").expect("the page opens");
+    common::press_until(&mut app, "role:button[Cài đặt]", |screen| screen.shows("Chế độ màu"));
 
     common::toggle_on(&mut app, "role:button[Chế độ màu: Sáng]");
     common::toggle_on(&mut app, "role:button[Giờ hiển thị: Giờ server]");
@@ -353,8 +352,7 @@ fn the_time_display_setting_changes_the_times_the_pages_show() {
     app.press("role:button[Lệnh]").expect("the trades row is a button");
     app.wait_for(&on_machine).expect("the trade's time is on the trader's clock");
 
-    app.press("role:button[Cài đặt]").expect("the settings row is a button");
-    app.wait_for("Chế độ màu").expect("the page opens");
+    common::press_until(&mut app, "role:button[Cài đặt]", |screen| screen.shows("Chế độ màu"));
     common::toggle_on(&mut app, "role:button[Giờ hiển thị: Giờ server]");
     app.press("role:button[Lệnh]").expect("back to the trades");
     app.wait_for(&on_server).expect("the same trade now shows the time MT5 reports");
@@ -370,7 +368,7 @@ fn the_time_display_setting_changes_the_times_the_pages_show() {
     };
     app.wait_until("the stored choice being shown", Duration::from_secs(5), server_chosen)
         .expect("the settings show the server's clock as chosen");
-    app.press("role:button[Giờ hiển thị: Giờ của bạn]").expect("the trader's clock is chosen again");
+    common::toggle_on(&mut app, "role:button[Giờ hiển thị: Giờ của bạn]");
     app.press("role:button[Lệnh]").expect("back to the trades");
     app.wait_for(&on_machine).expect("the trader's clock is back");
 }
@@ -379,8 +377,7 @@ fn the_time_display_setting_changes_the_times_the_pages_show() {
 fn the_settings_button_opens_the_form_editor() {
     let fixture = Fixture::new();
     let mut app = fixture.start();
-    app.press("role:button[Cài đặt]").expect("the settings row is a button");
-    app.wait_for("Chế độ màu").expect("the page opens");
+    common::press_until(&mut app, "role:button[Cài đặt]", |screen| screen.shows("Chế độ màu"));
     assert!(app.screen().enabled("role:button[Mở Tuỳ biến form]").expect("the button"), "the button is on");
     app.press("role:button[Mở Tuỳ biến form]").expect("opens the form editor");
     app.wait_for("Tuỳ biến form nhập liệu").expect("the editor opens over the page");

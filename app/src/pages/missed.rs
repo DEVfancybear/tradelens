@@ -29,7 +29,7 @@ use crate::{
         gallery::gallery,
         icons::Icon,
         list_item::{Column, mini_table},
-        parts::{card, empty_state, page_with, stat_tile},
+        parts::{card, empty_state, error_line, page_with, stat_tile},
     },
 };
 
@@ -93,7 +93,7 @@ pub(crate) fn missed() -> impl IntoElement {
                         untracked(|| form(draft, editing, reasons).into_element())
                     }))),
             )
-            .child(dynamic(move || list.error().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss)))),
+            .child(dynamic(move || list.error().map(error_line))),
     )
 }
 
@@ -457,7 +457,7 @@ fn form(
             ),
         ))
         .child(gallery("Ảnh chart", move || fields.shots.get(), move |list: Vec<Attachment>| fields.shots.set(list)))
-        .child(dynamic(move || error.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
+        .child(dynamic(move || error.get().map(error_line)))
         .child(
             view()
                 .flex_row()

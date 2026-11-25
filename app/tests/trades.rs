@@ -111,8 +111,9 @@ fn seed(db: &mut Db) {
 }
 
 fn open_trades(app: &mut Headless) {
-    app.press("role:button[Lệnh]").expect("the trades row is a button");
-    app.wait_for("Gom từ các deal theo position; bấm một lệnh để mở nhật ký").expect("the trades page opens");
+    common::press_until(app, "role:button[Lệnh]", |screen| {
+        screen.shows("Gom từ các deal theo position; bấm một lệnh để mở nhật ký")
+    });
 }
 
 fn trade_button(symbol: &str) -> String {

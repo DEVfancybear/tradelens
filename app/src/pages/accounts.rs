@@ -19,7 +19,7 @@ use crate::{
         chips::{Tone, chip, figure_text},
         controls::{Choice, Variant, action, select_value, text_field},
         forms::{NumberRange, check_box, number_field, progress_rule},
-        parts::{card, empty_state, page_with, property_row},
+        parts::{card, empty_state, error_line, page_with, property_row, save_status},
         rule_row::rule_row,
         selectable_card::selectable_card,
         theme::loss,
@@ -211,8 +211,8 @@ pub(crate) fn accounts() -> impl IntoElement {
         view(),
         view()
             .gap_6()
-            .child(dynamic(move || data.error().map(|error| text(error).text_sm().text_color(loss))))
-            .child(dynamic(move || notice.get().map(|m| text(m).text_sm().text_color(loss))))
+            .child(dynamic(move || data.error().map(error_line)))
+            .child(dynamic(move || notice.get().map(error_line)))
             .child(dynamic(move || {
                 let none = data.value().is_some_and(|d| d.accounts.is_empty());
                 untracked(|| {
@@ -444,7 +444,7 @@ fn rules_card(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signa
                     .justify_end()
                     .gap_4()
                     .pt_4()
-                    .child(text(move || status.get()).text_sm().text_color(move || theme().muted_foreground))
+                    .child(save_status(move || status.get()).text_sm())
                     .child(
                         check_box("Áp dụng cho mọi tài khoản", move || everywhere.get(), move |v| everywhere.set(v))
                             .flex_row()
@@ -531,7 +531,7 @@ fn info_card(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signal
                     .justify_end()
                     .gap_4()
                     .pt_2()
-                    .child(text(move || status.get()).text_sm().text_color(move || theme().muted_foreground))
+                    .child(save_status(move || status.get()).text_sm())
                     .child(action("Lưu thông tin", Variant::Secondary, save)),
             ),
     )

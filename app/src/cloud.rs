@@ -19,7 +19,10 @@ use std::{
 };
 
 use chrono::Utc;
-use nsh_core::{element::desktop::main_window, prelude::*};
+use nsh_core::{
+    element::desktop::{current_window, quit},
+    prelude::*,
+};
 use tradelens_cloud::{
     CloudError, Provider,
     auth::{ClientConfig, Identity, SignInOptions},
@@ -720,21 +723,21 @@ impl Cloud {
         );
     }
 
-    /// When the window is asked to close, syncs first if the automatic sync is on, then closes. A
-    /// second request while the sync runs closes at once. NSH waits only 200 ms for the work done
+    /// When the window is asked to close, syncs first if the automatic sync is on, then quits the
+    /// app (a window's `close` no longer ends it). A second request while the sync runs quits at once. NSH waits only 200 ms for the work done
     /// as the app quits (`on_app_quit`), far too little for the network, so the close button is
     /// held back instead (`close_on_press: false`) until the sync is over.
     fn sync_on_close(self) {
-        let window = main_window();
+        let window = current_window();
         let mut attributes = nsh_core::desktop::WindowAttributes::default();
         attributes.close_on_press = Some(false);
         window.set(attributes);
         window.on_close_press(move |_| {
             let state = self.state.get_untracked();
             if state.busy() || !(state.ready && state.env.auto_sync() && state.active().is_some()) {
-                return main_window().close();
+                return quit();
             }
-            self.sync_then(Why::Closing, || main_window().close());
+            self.sync_then(Why::Closing, quit);
         });
     }
 }

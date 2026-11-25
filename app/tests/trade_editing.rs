@@ -3,7 +3,7 @@
 //! takes the journal with it, several trades go at once, a journal kept in R is typed in R, a time is
 //! typed in a field, prices keep their decimals, and the figures of the list fit their columns.
 
-use nsh_core::{ApproxTextEngine, TextEngine};
+use nsh_core::{ApproxTextEngine, TextEngine, platform::Os};
 use std::time::Duration;
 
 use nsh_testing::{DialogAnswer, Headless};
@@ -476,4 +476,73 @@ fn a_price_typed_with_five_decimals_is_stored_whole_and_a_symbol_in_lower_case_i
     assert_eq!(tradelens_core::time::naive(trade.open_time).format("%H:%M").to_string(), "09:00");
     app.wait_for_within("1.08500", WAIT).expect("shown with the five decimals the symbol has");
     app.wait_for_within("1.08505", WAIT).expect("both prices line up");
+}
+
+#[test]
+fn enter_on_the_row_the_keyboard_selected_opens_that_trade() {
+    let fixture = Fixture::new();
+    let mut db = fixture.db();
+    for (symbol, day) in [("EURUSD", 17), ("GBPUSD", 18)] {
+        let (open, close) = (format!("2026.11.{day} 08:00:00"), format!("2026.11.{day} 09:00:00"));
+        typed_in(&mut db, &typed(symbol, &open, &close));
+    }
+    drop(db);
+    // Keys reach the focused view only on a desktop.
+    let mut app = fixture.start(1400.0, 1000.0, |config| config.environment.os = Os::Linux);
+    app.press("role:button[Lệnh]").expect("the trades row");
+    app.wait_for_within("Hiển thị 2 / 2 lệnh", WAIT).expect("two trades");
+    // Ticking a box gives the table the keyboard, on the row of that box: the newest trade, GBPUSD.
+    app.press("label:Chọn lệnh GBPUSD 18/11 09:00").expect("a box");
+    app.wait_for_within("Đã chọn 1 lệnh", WAIT).expect("the bar counts");
+    app.press_key("enter").expect("Enter on the selected row");
+    app.wait_for_within("Chi tiết lệnh", WAIT).expect("the trade of that row opens");
+    assert!(app.screen().shows("GBPUSD"), "the trade is the one of the row: {:?}", app.screen().texts());
+    // One row further down: the keyboard moves the selection, Enter opens that one.
+    app.press("role:button[‹ Lệnh]").expect("back to the list");
+    app.wait_for_within("Hiển thị 2 / 2 lệnh", WAIT).expect("the list is back");
+    app.press("label:Chọn lệnh GBPUSD 18/11 09:00").expect("the box again");
+    app.press_key("down").expect("the selection moves down");
+    app.press_key("enter").expect("Enter on the next row");
+    app.wait_for_within("Chi tiết lệnh", WAIT).expect("a trade opens");
+    assert!(app.screen().shows("EURUSD"), "the trade is the next row's: {:?}", app.screen().texts());
+}
+
+#[test]
+fn the_free_room_of_the_list_is_shared_between_columns_and_the_last_one_ends_at_the_table_edge() {
+    let fixture = Fixture::new();
+    let mut db = fixture.db();
+    typed_in(&mut db, &typed("EURUSD", "2026.11.19 08:00:00", "2026.11.19 09:00:00"));
+    drop(db);
+    // The distance from the last title to the table's right edge, and the widths of two columns that
+    // start at their title: the closing time (title "Đóng lúc" to "Symbol") and the setup ("Setup" to
+    // "Nhật ký").
+    let measure = |width: f32| {
+        let mut app = fixture.start(width, 900.0, |_| {});
+        app.press("role:button[Lệnh]").expect("the trades row");
+        app.wait_for_within("Hiển thị 1 / 1 lệnh", WAIT).expect("the trade");
+        app.wait_for_within("Nhật ký", WAIT).expect("the last title");
+        let table = app.screen().layout("label:Danh sách lệnh").expect("one table").expect("the table is on screen");
+        let nodes = app.screen().layout_nodes();
+        let left = |title: &str| {
+            nodes
+                .iter()
+                .find(|node| node.text.as_ref().is_some_and(|shown| shown.text.text == title))
+                .unwrap_or_else(|| panic!("the title {title:?} is on screen"))
+                .bounds
+                .origin
+                .x
+                .0
+        };
+        let edge = table.bounds.origin.x.0 + table.bounds.size.width.0 - left("Nhật ký");
+        (edge, left("Symbol") - left("Đóng lúc"), left("Nhật ký") - left("Setup"))
+    };
+    let (narrow_edge, ..) = measure(1400.0);
+    let (wide_edge, time, setup) = measure(1700.0);
+    assert!(
+        (wide_edge - narrow_edge).abs() < 2.0,
+        "the last title is {narrow_edge} points from the edge, then {wide_edge}"
+    );
+    assert!(narrow_edge < 120.0, "the last column is its own width from the edge: {narrow_edge}");
+    assert!(setup < 2.0 * time, "Setup takes {setup} points where the closing time takes {time}");
+    assert!(setup > time * 0.5, "the room is shared, not taken from Setup: {setup} against {time}");
 }

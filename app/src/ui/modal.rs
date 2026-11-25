@@ -224,7 +224,7 @@ fn panel(modal: &Modal, dismiss: &Rc<dyn Fn()>, panel_ref: ElementRef) -> impl I
 mod tests {
     use std::time::Duration;
 
-    use nsh_engine::{EngineConfig, Root};
+    use nsh_engine::EngineConfig;
     use nsh_testing::Headless;
 
     use super::*;
@@ -317,7 +317,7 @@ mod tests {
         // A desktop window, as the app has: the panel is wider than a phone.
         let mut config = EngineConfig {
             viewport: nsh_core::Size::new(px(1000.0), px(900.0)),
-            ..EngineConfig::new(Root::of::<Harness>())
+            ..EngineConfig::new(nsh_testing::windowed_root::<Harness>())
         };
         config.environment.os = nsh_core::platform::Os::Windows;
         let mut app = Headless::start(config).expect("the engine starts");
