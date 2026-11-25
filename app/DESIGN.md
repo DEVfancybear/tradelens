@@ -201,6 +201,25 @@ cửa sổ khác hay (trong test) một test khác cùng tiến trình, vì `rev
 không được đọc snapshot trực tiếp: đọc qua `computed(move || điều_kiện)` (nhập lệnh tay: `leads_r`, `leads_money`), nếu không ô số bị
 dựng lại giữa lúc gõ và các ký tự sau đi vào ô đã mất.
 
+**Chữ đang gõ không được mất khi dữ liệu tải lại** (mọi ô nhập, mọi form). Quy tắc chung:
+
+- Khối phản ứng (`dynamic`, `when`, `each`) có ô nhập bên trong chỉ đọc **memo** của đúng thứ quyết định hình dạng
+  (`computed(move || snapshot_hoặc_reading → giá_trị_nhỏ)`), rồi dựng phần thân trong `untracked`. Không đọc thẳng
+  `store.snapshot()`, `Reading::value()` / `error()` / `loading()` hay `ops.defs` trong khối đó: chúng báo đổi ở **mỗi** lần
+  đọc DB (hoặc mỗi lần sửa), dù nội dung không đổi.
+- Danh sách hàng có ô nhập dùng `each` với khoá là danh tính của hàng (id, hoặc id + vị trí khi mục mới chưa có id; lựa
+  chọn của thuộc tính thì khoá là chính chữ lựa chọn), không dựng lại cả danh sách khi một hàng đổi chữ: đổi tên mục này khi
+  rời ô sang mục kế bên không được làm mất ô kế bên. Hàng đọc chữ của mình qua `ReadSignal`, không chụp lúc dựng.
+- Nháp nằm trong signal cục bộ mà lần đọc lại không ghi đè khi người dùng đang sửa: `commit_field` theo `value` chỉ khi
+  `value` thật sự đổi *và* nháp còn là chữ `value` nói lần trước (chưa bị viết đè); form nạp từ DB (`journal`, `review`
+  `answers_form`) chỉ nhận dữ liệu mới khi không `dirty`. Ô "thêm" (`+ Thêm lựa chọn`, `+ Thêm lý do`…) là `add_field`
+  (trao chữ cho `on_add` rồi xoá ô), không phải `commit_field` bọc giá trị rỗng.
+- Bộ chọn dùng chung đã tự lo phần này: `tag_picker` và `forms::checklist` chỉ dựng lại khi danh sách lựa chọn / mục thật
+  sự đổi; `commit_field` có test `a_commit_field_follows_what_is_read_until_the_trader_writes_over_it`.
+- Test: `tests/typing_survives_reloads.rs` với `type_through_reloads` (gõ từng đoạn, giữa các đoạn gọi
+  `data_changed()` và cho app đọc lại; đoạn sau gõ vào **ô đang giữ focus**, nên ô bị dựng lại thì mất chữ) và
+  `type_through_changes` (cùng thế, kèm một ghi thật từ kết nối khác). Form mới có ô nhập thì thêm một test ở đó.
+
 Việc của nút cần cài đặt `cloud.*` (Notion API) không chạy trên `State::env` mặc định: nút chỉ ghi `Ask`, một effect chạy nó khi
 `State::ready` (trước đó `env` mặc định sẽ ghi token vào kho khoá thật và gọi Notion thật).
 

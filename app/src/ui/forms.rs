@@ -205,18 +205,23 @@ pub fn checklist(
     checked: impl Fn() -> Vec<i64> + Copy + 'static,
     on_toggle: impl Fn(i64, bool) + Copy + 'static,
 ) -> impl IntoElement {
+    // The items often come from a `Reading`, which announces itself at every read of the database:
+    // the rows follow the items, not the announcements.
+    let items = computed(items);
     view().gap_2().child(dynamic(move || {
-        let items = items();
-        if items.is_empty() {
-            return text("Chưa có mục nào trong checklist.")
-                .text_sm()
-                .text_color(move || theme().muted_foreground)
-                .into_element();
-        }
-        view()
-            .gap_2()
-            .children(items.into_iter().map(|item| checklist_row(label, item, checked, on_toggle)))
-            .into_element()
+        let items = items.get();
+        untracked(|| {
+            if items.is_empty() {
+                return text("Chưa có mục nào trong checklist.")
+                    .text_sm()
+                    .text_color(move || theme().muted_foreground)
+                    .into_element();
+            }
+            view()
+                .gap_2()
+                .children(items.into_iter().map(|item| checklist_row(label, item, checked, on_toggle)))
+                .into_element()
+        })
     }))
 }
 

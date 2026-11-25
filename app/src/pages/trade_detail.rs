@@ -897,32 +897,37 @@ fn playbook_editor(fields: JournalFields) -> impl IntoElement {
         all.extend(named);
         all
     });
-    view().gap_2().child(dynamic(move || {
-        let any = choices.with(|c| !c.is_empty());
-        untracked(|| {
-            let picker = any.then(|| {
-                select_value(
-                    "Playbook",
-                    move || choices.get(),
-                    move || SharedString::from(playbook.get().map_or_default(|id| id.to_string())),
-                    move |value| playbook.set(value.parse().ok()),
-                )
-            });
-            view().gap_2().children(picker).child(dynamic(move || {
-                (!any || playbook.get().is_none()).then(|| {
-                    untracked(|| {
-                        text_field(
-                            "Setup",
-                            None,
-                            "Tên setup, ví dụ Breakout phiên Á",
-                            move || setup.get(),
-                            move |text| setup.set(text.to_owned()),
-                        )
-                    })
+    let any = computed(move || choices.with(|c| !c.is_empty()));
+    // The name field is its own block: a playbook stored meanwhile (a sync) brings the drop-down but
+    // must not make the field again while a name is being typed in it.
+    let names_it = computed(move || !any.get() || playbook.get().is_none());
+    view()
+        .gap_2()
+        .child(dynamic(move || {
+            any.get().then(|| {
+                untracked(|| {
+                    select_value(
+                        "Playbook",
+                        move || choices.get(),
+                        move || SharedString::from(playbook.get().map_or_default(|id| id.to_string())),
+                        move |value| playbook.set(value.parse().ok()),
+                    )
                 })
-            }))
-        })
-    }))
+            })
+        }))
+        .child(dynamic(move || {
+            names_it.get().then(|| {
+                untracked(|| {
+                    text_field(
+                        "Setup",
+                        None,
+                        "Tên setup, ví dụ Breakout phiên Á",
+                        move || setup.get(),
+                        move |text| setup.set(text.to_owned()),
+                    )
+                })
+            })
+        }))
 }
 
 /// The exit reason, with what the exit deal suggests beside it.

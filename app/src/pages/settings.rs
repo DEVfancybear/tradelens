@@ -114,8 +114,11 @@ pub(crate) fn settings() -> impl IntoElement {
     let error = signal(None::<String>);
     let looks = signal(Appearance::System);
     let clock = signal(TimeDisplay::Local);
+    // A memo: a read of the database that brings the same settings must not put back the choice the
+    // trader has just made, before its own write is read.
+    let latest = computed(move || stored.value());
     effect(move || {
-        if let Some(read) = stored.value() {
+        if let Some(read) = latest.get() {
             batch(|| {
                 looks.set(parse_appearance(&read.appearance));
                 clock.set(TimeDisplay::parse(&read.time_display));

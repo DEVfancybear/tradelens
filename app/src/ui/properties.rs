@@ -20,8 +20,8 @@ use tradelens_core::form::{
 use super::{
     chips::{Tone, chip},
     controls::{
-        Choice, Variant, action_icon, commit_field, confirm_then, icon_action, rating_of, root_owner, select_value,
-        tag_picker, text_field, textarea,
+        Choice, Variant, action_icon, add_field, commit_field, confirm_then, icon_action, rating_of, root_owner,
+        select_value, tag_picker, text_field, textarea,
     },
     date_picker::{DatePick, date_pick, date_trigger},
     forms::{NumberRange, check_box, number_field, switch_row},
@@ -969,6 +969,9 @@ fn custom_panel(list: Handle, key: String, row: ReadSignal<Property>, open: Sign
     let slot = Slot::new(list, key);
     let def = move || list.def(&slot.key());
     let kind_of = move || def().map_or(FieldKind::Text, |d| d.kind);
+    // A memo: editing the property (an option renamed, a limit typed) must not make again the editors
+    // that only depend on its kind, under the hand that is typing in them.
+    let kind = computed(kind_of);
     let flag = move |pick: fn(&FieldDef) -> bool| def().is_some_and(|d| pick(&d));
     let delete_field = row.with_untracked(|p| p.field.clone());
     view()
@@ -992,10 +995,10 @@ fn custom_panel(list: Handle, key: String, row: ReadSignal<Property>, open: Sign
                 )),
         )
         .child(dynamic(move || {
-            matches!(kind_of(), FieldKind::Select | FieldKind::MultiSelect).then(|| untracked(|| options_editor(list, slot)))
+            matches!(kind.get(), FieldKind::Select | FieldKind::MultiSelect).then(|| untracked(|| options_editor(list, slot)))
         }))
         .child(dynamic(move || {
-            (kind_of() == FieldKind::Scale).then(|| {
+            (kind.get() == FieldKind::Scale).then(|| {
                 untracked(|| {
                     view()
                         .flex_row()
@@ -1056,8 +1059,8 @@ fn custom_panel(list: Handle, key: String, row: ReadSignal<Property>, open: Sign
 
 /// The choices of a select or multi-select: rename (the old entries follow), reorder, remove, add.
 fn options_editor(list: Handle, slot: Slot) -> impl IntoElement {
-    let added = signal(0_u32);
-    let options = move || list.def(&slot.key()).map_or_default(|d| d.options);
+    let options = computed(move || list.def(&slot.key()).map_or_default(|d| d.options));
+    let count = computed(move || options.with(Vec::len));
     view()
         .gap_1()
         .child(
@@ -1065,42 +1068,38 @@ fn options_editor(list: Handle, slot: Slot) -> impl IntoElement {
                 .text_xs()
                 .text_color(move || theme().muted_foreground),
         )
-        .child(dynamic(move || {
-            let all = options();
-            let len = all.len();
-            untracked(|| {
-                all.into_iter()
-                    .enumerate()
-                    .map(|(at, option)| option_row(list, slot, at, len, option))
-                    .collect::<Vec<_>>()
-            })
-        }))
-        .child(commit_field(
-            "Thêm lựa chọn",
-            "+ Thêm lựa chọn",
-            move || {
-                let _ = added.get();
-                String::new()
-            },
-            move |option| {
-                list.add_option(&slot.key(), &option);
-                added.update(|n| *n += 1);
-            },
+        // A row is known by its option: renaming one makes that row again and leaves the others, so
+        // the one the trader moves on to is still there when the rename of the one they leave is kept.
+        .child(each(
+            options,
+            |option: &String| option.clone(),
+            move |row, index| option_row(list, slot, row.with_untracked(Clone::clone), index, count),
         ))
+        .child(add_field("Thêm lựa chọn", "+ Thêm lựa chọn", move |option| {
+            list.add_option(&slot.key(), &option);
+        }))
 }
 
-fn option_row(list: Handle, slot: Slot, at: usize, len: usize, option: String) -> impl IntoElement {
+fn option_row(
+    list: Handle,
+    slot: Slot,
+    option: String,
+    index: ReadSignal<usize>,
+    count: Memo<usize>,
+) -> impl IntoElement {
     let name = option.clone();
     let renamed = option.clone();
     let removed = option.clone();
     let by_drag = move |_dx: f32, dy: f32| {
-        let to = list_drop_index(at, dy, &vec![OPTION_ROW; len]);
+        let at = index.get_untracked();
+        let to = list_drop_index(at, dy, &vec![OPTION_ROW; count.get_untracked()]);
         if to != at {
             list.move_option(&slot.key(), at, to);
         }
     };
     let by_key = move |step: Step| {
-        let to = stepped(at, step, len);
+        let at = index.get_untracked();
+        let to = stepped(at, step, count.get_untracked());
         if to != at {
             list.move_option(&slot.key(), at, to);
         }

@@ -448,8 +448,13 @@ pub(crate) fn text_field(
 }
 
 /// A one-line field for a name or a short value that is kept when the trader presses Enter or
-/// leaves the field, not on every key: what is typed stays a draft until then. A change made
-/// elsewhere to `value` replaces the draft.
+/// leaves the field, not on every key: what is typed stays a draft until then.
+///
+/// The draft follows `value` while the trader has not written over it. `value` often reads a
+/// [`Reading`](crate::store::Reading) or the snapshot, which announce themselves at every read of the
+/// database whether or not what they hold changed, so it is made a memo: only a new text reaches the
+/// draft, and then only if the draft still is the text `value` last said. What is being typed is
+/// never replaced, by a read that brings nothing new or by one that brings another text.
 pub(crate) fn commit_field(
     label: impl Into<SharedString>,
     placeholder: &'static str,
@@ -458,8 +463,21 @@ pub(crate) fn commit_field(
 ) -> impl IntoElement {
     let value = Rc::new(value);
     let draft = signal(String::new());
-    let followed = Rc::clone(&value);
-    effect(move || draft.set(followed()));
+    // What `value` said last: the draft is the trader's own once it differs from it.
+    let said = stored(None::<String>);
+    let followed = {
+        let value = Rc::clone(&value);
+        computed(move || value())
+    };
+    effect(move || {
+        let next = followed.get();
+        untracked(|| {
+            let before = said.replace(Some(next.clone()));
+            if before.is_none_or(|before| before == draft.get_untracked()) {
+                draft.set(next);
+            }
+        });
+    });
     let keep: Rc<dyn Fn()> = Rc::new(move || {
         let typed = draft.get_untracked();
         if typed.trim() != value().trim() {
@@ -473,6 +491,32 @@ pub(crate) fn commit_field(
             .on_change(move |typed: &str| draft.set(typed.to_owned()))
             .on_submit(move |_: &str| on_enter())
             .on_blur(move || keep()),
+    )
+}
+
+/// A one-line field that adds what is typed: Enter, or leaving the field, hands the text to `on_add`
+/// and empties the field, ready for the next one. (A [`commit_field`] over a value that is always
+/// empty would keep the text it added, and add it again when the field is left.)
+pub(crate) fn add_field(
+    label: impl Into<SharedString>,
+    placeholder: &'static str,
+    on_add: impl Fn(String) + 'static,
+) -> impl IntoElement {
+    let draft = signal(String::new());
+    let add: Rc<dyn Fn()> = Rc::new(move || {
+        let typed = draft.get_untracked();
+        if !typed.trim().is_empty() {
+            draft.set(String::new());
+            on_add(typed);
+        }
+    });
+    let on_enter = Rc::clone(&add);
+    framed(
+        None,
+        text_input(label.into(), placeholder, move || draft.get())
+            .on_change(move |typed: &str| draft.set(typed.to_owned()))
+            .on_submit(move |_: &str| on_enter())
+            .on_blur(move || add()),
     )
 }
 
@@ -547,37 +591,44 @@ pub(crate) fn tag_picker(
     on_toggle: impl Fn(&str, bool) + Copy + 'static,
 ) -> impl IntoElement {
     let group: SharedString = group.into();
+    // `options` often reads the snapshot or a `Reading`, which announce themselves at every read of
+    // the database: the toggles follow the options, not the announcements (a toggle made again loses
+    // the keyboard focus it has).
+    let options = computed(options);
     view().flex_row().flex_wrap().gap_2().child(dynamic(move || {
-        options()
-            .into_iter()
-            .map(|(key, label)| {
-                let is_on = {
-                    let key = key.clone();
-                    move || selected().contains(&key)
-                };
-                let toggled = key;
-                toggle()
-                    .cursor_pointer()
-                    .pressed(is_on.clone())
-                    .on_change(move |next: &bool| on_toggle(&toggled, *next))
-                    .accessibility_label(format!("{group}: {label}"))
-                    .h(px(26.0))
-                    .px_3()
-                    .items_center()
-                    .justify_center()
-                    .rounded(px(6.0))
-                    .border_1()
-                    .border_color(move || theme().border)
-                    .hover(|s| s.opacity(0.85))
-                    .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
-                    .style_when(is_on.clone(), |s| s.bg(move || theme().accent).border_color(move || theme().primary))
-                    .child(
-                        text(label).text_xs().font_weight(FontWeight::MEDIUM).text_color(move || {
+        let options = options.get();
+        untracked(|| {
+            options
+                .into_iter()
+                .map(|(key, label)| {
+                    let is_on = {
+                        let key = key.clone();
+                        move || selected().contains(&key)
+                    };
+                    let toggled = key;
+                    toggle()
+                        .cursor_pointer()
+                        .pressed(is_on.clone())
+                        .on_change(move |next: &bool| on_toggle(&toggled, *next))
+                        .accessibility_label(format!("{group}: {label}"))
+                        .h(px(26.0))
+                        .px_3()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(6.0))
+                        .border_1()
+                        .border_color(move || theme().border)
+                        .hover(|s| s.opacity(0.85))
+                        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+                        .style_when(is_on.clone(), |s| {
+                            s.bg(move || theme().accent).border_color(move || theme().primary)
+                        })
+                        .child(text(label).text_xs().font_weight(FontWeight::MEDIUM).text_color(move || {
                             if is_on() { theme().accent_foreground } else { theme().muted_foreground }
-                        }),
-                    )
-            })
-            .collect::<Vec<_>>()
+                        }))
+                })
+                .collect::<Vec<_>>()
+        })
     }))
 }
 
@@ -632,6 +683,9 @@ mod tests {
         let pressed = signal(Vec::<&'static str>::new());
         let note = move |what: &'static str| pressed.update(|all| all.push(what));
         let committed = signal(String::from("Tên cũ"));
+        // What a read of the database gives: it announces itself at every read, changed or not.
+        let read = signal_with(String::from("Mã 1"), SignalEquals::Never);
+        let added = signal(Vec::<String>::new());
         let confirmed = signal(String::from("chưa hỏi"));
         let owner = Owner::current();
         let rebuilt = signal(0_u32);
@@ -644,6 +698,11 @@ mod tests {
             .child(action_when("Bật", Variant::Secondary, || true, move || note("resent")))
             .child(link("Xem tất cả", move || note("link")))
             .child(commit_field("Tên", "Tên", move || committed.get(), move |name| committed.set(name)))
+            .child(commit_field("Mã", "Mã", move || read.get(), |_| {}))
+            .child(action("Đọc lại", Variant::Secondary, move || read.update(|_| {})))
+            .child(action("Đọc mã 2", Variant::Secondary, move || read.set("Mã 2".to_owned())))
+            .child(add_field("Thêm", "Thêm", move |typed| added.update(|all| all.push(typed))))
+            .child(text(move || format!("added {}", added.get().join("|"))))
             .child(action("Hỏi", Variant::Secondary, move || {
                 confirmed.set("đã hỏi".to_owned());
                 confirm_then(owner, "Xoá?", "Không hoàn tác được.", "Xoá hẳn", move || {
@@ -694,6 +753,44 @@ mod tests {
         assert!(app.screen().shows("name Tên cũ"), "still the old name while typing");
         app.submit("label:Tên").expect("Enter");
         app.wait_for("name Tên cũ mới").expect("committed on Enter");
+    }
+
+    #[test]
+    fn a_commit_field_follows_what_is_read_until_the_trader_writes_over_it() {
+        let mut app = start();
+        let held = |app: &Headless| app.screen().input_text("label:Mã").expect("the field").map(str::to_owned);
+        assert_eq!(held(&app).as_deref(), Some("Mã 1"));
+        // A read that brings nothing new changes nothing, and neither it nor the press of its button
+        // (which takes the focus) puts back what the trader is writing.
+        app.type_text("label:Mã", "a").expect("types");
+        app.press("Đọc lại").expect("reads again");
+        assert_eq!(held(&app).as_deref(), Some("Mã 1a"), "a read with nothing new leaves the draft");
+        // A read that brings another text leaves the draft too: it is the trader's now.
+        app.press("Đọc mã 2").expect("reads another text");
+        assert_eq!(held(&app).as_deref(), Some("Mã 1a"), "another text does not replace what is being written");
+    }
+
+    #[test]
+    fn a_commit_field_that_was_not_written_in_shows_the_new_text() {
+        let mut app = start();
+        app.press("Đọc mã 2").expect("reads another text");
+        app.wait_until("the new text in the field", Duration::from_secs(5), |screen| {
+            screen.input_text("label:Mã") == Ok(Some("Mã 2"))
+        })
+        .expect("a field nobody wrote in follows what is read");
+    }
+
+    #[test]
+    fn an_add_field_hands_over_its_text_once_and_empties() {
+        let mut app = start();
+        app.type_text("label:Thêm", "một").expect("types");
+        app.submit("label:Thêm").expect("Enter adds it");
+        app.wait_for("added một").expect("it was handed over");
+        assert_eq!(app.screen().input_text("label:Thêm"), Ok(Some("")), "and the field is empty again");
+        // Leaving the field adds nothing a second time.
+        app.press("Đọc lại").expect("takes the focus away");
+        app.wait(Duration::from_millis(200)).expect("the app runs");
+        assert!(app.screen().shows("added một"), "added once: {:?}", app.screen().texts());
     }
 
     #[test]
