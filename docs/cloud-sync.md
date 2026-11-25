@@ -136,7 +136,7 @@ dữ liệu ngay cả khi ảnh chưa lên hết hoặc đường truyền chậ
 4. Nếu bản snapshot mới nhất đã ≥ 7 ngày (hoặc chưa có): upload snapshot. Ghi `devices.json` (id, tên, lần sync cuối;
    ghi đè theo kiểu đọc-sửa-ghi, mất một dòng khi hai máy ghi cùng lúc thì lần sau tự thêm lại), rồi đánh dấu đã sync.
 5. **Upload ảnh:** chỉ ảnh **chưa được ghi nhận là đã nằm trên ổ** (bảng `sync_uploaded`, theo nhà cung cấp; migration
-   0013). Sync không có gì mới thì không đọc file ảnh nào và không liệt kê `attachments/`. Có ảnh cần xét thì liệt kê
+   0014). Sync không có gì mới thì không đọc file ảnh nào và không liệt kê `attachments/`. Có ảnh cần xét thì liệt kê
    `attachments/` một lần: ảnh ổ đã có chỉ được ghi nhận; ảnh chưa có thì upload `attachments/<sha256>.<ext>` (hai đường
    dẫn cùng nội dung chỉ một file), tối đa 4 ảnh cùng lúc. Với Google Drive dùng `CloudDrive::upload_new` (tên đã biết là
    chưa có nên bỏ yêu cầu tìm tên: 1 request/ảnh thay vì 2). Ảnh lên xong được ghi nhận trong một giao dịch; một ảnh lỗi
