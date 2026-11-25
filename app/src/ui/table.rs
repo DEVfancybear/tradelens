@@ -102,8 +102,8 @@ fn figure_column(title: &str, figure: usize, sorting: Sortable) -> f32 {
 
 /// The columns of a table. The figure columns start from the width their figures and titles need and
 /// are fitted to what they show once the rows come (`auto_fit`), never narrower than that start; the
-/// setup column grows into what is left, so that the rows reach the right edge of the card (its chip
-/// is cut with an ellipsis when it is narrow).
+/// room left over is shared by [`grow_share`], so that the rows reach the right edge of the card (the
+/// setup chip is cut with an ellipsis when it is narrow).
 fn columns(sorting: Sortable, shape: Shape) -> Vec<DataTableColumn> {
     use DataTableAlign::{End, Start};
     use Sortable::No;
@@ -135,15 +135,26 @@ fn columns(sorting: Sortable, shape: Shape) -> Vec<DataTableColumn> {
     };
     for column in &mut list {
         match column.key.as_ref() {
-            "setup" => {
-                column.min_width = column.width;
-                column.grow = Some(1.0);
-            }
             "symbol" | "lot" | "hold" | "net" | "r" => fit_to_content(column, sorting),
+            "setup" => column.min_width = column.width,
             _ => {}
         }
+        column.grow = grow_share(column.key.as_ref());
     }
     list
+}
+
+/// How much of the room the columns leave free each takes (`grow`, a weight): spread over the roomy
+/// columns as the design spreads it, so that no one column is a gap. A figure column keeps its
+/// right alignment, so what it grows by is space on its left. The select, side and journal columns
+/// keep their width.
+fn grow_share(key: &str) -> Option<f32> {
+    match key {
+        "time" | "symbol" | "hold" | "net" => Some(1.0),
+        "lot" | "r" => Some(0.5),
+        "setup" => Some(1.5),
+        _ => None,
+    }
 }
 
 /// Lets the column fit its widest text and title once the rows come, from the width it starts with up.

@@ -508,28 +508,41 @@ fn enter_on_the_row_the_keyboard_selected_opens_that_trade() {
 }
 
 #[test]
-fn the_last_column_ends_at_the_right_edge_of_the_table_whatever_the_window() {
+fn the_free_room_of_the_list_is_shared_between_columns_and_the_last_one_ends_at_the_table_edge() {
     let fixture = Fixture::new();
     let mut db = fixture.db();
     typed_in(&mut db, &typed("EURUSD", "2026.11.19 08:00:00", "2026.11.19 09:00:00"));
     drop(db);
-    // The columns of the figures keep their widths and the Setup column grows into the rest, so the
-    // last title stands the same distance from the table's right edge in a window and in a wider one.
-    let distance_to_right_edge = |width: f32| {
+    // The distance from the last title to the table's right edge, and the widths of two columns that
+    // start at their title: the closing time (title "Đóng lúc" to "Symbol") and the setup ("Setup" to
+    // "Nhật ký").
+    let measure = |width: f32| {
         let mut app = fixture.start(width, 900.0, |_| {});
         app.press("role:button[Lệnh]").expect("the trades row");
         app.wait_for_within("Hiển thị 1 / 1 lệnh", WAIT).expect("the trade");
         app.wait_for_within("Nhật ký", WAIT).expect("the last title");
         let table = app.screen().layout("label:Danh sách lệnh").expect("one table").expect("the table is on screen");
         let nodes = app.screen().layout_nodes();
-        let title = nodes
-            .iter()
-            .find(|node| node.text.as_ref().is_some_and(|shown| shown.text.text == "Nhật ký"))
-            .expect("the title of the last column is on screen");
-        table.bounds.origin.x.0 + table.bounds.size.width.0 - title.bounds.origin.x.0
+        let left = |title: &str| {
+            nodes
+                .iter()
+                .find(|node| node.text.as_ref().is_some_and(|shown| shown.text.text == title))
+                .unwrap_or_else(|| panic!("the title {title:?} is on screen"))
+                .bounds
+                .origin
+                .x
+                .0
+        };
+        let edge = table.bounds.origin.x.0 + table.bounds.size.width.0 - left("Nhật ký");
+        (edge, left("Symbol") - left("Đóng lúc"), left("Nhật ký") - left("Setup"))
     };
-    let narrow = distance_to_right_edge(1400.0);
-    let wide = distance_to_right_edge(1700.0);
-    assert!((wide - narrow).abs() < 2.0, "the last title is {narrow} points from the edge, then {wide}");
-    assert!(narrow < 120.0, "the last column is its own width from the edge, not a setup column's: {narrow}");
+    let (narrow_edge, ..) = measure(1400.0);
+    let (wide_edge, time, setup) = measure(1700.0);
+    assert!(
+        (wide_edge - narrow_edge).abs() < 2.0,
+        "the last title is {narrow_edge} points from the edge, then {wide_edge}"
+    );
+    assert!(narrow_edge < 120.0, "the last column is its own width from the edge: {narrow_edge}");
+    assert!(setup < 2.0 * time, "Setup takes {setup} points where the closing time takes {time}");
+    assert!(setup > time * 0.5, "the room is shared, not taken from Setup: {setup} against {time}");
 }
