@@ -543,10 +543,11 @@ mod tests {
     }
 
     #[test]
-    fn today_follows_the_server_offset_when_it_is_known() {
+    fn today_follows_the_server_offset_when_known_else_the_machines_clock() {
         let (_db, snapshot) = seeded();
         let late = parse_mt5_time("2026.11.20 23:30:00").expect("a valid time");
-        assert_eq!(super::today(&snapshot, late), NaiveDate::from_ymd_opt(2026, 11, 20).expect("a real date"));
+        // No offset: the times are the trader's own, so today is the day at UTC+7 too (06:30 on the 21st).
+        assert_eq!(super::today(&snapshot, late), NaiveDate::from_ymd_opt(2026, 11, 21).expect("a real date"));
         let (_db, known) = seeded_with(Some(120));
         // 23:30 UTC is 01:30 the next day at the server's UTC+2, and 06:30 at UTC+7.
         assert_eq!(super::today(&known, late), NaiveDate::from_ymd_opt(2026, 11, 21).expect("a real date"));

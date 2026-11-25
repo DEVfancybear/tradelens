@@ -282,7 +282,7 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
 
     let in_view: Vec<&Account> = accounts.iter().filter(|a| query.account.is_none_or(|id| id == a.id)).collect();
     let zone = summary_zone(&in_view, display, query.local_offset_min);
-    let now_server = query.now_utc_ms + zone.server_offset_min.map_or(0, |m| i64::from(m) * 60_000);
+    let now_server = zone::stored_now(zone.server_offset_min, query.local_offset_min, query.now_utc_ms);
     let cutoff = query.range.cutoff(now_server);
     let (stats, curve, basis) = summarise(&rows, &cash, start_total, cutoff, zone.clock());
 
