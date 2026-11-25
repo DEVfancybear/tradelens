@@ -189,7 +189,7 @@ Tôn trọng *reduce motion*: chỉ đổi opacity, không dịch chuyển.
 | Component | File | Ghi chú |
 |---|---|---|
 | `rule_row(label, hint, unit, range, default, value, on_change)` | `rule_row.rs` (`pub`) | dòng quy tắc: ô số + công tắc; tắt thì `on_change(None)`, nhớ giá trị cũ |
-| `checklist_editor(group, items, on_change)` + `renamed` / `without` / `appended` | `checklist_editor.rs` (`pub`) | sửa chữ, xoá, thêm mục; giữ id, mục mới có id 0 |
+| `checklist_editor(group, items, on_change)` + `renamed` / `without` / `appended` | `checklist_editor.rs` (`pub`) | sửa chữ, xoá, thêm mục (ô "mục mới" là `add_field`: Enter thêm và giữ focus); giữ id, mục mới có id 0 |
 | `selectable_card(label, selected, on_press, body)` | `selectable_card.rs` (`pub`) | thẻ bấm để chọn (tài khoản, ngày trong tuần) |
 | `forms::switch_control` | `forms.rs` | công tắc đứng riêng, không kèm nhãn |
 
@@ -213,7 +213,7 @@ dựng lại giữa lúc gõ và các ký tự sau đi vào ô đã mất.
 - Nháp nằm trong signal cục bộ mà lần đọc lại không ghi đè khi người dùng đang sửa: `commit_field` theo `value` chỉ khi
   `value` thật sự đổi *và* nháp còn là chữ `value` nói lần trước (chưa bị viết đè); form nạp từ DB (`journal`, `review`
   `answers_form`) chỉ nhận dữ liệu mới khi không `dirty`. Ô "thêm" (`+ Thêm lựa chọn`, `+ Thêm lý do`…) là `add_field`
-  (trao chữ cho `on_add` rồi xoá ô), không phải `commit_field` bọc giá trị rỗng.
+  (trao chữ cho `on_add` rồi xoá ô, **Enter giữ focus** qua `SubmitBehavior::Submit`: mặc định của NSH là bỏ focus khi Enter), không phải `commit_field` bọc giá trị rỗng.
 - Bộ chọn dùng chung đã tự lo phần này: `tag_picker` và `forms::checklist` chỉ dựng lại khi danh sách lựa chọn / mục thật
   sự đổi; `commit_field` có test `a_commit_field_follows_what_is_read_until_the_trader_writes_over_it`.
 - Test: `tests/typing_survives_reloads.rs` với `type_through_reloads` (gõ từng đoạn, giữa các đoạn gọi

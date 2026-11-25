@@ -6,7 +6,7 @@ use nsh_core::prelude::*;
 use tradelens_core::ChecklistItem;
 
 use super::{
-    controls::{Variant, action_when, commit_field, icon_action, text_field},
+    controls::{Variant, add_field, commit_field, icon_action},
     icons::Icon,
 };
 
@@ -62,7 +62,6 @@ pub fn checklist_editor(
             on_change(next);
         }
     };
-    let draft = signal(String::new());
     // The rows are known by their item and their place (a new item has no id yet). Renaming an item
     // changes neither, so it makes no row again: the row the trader moves on to is still there when
     // the rename of the one they leave has come back.
@@ -95,36 +94,16 @@ pub fn checklist_editor(
                     }))
             },
         ))
-        .child(
-            view()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(view().flex_1().min_w(px(0.0)).child(text_field(
-                    format!("{group}: mục mới"),
-                    None,
-                    "Thêm mục…",
-                    move || draft.get(),
-                    move |typed| draft.set(typed.to_owned()),
-                )))
-                .child(action_when(
-                    format!("Thêm vào {group}"),
-                    Variant::Secondary,
-                    move || !draft.get().trim().is_empty(),
-                    move || {
-                        let typed = draft.get_untracked();
-                        if let Some(next) = appended(&list.get_untracked(), &typed) {
-                            draft.set(String::new());
-                            apply(Some(next));
-                        }
-                    },
-                )),
-        )
+        // Enter (or leaving the field) adds the item and empties the field, which keeps the focus so
+        // that the next item can be typed straight away.
+        .child(add_field(format!("{group}: mục mới"), "+ Thêm mục, rồi Enter", move |typed| {
+            apply(appended(&list.get_untracked(), &typed));
+        }))
 }
 
 #[cfg(test)]
 mod tests {
-    use nsh_core::Size;
+    use nsh_core::{Size, platform::Os};
     use nsh_engine::{EngineConfig, Root};
     use nsh_testing::Headless;
 
@@ -166,8 +145,9 @@ mod tests {
     }
 
     fn start() -> Headless {
-        let config =
+        let mut config =
             EngineConfig { viewport: Size::new(px(900.0), px(600.0)), ..EngineConfig::new(Root::of::<Harness>()) };
+        config.environment.os = Os::Linux;
         let mut app = Headless::start(config).expect("the engine starts");
         app.wait_for("saved 4=Cùng chiều trend H4|9=Có vùng cản rõ").expect("the harness shows");
         app
@@ -177,12 +157,37 @@ mod tests {
     fn editing_the_list_reports_it_with_the_ids_kept() {
         let mut app = start();
         app.type_text("label:Checklist: mục mới", "Risk 1.5%").expect("types");
-        app.press("Thêm vào Checklist").expect("adds");
+        app.submit("label:Checklist: mục mới").expect("Enter adds");
         app.wait_for("saved 4=Cùng chiều trend H4|9=Có vùng cản rõ|0=Risk 1.5%").expect("the new item has id 0");
         app.press("label:Xoá mục Cùng chiều trend H4").expect("removes the first");
         app.wait_for("saved 9=Có vùng cản rõ|0=Risk 1.5%").expect("the others keep their ids");
         app.type_text("label:Checklist: mục 1", " lắm").expect("renames");
         app.submit("label:Checklist: mục 1").expect("Enter");
         app.wait_for("saved 9=Có vùng cản rõ lắm|0=Risk 1.5%").expect("the id stays with the renamed item");
+    }
+
+    #[test]
+    fn enter_adds_an_item_and_keeps_the_focus_for_the_next_one() {
+        let mut app = start();
+        app.type_text("label:Checklist: mục mới", "Muc A").expect("types");
+        app.submit("label:Checklist: mục mới").expect("Enter adds");
+        app.wait_for("saved 4=Cùng chiều trend H4|9=Có vùng cản rõ|0=Muc A").expect("the item is added");
+        assert_eq!(app.screen().input_text("label:Checklist: mục mới"), Ok(Some("")), "the field is empty again");
+        // No click in between: the keys go to the field that still has the focus.
+        for key in "mb".chars() {
+            app.press_key(&key.to_string()).expect("typed on the focused field");
+        }
+        app.submit("label:Checklist: mục mới").expect("Enter adds the next one");
+        app.wait_for("saved 4=Cùng chiều trend H4|9=Có vùng cản rõ|0=Muc A|0=mb").expect("the second item is added");
+    }
+
+    #[test]
+    fn leaving_the_field_after_enter_does_not_add_the_item_again() {
+        let mut app = start();
+        app.type_text("label:Checklist: mục mới", "Muc A").expect("types");
+        app.submit("label:Checklist: mục mới").expect("Enter adds");
+        app.wait_for("saved 4=Cùng chiều trend H4|9=Có vùng cản rõ|0=Muc A").expect("the item is added");
+        app.press("label:Xoá mục Có vùng cản rõ").expect("takes the focus away");
+        app.wait_for("saved 4=Cùng chiều trend H4|0=Muc A").expect("only the removal happened");
     }
 }
