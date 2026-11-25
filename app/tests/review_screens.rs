@@ -16,6 +16,7 @@ use tradelens_core::{
     import::notion, missed::MissedTrade, model::AccountInfo, playbook::Playbook, review::Period,
 };
 
+mod server_clock;
 mod support;
 use support::{WAIT, wait_until};
 
@@ -116,6 +117,7 @@ fn seed(db: &mut Db) {
     deals.extend(closed_now(2, "XAUUSD", -40.0));
     deals.extend(closed_now(3, "GBPJPY", 20.0));
     db.upsert_batch(&batch(deals), "test").expect("the batch is stored");
+    server_clock::on_utc(db);
 }
 
 fn key_of(db: &Db, position: i64) -> TradeKey {
@@ -341,9 +343,9 @@ fn a_review_is_written_saved_and_found_again() {
     app.type_text("label:3 điều làm tốt tuần này", "Chờ retest đúng playbook").expect("an answer is typed");
     app.press("role:button[Lưu tổng kết]").expect("the save button");
 
-    // No account is known, so no server offset either: the page counts days in UTC, which is
-    // another week than the machine's between its midnight and UTC's on a Monday.
-    let start = Period::Week.bounds(chrono::Utc::now().date_naive()).0;
+    // No account is known, so the page counts the week on the machine's own clock, which is another
+    // week than UTC's between their midnights on a Monday.
+    let start = Period::Week.bounds(Local::now().date_naive()).0;
     wait_until("the review being stored", || fixture.db().review(None, Period::Week, start).is_ok_and(|r| r.is_some()));
     let stored = fixture.db().review(None, Period::Week, start).expect("review reads").expect("a review");
     assert_eq!(stored.answers[0], ("3 điều làm tốt tuần này".to_owned(), "Chờ retest đúng playbook".to_owned()));

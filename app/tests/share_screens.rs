@@ -8,6 +8,7 @@ use std::{path::Path, time::Duration};
 use nsh_testing::Headless;
 use tradelens_core::{Db, Deal, DealBatch, DealEntry, DealKind, model::AccountInfo};
 
+mod server_clock;
 mod support;
 use support::{WAIT, wait_until};
 
@@ -99,6 +100,7 @@ fn seed(db: &mut Db) {
         positions: Vec::new(),
     };
     db.upsert_batch(&batch, "test").expect("the batch is stored");
+    server_clock::on_utc(db);
 }
 
 fn open_trade(app: &mut Headless, symbol: &str) {

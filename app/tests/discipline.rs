@@ -14,6 +14,7 @@ use tradelens_core::{
     model::AccountInfo,
 };
 
+mod server_clock;
 mod support;
 use support::{WAIT, wait_until};
 
@@ -94,10 +95,8 @@ fn seed_today(db: &mut Db, profit: f64) -> i64 {
         positions: Vec::new(),
     };
     db.upsert_batch(&batch, "test").expect("the batch is stored");
-    let mut account = db.accounts().expect("accounts read").remove(0);
-    account.server_offset_min = Some(0);
-    db.update_account(&account).expect("the server offset is stored");
-    account.id
+    server_clock::on_utc(db);
+    db.accounts().expect("accounts read").remove(0).id
 }
 
 fn open_accounts(app: &mut Headless) {
