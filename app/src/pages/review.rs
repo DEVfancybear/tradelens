@@ -834,6 +834,8 @@ fn templates_card() -> impl IntoElement {
     let week = query(|db, _| db.review_template(Period::Week));
     let month = query(|db, _| db.review_template(Period::Month));
     let editing = signal(None::<Period>);
+    // Whether each template has been read: a memo, so that a re-read does not rebuild the editor.
+    let (week_read, month_read) = (computed(move || week.value().is_some()), computed(move || month.value().is_some()));
     card(
         "Mẫu ghi chú",
         view()
@@ -842,9 +844,14 @@ fn templates_card() -> impl IntoElement {
             .child(template_row(Period::Month, month, editing))
             .child(dynamic(move || {
                 let period = editing.get()?;
-                let source = if period == Period::Week { week } else { month };
-                // Only pressing the pencil builds the editor: a re-read of the template while its
-                // questions are being typed must not throw the typing away.
+                let (source, read) = if period == Period::Week { (week, week_read) } else { (month, month_read) };
+                // A pencil pressed before the template is read opens the editor as soon as it is: the
+                // press leaves `editing` set, and setting it again would change nothing.
+                if !read.get() {
+                    return None;
+                }
+                // Only that builds the editor: a re-read of the template while its questions are being
+                // typed must not throw the typing away.
                 untracked(|| {
                     let template = source.value().map(|t| ReviewTemplate::clone(&t))?;
                     Some(template_editor(template, editing).into_element())
