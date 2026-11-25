@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- TradeLens app icon (master, 48 px and up). Colours from app/theme.json:
+       primary #0d9488 / #2dd4bf / ring #14b8a6, background #0b0e14, card #161c29,
+       profit #34d399, loss #f87171, primary-foreground #04201c. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5eead4"/>
+      <stop offset="0.5" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#0d9488"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2130"/>
+      <stop offset="1" stop-color="#0b0e14"/>
+    </linearGradient>
+    <clipPath id="lens">
+      <circle cx="452" cy="452" r="236"/>
+    </clipPath>
+  </defs>
+
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#tile)"/>
+
+  <path d="M640 640 L812 812" stroke="#04201c" stroke-width="104" stroke-linecap="round"/>
+
+  <circle cx="452" cy="452" r="236" fill="url(#glass)"/>
+  <g clip-path="url(#lens)">
+    <g stroke="#2dd4bf" stroke-opacity="0.14" stroke-width="6">
+      <path d="M200 372 H704 M200 452 H704 M200 532 H704"/>
+    </g>
+    <g stroke-linecap="round">
+      <path d="M352 444 V604" stroke="#f87171" stroke-width="16"/>
+      <rect x="320" y="478" width="64" height="88" rx="10" fill="#f87171"/>
+      <path d="M452 370 V572" stroke="#34d399" stroke-width="16"/>
+      <rect x="420" y="406" width="64" height="118" rx="10" fill="#34d399"/>
+      <path d="M552 296 V480" stroke="#34d399" stroke-width="16"/>
+      <rect x="520" y="324" width="64" height="124" rx="10" fill="#34d399"/>
+    </g>
+  </g>
+
+  <circle cx="452" cy="452" r="236" fill="none" stroke="#04201c" stroke-width="64"/>
+  <path d="M296 372 A170 170 0 0 1 372 290" fill="none" stroke="#ffffff" stroke-opacity="0.32"
+        stroke-width="22" stroke-linecap="round"/>
+</svg>
