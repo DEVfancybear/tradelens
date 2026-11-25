@@ -70,6 +70,11 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
 - **Why:** Playbook's Save checked for a duplicate name only against the snapshot. When Save was pressed before the list had been read (a loaded machine), the snapshot was empty and a second "breakout" was stored next to "Breakout". `a_second_playbook_cannot_take_a_name_in_use` failed under load on the quality gate.
 - **Check:** a test that stores the conflicting row through `fixture.db()` after the page has read its list (the screen doesn't see it), then saves through the form. See `a_name_stored_after_the_list_was_read_is_still_refused`.
 
+### 2.2 A question to the database is a `Store::read`, never a `Writer::run`
+- **Rule:** a read that only informs a decision (how many values a type change would lose) goes through `store().read(op, done)`. `Writer::run` calls `data_changed()` whenever its closure succeeds, so every page reads again for nothing, and in the middle of a flow (a confirmation waiting for its answer).
+- **Why:** the form editor asked "what would be lost" through `writer().run`; the changing-a-type test failed twice under load in full runs (the stored values never followed the new type) and not once in 40 runs alone. The extra re-read is the suspect; the test now also chooses the kind again until it is stored.
+- **Check:** `rg -n "writer\(\)|write\.run" app/src` and look at each closure: does it store anything?
+
 ## 3. Headless tests
 
 - **Waiting:**
