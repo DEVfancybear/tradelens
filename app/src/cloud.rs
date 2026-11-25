@@ -32,7 +32,7 @@ use tradelens_cloud::{
     notion::NotionClient,
     onedrive::OneDrive,
     sync::{DeviceInfo, SyncEngine, SyncReport},
-    token_store::{KeyringStore, TokenSource, TokenStore},
+    token_store::{KeyringStore, MemoryStore, TokenSource, TokenStore},
 };
 use tradelens_core::{Db, DbError};
 
@@ -55,6 +55,9 @@ pub(crate) const AUTO_SYNC_SETTING: &str = "cloud.auto_sync";
 const DEVICE_NAME_SETTING: &str = "cloud.device_name";
 /// Another address for the Notion API (a test server); the variable `TRADELENS_NOTION_URL` does the same.
 const NOTION_URL_SETTING: &str = "cloud.notion.base_url";
+/// `memory` keeps sessions and secrets in memory instead of the operating system's credential store,
+/// so the screen tests neither see nor change the sign-ins of whoever runs them.
+pub const CREDENTIALS_SETTING: &str = "cloud.credentials";
 
 /// The demo's drive name when the setting names none.
 const DEFAULT_DEMO_DRIVE: &str = "mặc định";
@@ -85,6 +88,7 @@ impl Env {
             AUTO_SYNC_SETTING,
             DEVICE_NAME_SETTING,
             NOTION_URL_SETTING,
+            CREDENTIALS_SETTING,
         ]
         .into_iter()
         .map(str::to_owned)
@@ -161,9 +165,29 @@ fn demo_secrets() -> &'static Mutex<HashMap<String, String>> {
     SECRETS.get_or_init(Mutex::default)
 }
 
+/// The sessions kept in memory when [`CREDENTIALS_SETTING`] says so, shared by the whole run.
+fn memory_tokens() -> Arc<MemoryStore> {
+    static TOKENS: OnceLock<Arc<MemoryStore>> = OnceLock::new();
+    Arc::clone(TOKENS.get_or_init(Arc::default))
+}
+
 impl Env {
+    /// Whether the credentials stay in memory: in the demo, or when the setting asks for it.
+    fn credentials_in_memory(&self) -> bool {
+        self.is_demo() || self.get(CREDENTIALS_SETTING).as_deref() == Some("memory")
+    }
+
+    /// Where the providers' sessions are kept.
+    fn token_store(&self) -> Arc<dyn TokenStore> {
+        if self.credentials_in_memory() { memory_tokens() } else { Arc::new(KeyringStore::new()) }
+    }
+
+    /// The key of a secret kept in memory, `None` when it goes to the operating system's store.
     fn secret_key(&self, name: &str) -> Option<String> {
-        self.demo_drive().map(|drive| format!("{drive}/{name}"))
+        match self.demo_drive() {
+            Some(drive) => Some(format!("{drive}/{name}")),
+            None => self.credentials_in_memory().then(|| format!("{CREDENTIALS_SETTING}/{name}")),
+        }
     }
 
     /// The secret `name` (a Notion token), `None` when there is none. Blocks: call it off the UI thread.
@@ -255,7 +279,7 @@ fn session(provider: Provider, env: &Env) -> Result<Arc<TokenSource>, CloudError
         return Ok(Arc::clone(known));
     }
     let client = ClientConfig::resolve(provider, |key| env.get(key))?;
-    let source = Arc::new(TokenSource::new(client, Arc::new(KeyringStore::new())));
+    let source = Arc::new(TokenSource::new(client, env.token_store()));
     sources.insert(provider, Arc::clone(&source));
     Ok(source)
 }
@@ -289,7 +313,7 @@ fn identities(env: &Env) -> Vec<Identity> {
             })
             .collect();
     }
-    let store = KeyringStore::new();
+    let store = env.token_store();
     Provider::ALL
         .into_iter()
         .filter_map(|provider| match store.load_identity(provider) {
@@ -563,7 +587,7 @@ impl Cloud {
                 match session(provider, &env) {
                     Ok(source) => source.sign_out().map_err(|e| describe(&e)),
                     // Nothing to revoke without a registration: forget what is stored.
-                    Err(_) => KeyringStore::new().clear(provider).map_err(|e| describe(&e)),
+                    Err(_) => env.token_store().clear(provider).map_err(|e| describe(&e)),
                 }
             })
             .await
@@ -788,6 +812,25 @@ mod tests {
         let demo = env(&[(MODE_SETTING, "memory"), (DEMO_DRIVE_SETTING, "một")]);
         assert_eq!(demo.demo_drive().as_deref(), Some("một"));
         assert_eq!(demo.missing_client(Provider::Google), None, "the demo needs no registration");
+    }
+
+    #[test]
+    fn credentials_kept_in_memory_never_reach_the_operating_system_store() {
+        let env = env(&[(CREDENTIALS_SETTING, "memory")]);
+        let identity =
+            Identity { provider: Provider::Microsoft, email: "thu@example.com".into(), name: "Thử".into() };
+        env.token_store().save_identity(&identity).expect("kept in memory");
+        assert_eq!(identities(&env), vec![identity], "the session is read back from memory");
+        env.save_secret("thu-nghiem", "bí mật").expect("kept in memory");
+        assert_eq!(env.load_secret("thu-nghiem").expect("read"), Some("bí mật".to_owned()));
+        assert_eq!(
+            KeyringStore::new().load_secret("thu-nghiem").expect("the OS store is read"),
+            None,
+            "the secret did not go to the operating system's store"
+        );
+        env.clear_secret("thu-nghiem").expect("forgotten");
+        env.token_store().clear(Provider::Microsoft).expect("forgotten");
+        assert_eq!(identities(&env), Vec::new(), "signed out");
     }
 
     #[test]

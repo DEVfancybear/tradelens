@@ -90,6 +90,9 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
   - `os error 1455` ("The paging file is too small") means rustc ran out of virtual memory: twelve parallel jobs each linking a test binary with full debug info.
   - The cache is fine, so deleting `target` only costs a full rebuild. Build with `CARGO_BUILD_JOBS=4 cargo test --workspace --no-run` first, then run `scripts/quality.sh`, which reuses that build.
   - Also don't run `quality.sh` in the background as a turn ends. The `Stop` hook runs it at the same time over the same `target`.
+- **The OS credential store is the developer's, not the test's:** `support::Fixture` sets `cloud.credentials = memory` (`CREDENTIALS_SETTING`), so sessions and secrets stay in memory. Anything new in `app/src/cloud.rs` that keeps a token goes through `Env::token_store()` / `Env::{load,save,clear}_secret`, never `KeyringStore::new()` directly.
+  - Why: after the user signed in to Google in the real app, four screen tests failed ("nobody is signed in" was false). They read the real Windows Credential Manager, and a test pressing "Đăng xuất" would have deleted the user's real token.
+  - Check: `credentials_kept_in_memory_never_reach_the_operating_system_store` in `cloud.rs`; with a real sign-in on the machine, `cargo test -p nsh-app-tradelens --test cloud_screens` still passes.
 - **Temp dirs:** every test database lives in a `tempfile::TempDir` through `Fixture`, so it is removed afterwards. Leaked `.tmp*` folders once filled the disk.
 - **Regression tests:** before trusting a new test, revert the fix, confirm the test fails, then restore the fix.
 

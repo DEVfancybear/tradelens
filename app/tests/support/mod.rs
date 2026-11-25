@@ -31,8 +31,11 @@ pub(crate) struct Fixture {
 impl Fixture {
     pub(crate) fn new() -> Self {
         let dir = tempfile::tempdir().expect("a temp dir");
-        // The app opens the database the tests seed and read.
-        Db::open(dir.path().join("tradelens.db")).expect("the database opens");
+        // The app opens the database the tests seed and read. Its sign-ins stay in memory: the
+        // operating system's credential store holds those of whoever runs the tests.
+        Db::open(dir.path().join("tradelens.db"))
+            .and_then(|mut db| db.set_setting(nsh_app_tradelens::CREDENTIALS_SETTING, "memory"))
+            .expect("the database opens");
         Self { dir: Some(dir) }
     }
 
