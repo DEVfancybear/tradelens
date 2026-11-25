@@ -132,7 +132,7 @@ fn provider_body(
     view()
         .gap_3()
         .child(text("Chưa đăng nhập").text_sm().text_color(move || theme().muted_foreground))
-        .children(missing.map(|why| text(why).text_xs().text_color(crate::ui::theme::warning())))
+        .children(missing.map(|why| text(why).text_xs().text_color(crate::ui::theme::warning)))
         .child(view().flex_row().child(action_icon_when(
             Icon::Cloud,
             sign_in_label,

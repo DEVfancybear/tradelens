@@ -93,7 +93,7 @@ pub(crate) fn missed() -> impl IntoElement {
                         untracked(|| form(draft, editing, reasons).into_element())
                     }))),
             )
-            .child(dynamic(move || list.error().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss())))),
+            .child(dynamic(move || list.error().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss)))),
     )
 }
 
@@ -457,7 +457,7 @@ fn form(
             ),
         ))
         .child(gallery("Ảnh chart", move || fields.shots.get(), move |list: Vec<Attachment>| fields.shots.set(list)))
-        .child(dynamic(move || error.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss()))))
+        .child(dynamic(move || error.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
         .child(
             view()
                 .flex_row()

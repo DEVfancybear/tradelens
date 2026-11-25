@@ -351,7 +351,7 @@ fn table_card(ops: Ops, rows: Memo<Vec<Property>>) -> impl IntoElement {
                     .into_element()
             })
         }))
-        .child(dynamic(move || ops.notice.get().map(|error| text(error).text_sm().text_color(tokens::loss()))))
+        .child(dynamic(move || ops.notice.get().map(|error| text(error).text_sm().text_color(tokens::loss))))
         .child(
             view()
                 .flex_row()

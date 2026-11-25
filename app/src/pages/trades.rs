@@ -353,7 +353,7 @@ fn footer(
                     (ticked > 0).then(|| selection_bar(ticked, chosen, selected, failure))
                 })),
         )
-        .child(dynamic(move || failure.get().map(|error| text(error).text_xs().text_color(crate::ui::theme::loss()))))
+        .child(dynamic(move || failure.get().map(|error| text(error).text_xs().text_color(crate::ui::theme::loss))))
 }
 
 /// "Đã chọn N lệnh · Xoá": what the ticked trades can be asked to do. One question covers all of them.

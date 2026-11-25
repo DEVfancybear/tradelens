@@ -976,7 +976,7 @@ fn expected_note(defs: Signal<Vec<FieldDef>>, custom: Signal<CustomValues>) -> i
         if missing.is_empty() { String::new() } else { format!("Nên điền: {missing}") }
     })
     .text_xs()
-    .text_color(tokens::warning())
+    .text_color(tokens::warning)
 }
 
 /// The journal's property list, drawn from the trade form the trader arranged: the entry's

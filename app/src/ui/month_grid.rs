@@ -201,8 +201,8 @@ fn day_cell(
         .p_2()
         .rounded(move || theme().radius)
         .border_1()
-        .border_color(edge(&day))
-        .bg(fill(&day))
+        .border_color(move || edge(&day))
+        .bg(move || fill(&day))
         .opacity(if day.in_month { 1.0_f32 } else { 0.4_f32 })
         .hover(|s| s.opacity(0.85))
         .active(|s| s.scale(motion::PRESS_SCALE))
@@ -287,8 +287,8 @@ pub(crate) fn mini_month(weeks: impl Fn() -> Vec<CalendarWeek> + 'static, today:
                     let tone = day.stat.map_or(Tone::Neutral, |s| tone_of(s.result()));
                     cell.rounded(px(6.0))
                         .border_1()
-                        .border_color(edge(&day))
-                        .bg(fill(&day))
+                        .border_color(move || edge(&day))
+                        .bg(move || fill(&day))
                         .accessible(true)
                         .label(format!("{} {}", day.date.format("%d/%m"), label))
                         .child(

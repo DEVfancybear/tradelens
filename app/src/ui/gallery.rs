@@ -128,7 +128,7 @@ pub fn gallery(
                     });
                 })),
         )
-        .child(dynamic(move || notice.get().map(|line| text(line).text_xs().text_color(tokens::loss()))))
+        .child(dynamic(move || notice.get().map(|line| text(line).text_xs().text_color(tokens::loss))))
         .child(dynamic(move || {
             // The line is there while the list is the one the picture left.
             let offered = removed.with(|gone| gone.as_ref().is_some_and(|gone| items() == gone.after));
