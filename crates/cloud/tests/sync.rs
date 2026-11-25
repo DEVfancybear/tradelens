@@ -1051,6 +1051,67 @@ fn many_images_move_side_by_side_and_a_restore_fetches_each_exactly_once() {
     println!("{IMAGES} images, {DELAY:?} each: upload {up:?}, restore {down:?}, one by one {one_by_one:?}");
 }
 
+static RECONCILE_NOW: AtomicI64 = AtomicI64::new(0);
+
+fn reconcile_now() -> i64 {
+    RECONCILE_NOW.load(Ordering::SeqCst)
+}
+
+#[test]
+fn an_image_lost_from_the_drive_is_sent_again_when_the_week_checks_the_drive() {
+    // A drive of its own: the one of `started` already holds a snapshot dated by the real clock.
+    let drive = MemoryDrive::new();
+    let mut a = Machine::new("A");
+    a.db.upsert_batch(&batch(vec![deal(2, 100, DealEntry::In, 0.0), deal(3, 100, DealEntry::Out, 5.0)]), "html")
+        .expect("imports");
+    let paths: Vec<String> = (0..3).map(|n| format!("images/c{n}.png")).collect();
+    for path in &paths {
+        write_image(&a, path, path.as_bytes());
+    }
+    a.write_journal(100, |entry| entry.screenshots = paths.iter().map(|path| shot(path, "")).collect());
+    let day = |n: i64| {
+        chrono::NaiveDate::from_ymd_opt(2026, 11, 1)
+            .expect("a day")
+            .and_hms_opt(12, 0, 0)
+            .expect("noon")
+            .and_utc()
+            .timestamp_millis()
+            + n * 86_400_000
+    };
+    let sync_on = |a: &mut Machine, n: i64| {
+        RECONCILE_NOW.store(day(n), Ordering::SeqCst);
+        a.engine(&drive).with_clock(reconcile_now).sync(&mut a.db).expect("syncs")
+    };
+    assert_eq!(sync_on(&mut a, 0).attachments_uploaded, 3);
+
+    // Someone removes a picture from the hidden folder.
+    let lost = drive.list("attachments/").expect("lists").remove(0);
+    drive.delete(&lost).expect("deleted");
+    let report = sync_on(&mut a, 3);
+    assert_eq!(report.attachments_uploaded, 0, "between two checks the database is trusted: {report:?}");
+    assert!(!drive.names().contains(&lost.name));
+
+    let report = sync_on(&mut a, 7);
+    assert!(report.snapshot_taken);
+    assert_eq!(report.attachments_uploaded, 1, "the weekly check finds the gap and fills it: {report:?}");
+    assert!(drive.names().contains(&lost.name));
+    assert_eq!(sync_on(&mut a, 8).attachments_uploaded, 0, "and then it is quiet again");
+}
+
+#[test]
+fn forgetting_the_drive_makes_the_next_sync_look_at_it_again() {
+    let (drive, mut a, _) = with_charts(2);
+    a.try_sync(&Spy::over(&drive)).expect("syncs");
+    let lost = drive.list("attachments/").expect("lists").remove(0);
+    drive.delete(&lost).expect("deleted");
+    assert_eq!(a.try_sync(&Spy::over(&drive)).expect("syncs").attachments_uploaded, 0);
+
+    // What the app does when another account signs in.
+    a.db.forget_uploaded(PROVIDER).expect("forgotten");
+    assert_eq!(a.try_sync(&Spy::over(&drive)).expect("syncs").attachments_uploaded, 1);
+    assert!(drive.names().contains(&lost.name));
+}
+
 /// A small deterministic generator, so that a failing run can be replayed from its seed.
 struct Dice(u64);
 

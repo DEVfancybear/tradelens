@@ -610,7 +610,8 @@ impl Db {
             tx.query_row("SELECT MAX(seq) FROM changes WHERE device_id = ?1", [&old], |r| r.get(0))?;
         tx.execute("DELETE FROM changes", [])?;
         tx.execute("DELETE FROM cloud_state WHERE provider <> ?1", [provider])?;
-        tx.execute("DELETE FROM sync_uploaded WHERE provider <> ?1", [provider])?;
+        // What the old device knew of the drive says nothing sure about it now: ask the drive again.
+        tx.execute("DELETE FROM sync_uploaded", [])?;
         ensure_state(&tx, provider)?;
         let mut pulled = read_state(&tx, provider)?.pulled;
         let slot = pulled.entry(old.clone()).or_insert(0);
@@ -723,6 +724,36 @@ impl Db {
             }
         }
         tx.commit()?;
+        Ok(())
+    }
+
+    /// Makes `names` the images known to be on the drive of `provider`, forgetting the others:
+    /// the table is a cache of the drive, and this is where it is corrected against a listing.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn replace_uploaded(&mut self, provider: &str, names: &[String]) -> Result<()> {
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        tx.execute("DELETE FROM sync_uploaded WHERE provider = ?1", [provider])?;
+        {
+            let mut insert = tx.prepare("INSERT OR IGNORE INTO sync_uploaded (provider, name) VALUES (?1, ?2)")?;
+            for name in names {
+                insert.execute([provider, name])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Forgets which images are on the drive of `provider`, as when another account signs in: the
+    /// next sync looks at the drive.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the write fails.
+    pub fn forget_uploaded(&mut self, provider: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM sync_uploaded WHERE provider = ?1", [provider])?;
         Ok(())
     }
 

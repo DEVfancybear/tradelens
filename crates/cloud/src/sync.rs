@@ -354,12 +354,11 @@ impl<'drive> SyncEngine<'drive> {
 
     /// Hashes the images the journal names that are on this machine and have no hash yet, and
     /// writes the `attachment` entity (path to hash) to the change log, so that it goes out with
-    /// the next push. Returns the images the drive may lack: those not known to be there, one per
+    /// the next push. Returns the images on this machine, one per
     /// file name. No byte leaves the machine here.
     fn record_attachments(&self, db: &mut Db) -> Result<Vec<LocalImage>> {
         let Some(folder) = &self.attachments else { return Ok(Vec::new()) };
         let known = db.attachment_shas()?;
-        let uploaded = db.uploaded_images(&self.provider)?;
         let mut candidates = Vec::new();
         let mut unhashed = Vec::new();
         for path in db.attachment_paths()? {
@@ -393,7 +392,7 @@ impl<'drive> SyncEngine<'drive> {
 
         // Two journal entries may hold the same picture: it goes up once.
         let mut named = HashSet::new();
-        candidates.retain(|image| !uploaded.contains(&image.name) && named.insert(image.name.clone()));
+        candidates.retain(|image| named.insert(image.name.clone()));
         Ok(candidates)
     }
 
@@ -406,7 +405,27 @@ impl<'drive> SyncEngine<'drive> {
             return Ok(0);
         }
         let total = images.len();
-        let remote = match self.remote_images() {
+        // What the database says is on the drive is a cache. It is corrected against a listing
+        // whenever a snapshot is taken (the first sync, then weekly), so that a file lost from the
+        // drive is sent again within a week.
+        let mut listing = None;
+        if report.snapshot_taken {
+            match self.remote_images() {
+                Ok(remote) => {
+                    let names: Vec<String> = remote.keys().cloned().collect();
+                    db.replace_uploaded(&self.provider, &names)?;
+                    listing = Some(remote);
+                }
+                Err(error) => return carry_on(error, total),
+            }
+        }
+        let known = db.uploaded_images(&self.provider)?;
+        let images: Vec<LocalImage> = images.into_iter().filter(|image| !known.contains(&image.name)).collect();
+        if images.is_empty() {
+            return Ok(0);
+        }
+        let total = images.len();
+        let remote = match listing.map_or_else(|| self.remote_images(), Ok) {
             Ok(remote) => remote,
             Err(error) => return carry_on(error, total),
         };

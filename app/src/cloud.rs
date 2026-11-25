@@ -555,6 +555,8 @@ impl Cloud {
         self.write.run(
             move |db| {
                 db.set_setting(ACTIVE_SETTING, provider.key())?;
+                // Another account may be the one signed in now: what the drive holds is asked again.
+                db.forget_uploaded(provider.key())?;
                 if demo {
                     db.set_setting(DEMO_USER_SETTING, provider.key())?;
                 }
@@ -593,8 +595,18 @@ impl Cloud {
             .await
             .unwrap_or_else(|error| Err(format!("Luồng đăng xuất bị dừng: {error}")));
             match result {
-                Ok(()) if demo => self.write.run(|db| db.set_setting(DEMO_USER_SETTING, ""), move |_| self.refresh()),
-                Ok(()) => self.refresh(),
+                Ok(()) => self.write.run(
+                    move |db| {
+                        // The next account to sign in may not be the one whose drive these images went to.
+                        db.forget_uploaded(provider.key())?;
+                        if demo {
+                            db.set_setting(DEMO_USER_SETTING, "")?;
+                            db.forget_uploaded("demo")?;
+                        }
+                        Ok(())
+                    },
+                    move |_| self.refresh(),
+                ),
                 Err(message) => self.state.update(|s| s.notice = Some(message)),
             }
         });

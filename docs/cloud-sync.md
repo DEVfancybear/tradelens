@@ -141,8 +141,9 @@ dữ liệu ngay cả khi ảnh chưa lên hết hoặc đường truyền chậ
    dẫn cùng nội dung chỉ một file), tối đa 4 ảnh cùng lúc. Với Google Drive dùng `CloudDrive::upload_new` (tên đã biết là
    chưa có nên bỏ yêu cầu tìm tên: 1 request/ảnh thay vì 2). Ảnh lên xong được ghi nhận trong một giao dịch; một ảnh lỗi
    không làm mất ảnh đã lên; sau 5 ảnh lỗi thì không bắt đầu ảnh mới, và lần sync sau gửi tiếp phần còn lại.
-   Hạn chế đã biết: ảnh đã ghi nhận thì không kiểm lại; file bị xoá tay trên Drive hoặc đổi tài khoản Google (cùng một
-   `provider`, giống mốc `pushed_seq`) thì ảnh không tự lên lại.
+   `sync_uploaded` chỉ là bộ nhớ đệm của ổ nên được đối chiếu lại với một lần liệt kê thật mỗi khi chụp snapshot (lần sync
+   đầu rồi mỗi tuần): ảnh bị mất khỏi Drive sẽ lên lại trong vòng một tuần. Đăng nhập, đăng xuất (đổi tài khoản) và khôi phục
+   sang máy mới xoá bảng này nên lần sync kế tiếp hỏi lại ổ.
 6. **Tải ảnh:** ảnh journal nhắc tới mà **file không có** trên máy này (chỉ kiểm sự tồn tại, không băm file nào) và ổ đã
    có thì tải về (tối đa 8 luồng; tải xong đối chiếu sha256, ghi vào file tạm rồi đổi tên nên không bao giờ có ảnh ghi dở;
    đường dẫn ảnh từ xa không được thoát khỏi thư mục dữ liệu). Không có ảnh nào thiếu thì không liệt kê gì. Ảnh ổ chưa
