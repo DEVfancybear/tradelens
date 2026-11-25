@@ -3,7 +3,7 @@
 //! takes the journal with it, several trades go at once, a journal kept in R is typed in R, a time is
 //! typed in a field, prices keep their decimals, and the figures of the list fit their columns.
 
-use nsh_core::{ApproxTextEngine, TextEngine};
+use nsh_core::{ApproxTextEngine, TextEngine, platform::Os};
 use std::time::Duration;
 
 use nsh_testing::{DialogAnswer, Headless};
@@ -476,4 +476,33 @@ fn a_price_typed_with_five_decimals_is_stored_whole_and_a_symbol_in_lower_case_i
     assert_eq!(tradelens_core::time::naive(trade.open_time).format("%H:%M").to_string(), "09:00");
     app.wait_for_within("1.08500", WAIT).expect("shown with the five decimals the symbol has");
     app.wait_for_within("1.08505", WAIT).expect("both prices line up");
+}
+
+#[test]
+fn enter_on_the_row_the_keyboard_selected_opens_that_trade() {
+    let fixture = Fixture::new();
+    let mut db = fixture.db();
+    for (symbol, day) in [("EURUSD", 17), ("GBPUSD", 18)] {
+        let (open, close) = (format!("2026.11.{day} 08:00:00"), format!("2026.11.{day} 09:00:00"));
+        typed_in(&mut db, &typed(symbol, &open, &close));
+    }
+    drop(db);
+    // Keys reach the focused view only on a desktop.
+    let mut app = fixture.start(1400.0, 1000.0, |config| config.environment.os = Os::Linux);
+    app.press("role:button[Lệnh]").expect("the trades row");
+    app.wait_for_within("Hiển thị 2 / 2 lệnh", WAIT).expect("two trades");
+    // Ticking a box gives the table the keyboard, on the row of that box: the newest trade, GBPUSD.
+    app.press("label:Chọn lệnh GBPUSD 18/11 09:00").expect("a box");
+    app.wait_for_within("Đã chọn 1 lệnh", WAIT).expect("the bar counts");
+    app.press_key("enter").expect("Enter on the selected row");
+    app.wait_for_within("Chi tiết lệnh", WAIT).expect("the trade of that row opens");
+    assert!(app.screen().shows("GBPUSD"), "the trade is the one of the row: {:?}", app.screen().texts());
+    // One row further down: the keyboard moves the selection, Enter opens that one.
+    app.press("role:button[‹ Lệnh]").expect("back to the list");
+    app.wait_for_within("Hiển thị 2 / 2 lệnh", WAIT).expect("the list is back");
+    app.press("label:Chọn lệnh GBPUSD 18/11 09:00").expect("the box again");
+    app.press_key("down").expect("the selection moves down");
+    app.press_key("enter").expect("Enter on the next row");
+    app.wait_for_within("Chi tiết lệnh", WAIT).expect("a trade opens");
+    assert!(app.screen().shows("EURUSD"), "the trade is the next row's: {:?}", app.screen().texts());
 }

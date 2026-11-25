@@ -361,6 +361,12 @@ fn build(
                         }
                     }
                 })
+                // Enter on the row the keyboard selected opens it, as a press on it does.
+                .on_row_activate(move |row: &u32| {
+                    if let Ok(row) = usize::try_from(*row) {
+                        on_open(row);
+                    }
+                })
                 .render_cell(move |c: &DataTableCell| cell(c, sortable, on_open))
                 .empty(empty_state(move || empty().0, move || empty().1)),
         )
