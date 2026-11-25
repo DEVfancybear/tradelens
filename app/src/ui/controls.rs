@@ -912,4 +912,29 @@ mod tests {
         // after its owner was disposed" on the engine thread).
         assert_eq!(HOLDER_BUILDS.load(std::sync::atomic::Ordering::SeqCst), 1, "the button is made once");
     }
+
+    /// How many times [`ErrorHolder`]'s `dynamic` has made its error line.
+    static ERROR_LINE_BUILDS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+    /// The error line pages draw under a form: a `dynamic` that shows a failure in the `loss`
+    /// colour, with the theme set in the same component.
+    #[component]
+    fn ErrorHolder() -> impl IntoElement {
+        crate::ui::theme::install();
+        let failure = signal(Some(String::from("Không lưu được")));
+        view()
+            .child(dynamic(move || {
+                ERROR_LINE_BUILDS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))
+            }))
+            .child(text("ready"))
+    }
+
+    #[test]
+    fn an_error_line_does_not_tie_the_dynamic_holding_it_to_the_theme() {
+        let mut app = Headless::start(EngineConfig::new(Root::of::<ErrorHolder>())).expect("the engine starts");
+        app.wait_for("Không lưu được").expect("the error shows");
+        app.wait(Duration::from_millis(300)).expect("the app runs");
+        assert_eq!(ERROR_LINE_BUILDS.load(std::sync::atomic::Ordering::SeqCst), 1, "the error line is made once");
+    }
 }

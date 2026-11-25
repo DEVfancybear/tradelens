@@ -209,7 +209,7 @@ fn report_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
                             move || privacy.get(),
                             move |next| privacy.set(next),
                         ))
-                        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss()))))
+                        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
                         .child(dynamic(move || {
                             note.get().map(|line| text(line).text_sm().text_color(move || theme().muted_foreground))
                         }))
@@ -637,7 +637,7 @@ fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement
                 .child(text("Điểm kỷ luật của kỳ").text_xs().text_color(move || theme().muted_foreground))
                 .child(rating("Điểm kỷ luật", move || grade.get(), move |next| grade.set(next))),
         )
-        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss()))))
+        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
         .child(
             view()
                 .flex_row()
@@ -923,7 +923,7 @@ fn template_editor(template: ReviewTemplate, editing: Signal<Option<Period>>) ->
                 .text_color(move || theme().muted_foreground),
         )
         .child(line_list("Câu hỏi", "Thêm câu hỏi", move || prompts.get(), move |next| prompts.set(next)))
-        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss()))))
+        .child(dynamic(move || failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
         .child(
             view()
                 .flex_row()

@@ -560,9 +560,7 @@ fn footer(frame: Frame, current: Memo<Option<Slide>>) -> impl IntoElement {
         .pointer_events(PointerEvents::BoxNone)
         .child(text(line(|s| &s.caption)).text_sm().font_weight(FontWeight::MEDIUM))
         .child(text(line(|s| &s.detail)).text_xs().text_color(move || theme().muted_foreground))
-        .child(dynamic(move || {
-            frame.notice.get().map(|notice| text(notice).text_xs().text_color(super::theme::loss()))
-        }))
+        .child(dynamic(move || frame.notice.get().map(|notice| text(notice).text_xs().text_color(super::theme::loss))))
         .child(
             text("← → chuyển ảnh   + − phóng to / thu nhỏ   0 vừa khung   Esc đóng")
                 .text_xs()

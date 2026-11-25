@@ -310,7 +310,7 @@ fn detail(
                     )
                     .child(grade_table(grade_rows, &name, groups))
                     .child(dynamic(move || {
-                        notice.get().map(|line| text(line).text_xs().text_color(crate::ui::theme::loss()))
+                        notice.get().map(|line| text(line).text_xs().text_color(crate::ui::theme::loss))
                     }))
                     .into_element()
             })
@@ -716,7 +716,7 @@ fn edit_form(base: Draft, editing: Signal<Option<Draft>>, timeframes: Reading<Ve
         .bg(move || theme().card)
         .child(text(if id == 0 { "Playbook mới" } else { "Sửa playbook" }).text_xl().font_weight(FontWeight::SEMIBOLD))
         .child(form_fields(fields, timeframes))
-        .child(dynamic(move || error.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss()))))
+        .child(dynamic(move || error.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
         .child(
             view()
                 .flex_row()

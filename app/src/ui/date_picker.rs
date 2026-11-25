@@ -375,7 +375,7 @@ pub fn moment_field(label: &'static str, time_label: &'static str, moment: Momen
                 .child(date_pick(pick, trigger))
                 .child(time_input(time_label, moment)),
         )
-        .child(dynamic(move || moment.problem.get().map(|reason| text(reason).text_xs().text_color(tokens::loss()))))
+        .child(dynamic(move || moment.problem.get().map(|reason| text(reason).text_xs().text_color(tokens::loss))))
 }
 
 /// The date as the trigger of a page's title says it: `Thứ 7, 21/11/2026`.

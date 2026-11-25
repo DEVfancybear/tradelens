@@ -483,7 +483,7 @@ fn panel(request: &PlanRequest) -> impl IntoElement {
         ))
         .child(levels(fields.entry, fields.stop, fields.take, fields.risk))
         .child(setup_fields(fields, choices))
-        .child(dynamic(move || failure.get().map(|error| text(error).text_sm().text_color(tokens::loss()))))
+        .child(dynamic(move || failure.get().map(|error| text(error).text_sm().text_color(tokens::loss))))
         .child(footer(busy, save))
 }
 

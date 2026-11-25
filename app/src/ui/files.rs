@@ -195,7 +195,7 @@ pub fn dropzone(
         .child(icon(Icon::Upload, 20.0).text_color(move || theme().muted_foreground))
         .child(text(title).text_sm().font_weight(FontWeight::MEDIUM))
         .child(text(hint).text_xs().text_color(move || theme().muted_foreground))
-        .child(dynamic(move || problem.get().map(|line| text(line).text_xs().text_color(super::theme::loss()))))
+        .child(dynamic(move || problem.get().map(|line| text(line).text_xs().text_color(super::theme::loss))))
 }
 
 /// A picture of the app's data folder: a framed `height`-point box that shows the image at

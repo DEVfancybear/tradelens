@@ -306,7 +306,7 @@ fn notion_import_card() -> impl IntoElement {
             ))
             .child(notion_api_section(flow))
             .child(dynamic(move || flow.busy.get().then(|| text("Đang xử lý…").text_sm().text_color(move || theme().muted_foreground))))
-            .child(dynamic(move || flow.failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss()))))
+            .child(dynamic(move || flow.failure.get().map(|line| text(line).text_sm().text_color(crate::ui::theme::loss))))
             .child(dynamic(move || {
                 let shown = flow.preview.get()?;
                 let import_now = Rc::clone(&import_now);
@@ -552,7 +552,7 @@ fn databases_list(api: Api) -> impl IntoElement {
                     .children(asked.then(|| {
                         text("Không thấy database nào: mở database nhật ký trong Notion → ••• → Connections → thêm integration vừa tạo.")
                             .text_xs()
-                            .text_color(crate::ui::theme::warning())
+                            .text_color(crate::ui::theme::warning)
                     }))
                     .into_element();
             }
@@ -648,7 +648,7 @@ fn preview_view(
         })
         .when(!plan.warnings.is_empty(), |v| {
             v.child(view().gap_1().children(
-                plan.warnings.iter().map(|w| text(w.clone()).text_xs().text_color(crate::ui::theme::warning())),
+                plan.warnings.iter().map(|w| text(w.clone()).text_xs().text_color(crate::ui::theme::warning)),
             ))
         })
         .when(!plan.issues.is_empty(), |v| {
@@ -746,7 +746,7 @@ fn summary_view(report: &notion::NotionImportReport) -> impl IntoElement {
                 skipped.iter().cloned().chain((more > 0).then(|| format!("… và {more} dòng nữa"))).collect(),
             ))
         })
-        .children(report.warnings.iter().map(|w| text(w.clone()).text_xs().text_color(crate::ui::theme::warning())))
+        .children(report.warnings.iter().map(|w| text(w.clone()).text_xs().text_color(crate::ui::theme::warning)))
 }
 
 // --- the import log ---------------------------------------------------------------------------------------

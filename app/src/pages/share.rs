@@ -378,7 +378,7 @@ fn panel(target: &ShareTarget) -> impl IntoElement {
         ))
         .child(preview(state.rendered))
         .child(toggles(state, target))
-        .child(dynamic(move || state.failure.get().map(|line| text(line).text_sm().text_color(tokens::loss()))))
+        .child(dynamic(move || state.failure.get().map(|line| text(line).text_sm().text_color(tokens::loss))))
         .child(dynamic(move || {
             state.note.get().map(|line| text(line).text_sm().text_color(move || theme().muted_foreground))
         }))
