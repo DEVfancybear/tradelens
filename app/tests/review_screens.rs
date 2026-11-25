@@ -339,7 +339,7 @@ fn a_template_is_edited_and_asks_one_more_question() {
     let mut app = fixture.start();
     open_page(&mut app, "Tổng kết & xem lại", "Mẫu ghi chú");
     common::press_until(&mut app, "label:Sửa mẫu Tổng kết tuần", |screen| {
-        screen.matches("role:button[Thêm câu hỏi]").unwrap_or(false)
+        screen.accessibility_state("role:button[Thêm câu hỏi]").is_ok()
     });
     app.press("role:button[Thêm câu hỏi]").expect("a question is added");
     app.type_text("label:Câu hỏi 5", "Điều gì làm bạn bất ngờ?").expect("the question is typed");
