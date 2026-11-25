@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>TradeLens — Nhật ký giao dịch MT5</title>
-<meta name="description" content="TradeLens là nhật ký giao dịch MetaTrader 5 chạy trên máy tính: nhập lệnh, ghi nhật ký, phân tích và giữ kỷ luật. Dữ liệu nằm trên máy bạn.">
-<meta property="og:title" content="TradeLens — Nhật ký giao dịch MT5">
+<meta name="description" content="TradeLens là nhật ký giao dịch MetaTrader 5 chạy trên máy tính: nhập lệnh, ghi nhật ký, phân tích và giữ kỷ luật. Dữ liệu nằm trên máy bạn. A desktop trading journal for MetaTrader 5.">
+<meta property="og:title" content="TradeLens — Nhật ký giao dịch MT5 / MT5 trading journal">
 <meta property="og:description" content="Nhập lệnh MT5, ghi nhật ký, phân tích theo setup và giữ kỷ luật. Dữ liệu nằm trên máy bạn.">
 <meta property="og:image" content="design/screenshots/dashboard.png">
 <meta name="theme-color" content="#0b0e14">
@@ -26,7 +26,6 @@
     --muted: #8a94a7;
     --primary: #2dd4bf;
     --primary-strong: #14b8a6;
-    --primary-deep: #0d9488;
     --primary-fg: #04201c;
     --profit: #34d399;
     --loss: #f87171;
@@ -36,7 +35,7 @@
     color-scheme: dark;
   }
   * { box-sizing: border-box; }
-  html { scroll-behavior: smooth; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
     background: var(--bg);
@@ -46,7 +45,9 @@
     overflow-x: hidden;
   }
   a { color: inherit; text-decoration: none; }
-  img { max-width: 100%; display: block; }
+  img { max-width: 100%; height: auto; display: block; }
+  h1, h2, h3 { text-wrap: balance; }
+  p { text-wrap: pretty; }
   .wrap { width: min(1160px, 100% - 32px); margin-inline: auto; }
   .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 
@@ -71,11 +72,21 @@
     transition: border-color .2s;
   }
   header.nav.scrolled { border-bottom-color: var(--border-soft); }
-  .nav-inner { display: flex; align-items: center; gap: 32px; height: 64px; }
-  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; letter-spacing: -.01em; }
+  .nav-inner { display: flex; align-items: center; gap: 24px; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 17px; letter-spacing: -.01em; flex: none; }
   .brand img { width: 30px; height: 30px; }
   .nav-links { display: flex; gap: 26px; margin-left: auto; font-size: 14px; color: var(--muted); }
   .nav-links a:hover { color: var(--fg); }
+  .nav-actions { display: flex; align-items: center; gap: 10px; flex: none; }
+
+  /* Language switch */
+  .lang { display: inline-flex; padding: 3px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg-2); }
+  .lang button {
+    border: 0; background: transparent; color: var(--muted); cursor: pointer;
+    font: 600 12px/1 Inter, sans-serif; letter-spacing: .04em; padding: 7px 9px; border-radius: 6px;
+  }
+  .lang button[aria-pressed="true"] { background: var(--card-2); color: var(--fg); box-shadow: 0 0 0 1px var(--border) inset; }
+  .lang button:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
 
   /* Buttons */
   .btn {
@@ -97,19 +108,25 @@
   .btn-sm { height: 36px; padding: 0 14px; font-size: 14px; border-radius: 9px; }
   .btn-lg { height: 54px; padding: 0 26px; font-size: 16px; border-radius: 12px; }
   .btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+  .soon {
+    font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 6px; background: rgba(4, 32, 28, .18);
+  }
+  body:not([data-state="dev"]) .soon { display: none; }
 
   /* Hero */
   .hero { position: relative; z-index: 1; padding: 88px 0 40px; text-align: center; }
   .pill {
-    display: inline-flex; align-items: center; gap: 8px;
+    display: inline-flex; align-items: center; gap: 8px; max-width: 100%;
     padding: 5px 12px 5px 6px; border-radius: 999px;
     border: 1px solid var(--border); background: rgba(18, 23, 34, .8);
     font-size: 13px; color: var(--muted);
   }
-  .pill b { color: var(--primary-fg); background: var(--primary); border-radius: 999px; padding: 1px 8px; font-size: 12px; font-weight: 700; }
+  .pill b { flex: none; color: var(--primary-fg); background: var(--primary); border-radius: 999px; padding: 1px 8px; font-size: 12px; font-weight: 700; }
+  .pill span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   h1 {
     margin: 22px auto 18px; max-width: 880px;
-    font-size: clamp(38px, 6.2vw, 68px); line-height: 1.05; letter-spacing: -.035em; font-weight: 800;
+    font-size: clamp(36px, 6.2vw, 68px); line-height: 1.06; letter-spacing: -.035em; font-weight: 800;
   }
   h1 .grad {
     background: linear-gradient(100deg, #99f6e4 0%, var(--primary) 45%, var(--profit) 100%);
@@ -117,8 +134,9 @@
   }
   .lead { max-width: 640px; margin: 0 auto; color: var(--muted); font-size: clamp(16px, 2vw, 19px); }
   .cta { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 34px; }
-  .cta-note { margin-top: 14px; font-size: 13px; color: var(--muted); }
-  .cta-note .dot { display: inline-block; width: 3px; height: 3px; border-radius: 50%; background: #4b556a; margin: 0 8px; vertical-align: middle; }
+  .cta-note { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 4px 0; margin: 14px 0 0; font-size: 13px; color: var(--muted); }
+  .cta-note > span:not(:last-child)::after { content: ""; display: inline-block; width: 3px; height: 3px; border-radius: 50%; background: #4b556a; margin: 0 10px; vertical-align: middle; }
+  .status-dev { color: var(--warn); }
 
   /* Hero screenshot */
   .stage { position: relative; z-index: 1; margin-top: 64px; perspective: 1800px; }
@@ -136,8 +154,8 @@
   .hero .window { transform: rotateX(8deg); transform-origin: 50% 0; transition: transform .8s cubic-bezier(.2, .7, .2, 1); }
   .hero .window.flat { transform: rotateX(0); }
   .titlebar { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 14px; border-bottom: 1px solid var(--border-soft); background: #0f131c; }
-  .titlebar i { width: 11px; height: 11px; border-radius: 50%; background: #2a3446; }
-  .titlebar span { margin: 0 auto; font-size: 12px; color: var(--muted); transform: translateX(-27px); }
+  .titlebar i { width: 11px; height: 11px; border-radius: 50%; background: #2a3446; flex: none; }
+  .titlebar span { margin: 0 auto; font-size: 12px; color: var(--muted); transform: translateX(-27px); white-space: nowrap; }
   .float {
     position: absolute; z-index: 2;
     padding: 12px 16px; border-radius: 12px; text-align: left;
@@ -161,12 +179,12 @@
     padding: 8px 14px; border-radius: 10px; border: 1px solid var(--border-soft);
     background: var(--bg-2); color: #c5ccda; font-size: 14px; font-weight: 500;
   }
-  .chip svg { width: 16px; height: 16px; color: var(--primary); }
+  .chip svg { width: 16px; height: 16px; color: var(--primary); flex: none; }
 
   /* Sections */
-  section { position: relative; z-index: 1; padding: 96px 0; }
+  section { position: relative; z-index: 1; padding: 96px 0; scroll-margin-top: 64px; }
   .eyebrow { color: var(--primary); font-size: 13px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
-  h2 { margin: 10px 0 14px; font-size: clamp(30px, 4vw, 44px); line-height: 1.1; letter-spacing: -.03em; font-weight: 750; }
+  h2 { margin: 10px 0 14px; font-size: clamp(28px, 4vw, 44px); line-height: 1.12; letter-spacing: -.03em; font-weight: 750; }
   .sub { color: var(--muted); max-width: 620px; font-size: 17px; margin: 0; }
   .head-center { text-align: center; }
   .head-center .sub { margin-inline: auto; }
@@ -200,12 +218,12 @@
   /* Showcase */
   .tabs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 40px auto 26px; padding: 5px; width: fit-content; max-width: 100%; border-radius: 12px; border: 1px solid var(--border-soft); background: var(--bg-2); }
   .tab {
-    border: 0; background: transparent; color: var(--muted); font: 500 14px Inter, sans-serif;
-    padding: 8px 14px; border-radius: 8px; cursor: pointer; transition: background .2s, color .2s;
+    flex: none; border: 0; background: transparent; color: var(--muted); font: 500 14px Inter, sans-serif;
+    padding: 8px 14px; border-radius: 8px; cursor: pointer; transition: background .2s, color .2s; white-space: nowrap;
   }
   .tab:hover { color: var(--fg); }
   .tab[aria-selected="true"] { background: var(--card-2); color: var(--fg); box-shadow: 0 0 0 1px var(--border) inset; }
-  .tab:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .tab:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
   .shot { position: relative; aspect-ratio: 4 / 3; background: var(--bg); }
   .shot img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top left; opacity: 0; transition: opacity .45s ease; }
   .shot img.on { opacity: 1; }
@@ -226,13 +244,12 @@
       var(--card);
   }
   .vault-row { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-radius: 12px; background: #0f131c; border: 1px solid var(--border-soft); }
-  .vault-row + .vault-row { margin-top: 10px; }
   .vault-row .ic { width: 36px; height: 36px; border-radius: 9px; display: grid; place-items: center; background: #1a2130; color: var(--primary); flex: none; }
   .vault-row .ic svg { width: 18px; height: 18px; }
   .vault-row div { flex: 1; min-width: 0; }
   .vault-row b { display: block; font-size: 14px; font-weight: 600; }
   .vault-row small { color: var(--muted); font-size: 12.5px; }
-  .tag { font-size: 11.5px; font-weight: 600; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
+  .tag { flex: none; font-size: 11.5px; font-weight: 600; padding: 3px 8px; border-radius: 6px; white-space: nowrap; }
   .tag.ok { color: var(--profit); background: rgba(52, 211, 153, .12); }
   .tag.no { color: var(--loss); background: rgba(248, 113, 113, .12); }
   .flow { display: flex; justify-content: center; padding: 6px 0; color: #3a475d; }
@@ -263,17 +280,44 @@
   .download img.logo { width: 76px; height: 76px; margin: 0 auto 22px; filter: drop-shadow(0 12px 30px rgba(45, 212, 191, .45)); }
   .download h2 { margin-top: 0; }
   .meta { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px; margin-top: 22px; color: var(--muted); font-size: 14px; }
-  .meta span { display: inline-flex; align-items: center; gap: 7px; }
-  .meta svg { width: 15px; height: 15px; color: var(--primary); }
-  .hint { max-width: 560px; margin: 26px auto 0; padding: 12px 16px; border-radius: 10px; font-size: 13.5px; color: #e9d8a6; background: rgba(251, 191, 36, .07); border: 1px solid rgba(251, 191, 36, .2); text-align: left; }
-  .hint b { color: var(--warn); font-weight: 600; }
+  .meta > span { display: inline-flex; align-items: center; gap: 7px; }
+  .meta svg { width: 15px; height: 15px; color: var(--primary); flex: none; }
+  .hint { max-width: 560px; margin: 26px auto 0; padding: 12px 16px; border-radius: 10px; font-size: 13.5px; text-align: left; }
+  .hint b { font-weight: 600; }
+  .hint-warn { color: #e9d8a6; background: rgba(251, 191, 36, .07); border: 1px solid rgba(251, 191, 36, .2); }
+  .hint-warn b { color: var(--warn); }
+  .hint-dev { display: flex; gap: 12px; align-items: flex-start; color: #cde9e4; background: rgba(45, 212, 191, .07); border: 1px solid rgba(45, 212, 191, .22); }
+  .hint-dev svg { width: 18px; height: 18px; flex: none; margin-top: 2px; color: var(--primary); }
+  .hint-dev b { color: var(--fg); }
+  .hint-dev a { color: var(--primary); text-decoration: underline; text-underline-offset: 2px; }
+  [data-state="dev"] .only-ready, [data-state="ready"] .only-dev, [data-state="unknown"] .only-dev, [data-state="unknown"] .only-ready { display: none; }
+
+  /* Toast */
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; z-index: 50;
+    width: min(440px, calc(100% - 32px));
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 16px; border-radius: 12px;
+    background: rgba(22, 28, 41, .96); border: 1px solid rgba(45, 212, 191, .35);
+    box-shadow: 0 24px 60px -20px rgba(0, 0, 0, .9);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    font-size: 14px; color: var(--fg);
+    transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+    transition: opacity .25s ease, transform .25s ease;
+  }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+  .toast svg { width: 20px; height: 20px; flex: none; margin-top: 1px; color: var(--primary); }
+  .toast b { display: block; margin-bottom: 2px; }
+  .toast span { color: var(--muted); }
+  .toast button { margin-left: auto; flex: none; border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; padding: 2px 4px; }
+  .toast button:hover { color: var(--fg); }
 
   /* Footer */
   footer { position: relative; z-index: 1; border-top: 1px solid var(--border-soft); padding: 36px 0 48px; color: var(--muted); font-size: 14px; }
   .foot { display: flex; flex-wrap: wrap; align-items: center; gap: 16px 28px; }
-  .foot nav { display: flex; flex-wrap: wrap; gap: 20px; margin-left: auto; }
+  .foot nav { display: flex; flex-wrap: wrap; gap: 12px 20px; margin-left: auto; }
   .foot nav a:hover { color: var(--fg); }
-  .en { margin-top: 18px; font-size: 13px; color: #6b7588; max-width: 760px; }
+  .foot p { flex-basis: 100%; margin: 8px 0 0; font-size: 13px; color: #6b7588; }
 
   /* Reveal on scroll */
   .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s ease, transform .7s ease; }
@@ -284,43 +328,94 @@
     .split { grid-template-columns: 1fr; gap: 40px; }
     .float { display: none; }
   }
-  @media (max-width: 720px) {
+  @media (max-width: 860px) {
     .nav-links { display: none; }
-    .nav-inner .btn { margin-left: auto; }
-    .hero { padding-top: 56px; }
-    .grid { grid-template-columns: 1fr; }
-    section { padding: 72px 0; }
-    .timeline { grid-template-columns: 1fr; gap: 0; }
+    .nav-actions { margin-left: auto; }
+  }
+  @media (max-width: 720px) {
+    .hero { padding: 48px 0 24px; }
+    .pill { font-size: 12px; }
+    h1 { margin: 18px auto 14px; letter-spacing: -.03em; }
+    .lead { font-size: 16px; }
+    .cta { flex-direction: column; align-items: stretch; max-width: 360px; margin: 28px auto 0; }
+    .cta .btn { width: 100%; }
+    .cta-note { gap: 4px 16px; }
+    .cta-note > span:not(:last-child)::after { display: none; }
+    .stage { margin-top: 40px; perspective: none; }
+    .hero .window { transform: none; }
+    .window { border-radius: 12px; }
+    .titlebar { height: 28px; padding: 0 10px; gap: 6px; }
+    .titlebar i { width: 8px; height: 8px; }
+    .titlebar span { display: none; }
+    .sources { padding: 40px 0 8px; }
+    .chip { font-size: 13px; padding: 7px 12px; }
+    section { padding: 64px 0; }
+    .grid { grid-template-columns: 1fr; gap: 14px; margin-top: 36px; }
+    .feature { padding: 22px; }
+    .sub { font-size: 16px; }
+    /* Tabs scroll sideways instead of stacking into a block of buttons. */
+    .tabs {
+      flex-wrap: nowrap; justify-content: flex-start; width: auto; overflow-x: auto;
+      margin: 28px -16px 18px; padding: 5px 16px; border-radius: 0; border-inline: 0;
+      scrollbar-width: none; -webkit-overflow-scrolling: touch; scroll-snap-type: x proximity;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { scroll-snap-align: center; padding: 8px 12px; }
+    .caption { font-size: 14px; }
+    .points { margin-top: 24px; }
+    .point { padding: 14px; }
+    .vault { padding: 16px; border-radius: 16px; }
+    .vault-row { padding: 12px; gap: 12px; flex-wrap: wrap; }
+    .vault-row div { flex-basis: calc(100% - 48px); }
+    .vault-row .tag { margin-left: 48px; }
+    .timeline { grid-template-columns: 1fr; gap: 0; margin-top: 36px; }
     .timeline::before { left: 9px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; background: linear-gradient(180deg, var(--primary) 0%, var(--primary) 45%, var(--border) 55%); }
     .step { padding: 0 0 28px 40px; }
     .step .node { top: 2px; }
-    .download { padding: 52px 20px; }
+    .download { padding: 44px 18px; border-radius: 18px; }
+    .download img.logo { width: 60px; height: 60px; margin-bottom: 18px; }
+    .meta { flex-direction: column; align-items: center; gap: 8px; }
     .foot nav { margin-left: 0; }
-    .titlebar span { display: none; }
+  }
+  @media (max-width: 380px) {
+    .wrap { width: calc(100% - 28px); }
+    .brand { font-size: 16px; gap: 8px; }
+    .brand img { width: 26px; height: 26px; }
+    .nav-actions { gap: 8px; }
+    .nav-actions .btn-sm { padding: 0 10px; }
+    .nav-actions .btn-sm .label { display: none; }
+    .lang button { padding: 7px 7px; }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
+    html { scroll-behavior: auto; }
     .reveal { opacity: 1; transform: none; }
     .hero .window { transform: none; }
   }
 </style>
 </head>
-<body>
+<body data-state="unknown">
 <div class="backdrop" aria-hidden="true"></div>
 
 <header class="nav" id="nav">
   <div class="wrap nav-inner">
     <a class="brand" href="#top"><img src="assets/icon.svg" alt="" width="30" height="30">TradeLens</a>
-    <nav class="nav-links" aria-label="Mục lục">
-      <a href="#tinh-nang">Tính năng</a>
-      <a href="#man-hinh">Màn hình</a>
-      <a href="#rieng-tu">Riêng tư</a>
-      <a href="#lo-trinh">Lộ trình</a>
+    <nav class="nav-links" aria-label="Mục lục" data-i18n-aria="nav.label">
+      <a href="#tinh-nang" data-i18n="nav.features">Tính năng</a>
+      <a href="#man-hinh" data-i18n="nav.screens">Màn hình</a>
+      <a href="#rieng-tu" data-i18n="nav.privacy">Riêng tư</a>
+      <a href="#lo-trinh" data-i18n="nav.roadmap">Lộ trình</a>
     </nav>
-    <a class="btn btn-primary btn-sm" href="#tai-ve">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
-      Tải về
-    </a>
+    <div class="nav-actions">
+      <div class="lang" role="group" aria-label="Ngôn ngữ / Language">
+        <button type="button" data-lang="vi" aria-pressed="true" lang="vi" title="Tiếng Việt">VI</button>
+        <button type="button" data-lang="en" aria-pressed="false" lang="en" title="English">EN</button>
+      </div>
+      <a class="btn btn-primary btn-sm" href="#tai-ve" aria-label="Tải về" data-i18n-aria="nav.download">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
+        <span class="label" data-i18n="nav.download">Tải về</span>
+      </a>
+    </div>
   </div>
 </header>
 
@@ -328,24 +423,30 @@
   <!-- Hero -->
   <div class="hero">
     <div class="wrap">
-      <span class="pill"><b>Mới</b> Đồng bộ Google Drive & OneDrive, import Notion</span>
-      <h1>Nhìn rõ từng lệnh.<br><span class="grad">Giao dịch có kỷ luật.</span></h1>
-      <p class="lead">TradeLens là nhật ký giao dịch MetaTrader 5 chạy ngay trên máy tính của bạn: nhập lệnh, ghi kế hoạch và cảm xúc, xem lại theo setup, và biết chính xác mình đang thua ở đâu.</p>
+      <span class="pill"><b data-i18n="hero.new">Mới</b><span data-i18n="hero.pill">Đồng bộ Drive, OneDrive & Notion</span></span>
+      <h1><span data-i18n="hero.title1">Nhìn rõ từng lệnh.</span><br><span class="grad" data-i18n="hero.title2">Giao dịch có kỷ luật.</span></h1>
+      <p class="lead" data-i18n="hero.lead">TradeLens là nhật ký giao dịch MetaTrader 5 chạy ngay trên máy tính của bạn: nhập lệnh, ghi kế hoạch và cảm xúc, xem lại theo setup, và biết chính xác mình đang thua ở đâu.</p>
       <div class="cta">
-        <a class="btn btn-primary btn-lg" data-download href="https://github.com/DEVfancybear/tradelens/releases/latest">
+        <a class="btn btn-primary btn-lg" data-download href="#tai-ve">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.6 10.4 4.6v7H3zM11.3 4.5 21 3v8.6h-9.7zM3 12.5h7.4v7L3 18.4zM11.3 12.5H21V21l-9.7-1.4z"/></svg>
-          Tải cho Windows
+          <span data-i18n="cta.windows">Tải cho Windows</span>
+          <span class="soon" data-i18n="cta.soon">Sắp có</span>
         </a>
-        <a class="btn btn-ghost btn-lg" href="#man-hinh">Xem giao diện</a>
+        <a class="btn btn-ghost btn-lg" href="#man-hinh" data-i18n="cta.tour">Xem giao diện</a>
       </div>
-      <p class="cta-note"><span data-version>Bản mới nhất</span><span class="dot"></span>Windows 10/11, 64-bit<span class="dot"></span>macOS sắp có</p>
+      <p class="cta-note">
+        <span data-version class="only-ready"></span>
+        <span class="only-dev status-dev" data-i18n="cta.dev">Đang phát triển</span>
+        <span data-i18n="cta.os">Windows 10/11, 64-bit</span>
+        <span data-i18n="cta.mac">macOS sắp có</span>
+      </p>
 
       <div class="stage">
         <div class="float f1"><small>Win rate</small><strong class="mono">58.3%</strong></div>
-        <div class="float f2"><small>Net P/L · 30 ngày</small><strong class="mono" style="color:var(--profit)">+$1,985.60</strong></div>
+        <div class="float f2"><small data-i18n="hero.net">Net P/L · 30 ngày</small><strong class="mono" style="color:var(--profit)">+$1,985.60</strong></div>
         <div class="window" id="heroWindow">
-          <div class="titlebar" aria-hidden="true"><i></i><i></i><i></i><span>TradeLens — Tổng quan</span></div>
-          <img src="design/screenshots/dashboard.png" width="1440" height="1080" alt="Màn Tổng quan của TradeLens: chỉ số P/L, đường balance và drawdown, kỷ luật hôm nay, lịch P/L và lệnh gần đây">
+          <div class="titlebar" aria-hidden="true"><i></i><i></i><i></i><span data-i18n="hero.window">TradeLens — Tổng quan</span></div>
+          <img src="design/screenshots/dashboard.png" width="1440" height="1080" data-i18n-alt="hero.alt" alt="Màn Tổng quan của TradeLens: chỉ số P/L, đường balance và drawdown, kỷ luật hôm nay, lịch P/L và lệnh gần đây">
         </div>
       </div>
     </div>
@@ -354,13 +455,13 @@
   <!-- Sources -->
   <div class="sources">
     <div class="wrap">
-      <p>Lấy dữ liệu từ nơi bạn đang dùng</p>
+      <p data-i18n="sources.title">Lấy dữ liệu từ nơi bạn đang dùng</p>
       <div class="chips">
-        <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V9m5 10V5m5 14v-7m5 7V8"/></svg>Báo cáo MT5 (HTML, XLSX)</span>
-        <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h10l4 4v12H5zM14 4v5h5"/></svg>Notion (API, file zip)</span>
+        <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V9m5 10V5m5 14v-7m5 7V8"/></svg><span data-i18n="sources.mt5">Báo cáo MT5 (HTML, XLSX)</span></span>
+        <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h10l4 4v12H5zM14 4v5h5"/></svg><span data-i18n="sources.notion">Notion (API, file zip)</span></span>
         <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z"/></svg>Google Drive</span>
         <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z"/></svg>OneDrive</span>
-        <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Nhập tay</span>
+        <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span data-i18n="sources.manual">Nhập tay</span></span>
       </div>
     </div>
   </div>
@@ -369,46 +470,46 @@
   <section id="tinh-nang">
     <div class="wrap">
       <div class="head-center reveal">
-        <div class="eyebrow">Tính năng</div>
-        <h2>Mọi thứ một trader cần để tiến bộ</h2>
-        <p class="sub">Không chỉ là bảng lệnh. TradeLens ghi lại lý do bạn vào lệnh, so với những gì thực sự xảy ra, rồi chỉ ra quy luật.</p>
+        <div class="eyebrow" data-i18n="features.eyebrow">Tính năng</div>
+        <h2 data-i18n="features.title">Mọi thứ một trader cần để tiến bộ</h2>
+        <p class="sub" data-i18n="features.sub">Không chỉ là bảng lệnh. TradeLens ghi lại lý do bạn vào lệnh, so với những gì thực sự xảy ra, rồi chỉ ra quy luật.</p>
       </div>
       <div class="grid">
         <article class="feature reveal">
           <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h10"/></svg></div>
-          <h3>Nhập lệnh MT5 trong vài giây</h3>
-          <p>Kéo báo cáo HTML hoặc XLSX từ MetaTrader 5 vào app; deal được gom thành lệnh, tính sẵn P/L, R và phí.</p>
-          <ul><li>Nhiều tài khoản</li><li>Không trùng lệnh</li></ul>
+          <h3 data-i18n="f1.title">Nhập lệnh MT5 trong vài giây</h3>
+          <p data-i18n="f1.body">Kéo báo cáo HTML hoặc XLSX từ MetaTrader 5 vào app; deal được gom thành lệnh, tính sẵn P/L, R và phí.</p>
+          <ul><li data-i18n="f1.t1">Nhiều tài khoản</li><li data-i18n="f1.t2">Không trùng lệnh</li></ul>
         </article>
         <article class="feature reveal">
           <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4h9l3 3v13H6zM9 10h6M9 14h6M9 18h3"/></svg></div>
-          <h3>Nhật ký cho từng lệnh</h3>
-          <p>Kế hoạch lúc vào so với thực tế, ảnh chart, hạng setup, lý do thoát, cảm xúc. Form tuỳ biến như Notion.</p>
-          <ul><li>Kế hoạch vs thực tế</li><li>Ảnh chart</li><li>Form tuỳ biến</li></ul>
+          <h3 data-i18n="f2.title">Nhật ký cho từng lệnh</h3>
+          <p data-i18n="f2.body">Kế hoạch lúc vào so với thực tế, ảnh chart, hạng setup, lý do thoát, cảm xúc. Form tuỳ biến như Notion.</p>
+          <ul><li data-i18n="f2.t1">Kế hoạch vs thực tế</li><li data-i18n="f2.t2">Ảnh chart</li><li data-i18n="f2.t3">Form tuỳ biến</li></ul>
         </article>
         <article class="feature reveal">
           <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20V4M4 20h16M8 16l3-4 3 2 5-7"/></svg></div>
-          <h3>Phân tích đến tận gốc</h3>
-          <p>Win rate, profit factor, expectancy, drawdown; tách theo symbol, giờ, phiên và setup. Lịch P/L theo ngày.</p>
-          <ul><li>Theo setup</li><li>Theo phiên</li><li>Lịch P/L</li></ul>
+          <h3 data-i18n="f3.title">Phân tích đến tận gốc</h3>
+          <p data-i18n="f3.body">Win rate, profit factor, expectancy, drawdown; tách theo symbol, giờ, phiên và setup. Lịch P/L theo ngày.</p>
+          <ul><li data-i18n="f3.t1">Theo setup</li><li data-i18n="f3.t2">Theo phiên</li><li data-i18n="f3.t3">Lịch P/L</li></ul>
         </article>
         <article class="feature reveal">
           <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v6c0 4 3 7 7 9 4-2 7-5 7-9V6z"/><path d="m9 12 2 2 4-4"/></svg></div>
-          <h3>Giữ kỷ luật mỗi ngày</h3>
-          <p>Đặt giới hạn lỗ ngày, số lệnh, risk mỗi lệnh; checklist trước khi vào. App cảnh báo khi bạn sắp phá luật.</p>
-          <ul><li>Quy tắc</li><li>Checklist</li><li>Chi phí của lỗi</li></ul>
+          <h3 data-i18n="f4.title">Giữ kỷ luật mỗi ngày</h3>
+          <p data-i18n="f4.body">Đặt giới hạn lỗ ngày, số lệnh, risk mỗi lệnh; checklist trước khi vào. App cảnh báo khi bạn sắp phá luật.</p>
+          <ul><li data-i18n="f4.t1">Quy tắc</li><li data-i18n="f4.t2">Checklist</li><li data-i18n="f4.t3">Chi phí của lỗi</li></ul>
         </article>
         <article class="feature reveal">
           <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11"/></svg></div>
-          <h3>Playbook & tổng kết</h3>
-          <p>Lưu setup tốt nhất thành playbook, ghi lại lệnh bỏ lỡ, tổng kết tuần/tháng với hàng chờ xem lại.</p>
-          <ul><li>Playbook</li><li>Lệnh bỏ lỡ</li><li>Tìm kiếm Ctrl K</li></ul>
+          <h3 data-i18n="f5.title">Playbook & tổng kết</h3>
+          <p data-i18n="f5.body">Lưu setup tốt nhất thành playbook, ghi lại lệnh bỏ lỡ, tổng kết tuần/tháng với hàng chờ xem lại.</p>
+          <ul><li>Playbook</li><li data-i18n="f5.t2">Lệnh bỏ lỡ</li><li data-i18n="f5.t3">Tìm kiếm Ctrl K</li></ul>
         </article>
         <article class="feature reveal">
           <div class="ficon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 8a5 5 0 0 0-9.5-1.5A4 4 0 0 0 8 15h9a3.5 3.5 0 0 0 0-7zM12 12v8m0 0-3-3m3 3 3-3"/></svg></div>
-          <h3>Đồng bộ & chia sẻ</h3>
-          <p>Sync nhiều máy qua Google Drive hoặc OneDrive của chính bạn. Chia sẻ thẻ ảnh ẩn số tiền, xuất PDF tháng.</p>
-          <ul><li>Tự sync 15 phút</li><li>Thẻ chia sẻ</li><li>PDF tháng</li></ul>
+          <h3 data-i18n="f6.title">Đồng bộ & chia sẻ</h3>
+          <p data-i18n="f6.body">Sync nhiều máy qua Google Drive hoặc OneDrive của chính bạn. Chia sẻ thẻ ảnh ẩn số tiền, xuất PDF tháng.</p>
+          <ul><li data-i18n="f6.t1">Tự sync 15 phút</li><li data-i18n="f6.t2">Thẻ chia sẻ</li><li data-i18n="f6.t3">PDF tháng</li></ul>
         </article>
       </div>
     </div>
@@ -418,33 +519,33 @@
   <section id="man-hinh" style="padding-top:24px">
     <div class="wrap">
       <div class="head-center reveal">
-        <div class="eyebrow">Giao diện</div>
-        <h2>Gọn, tối, dễ đọc số</h2>
-        <p class="sub">Thiết kế cho những buổi xem lại dài: font số đơn cách, lãi xanh lỗ đỏ, mọi thứ trong một cửa sổ.</p>
+        <div class="eyebrow" data-i18n="screens.eyebrow">Giao diện</div>
+        <h2 data-i18n="screens.title">Gọn, tối, dễ đọc số</h2>
+        <p class="sub" data-i18n="screens.sub">Thiết kế cho những buổi xem lại dài: font số đơn cách, lãi xanh lỗ đỏ, mọi thứ trong một cửa sổ.</p>
       </div>
-      <div class="tabs" role="tablist" aria-label="Chọn màn hình">
-        <button class="tab" role="tab" aria-selected="true" data-i="0">Tổng quan</button>
-        <button class="tab" role="tab" aria-selected="false" data-i="1">Lệnh</button>
-        <button class="tab" role="tab" aria-selected="false" data-i="2">Chi tiết lệnh</button>
-        <button class="tab" role="tab" aria-selected="false" data-i="3">Lịch P/L</button>
-        <button class="tab" role="tab" aria-selected="false" data-i="4">Phân tích</button>
-        <button class="tab" role="tab" aria-selected="false" data-i="5">Playbook</button>
-        <button class="tab" role="tab" aria-selected="false" data-i="6">Đồng bộ</button>
+      <div class="tabs" role="tablist" aria-label="Chọn màn hình" data-i18n-aria="screens.pick">
+        <button class="tab" role="tab" aria-selected="true" data-i18n="tab.0">Tổng quan</button>
+        <button class="tab" role="tab" aria-selected="false" data-i18n="tab.1">Lệnh</button>
+        <button class="tab" role="tab" aria-selected="false" data-i18n="tab.2">Chi tiết lệnh</button>
+        <button class="tab" role="tab" aria-selected="false" data-i18n="tab.3">Lịch P/L</button>
+        <button class="tab" role="tab" aria-selected="false" data-i18n="tab.4">Phân tích</button>
+        <button class="tab" role="tab" aria-selected="false">Playbook</button>
+        <button class="tab" role="tab" aria-selected="false" data-i18n="tab.6">Đồng bộ</button>
       </div>
       <div class="showcase-frame reveal">
         <div class="window">
           <div class="titlebar" aria-hidden="true"><i></i><i></i><i></i><span id="shotTitle">TradeLens — Tổng quan</span></div>
           <div class="shot" role="tabpanel" id="shots">
-            <img class="on" src="design/screenshots/dashboard.png" width="1440" height="1080" alt="Màn Tổng quan">
-            <img src="design/screenshots/trades.png" width="1440" height="1080" alt="Màn Lệnh" loading="lazy">
-            <img src="design/screenshots/trade-detail.png" width="1440" height="1080" alt="Màn Chi tiết lệnh và nhật ký" loading="lazy">
-            <img src="design/screenshots/calendar.png" width="1440" height="1080" alt="Màn Lịch P/L" loading="lazy">
-            <img src="design/screenshots/analytics.png" width="1440" height="1080" alt="Màn Phân tích" loading="lazy">
-            <img src="design/screenshots/playbook.png" width="1440" height="1080" alt="Màn Playbook" loading="lazy">
-            <img src="design/screenshots/cloud-sync.png" width="1440" height="1080" alt="Màn Đăng nhập và sync" loading="lazy">
+            <img class="on" src="design/screenshots/dashboard.png" width="1440" height="1080" alt="">
+            <img src="design/screenshots/trades.png" width="1440" height="1080" alt="" loading="lazy">
+            <img src="design/screenshots/trade-detail.png" width="1440" height="1080" alt="" loading="lazy">
+            <img src="design/screenshots/calendar.png" width="1440" height="1080" alt="" loading="lazy">
+            <img src="design/screenshots/analytics.png" width="1440" height="1080" alt="" loading="lazy">
+            <img src="design/screenshots/playbook.png" width="1440" height="1080" alt="" loading="lazy">
+            <img src="design/screenshots/cloud-sync.png" width="1440" height="1080" alt="" loading="lazy">
           </div>
         </div>
-        <p class="caption" id="caption" aria-live="polite">Toàn cảnh 30 ngày: P/L, drawdown, kỷ luật hôm nay và lịch tháng.</p>
+        <p class="caption" id="caption" aria-live="polite"></p>
       </div>
     </div>
   </section>
@@ -453,32 +554,32 @@
   <section id="rieng-tu">
     <div class="wrap split">
       <div class="reveal">
-        <div class="eyebrow">Riêng tư</div>
-        <h2>Nhật ký của bạn ở trên máy bạn</h2>
-        <p class="sub">TradeLens không có máy chủ riêng. Dữ liệu lưu trong một file trên ổ đĩa của bạn; đăng nhập đám mây chỉ để đồng bộ giữa các máy của chính bạn.</p>
+        <div class="eyebrow" data-i18n="privacy.eyebrow">Riêng tư</div>
+        <h2 data-i18n="privacy.title">Nhật ký của bạn ở trên máy bạn</h2>
+        <p class="sub" data-i18n="privacy.sub">TradeLens không có máy chủ riêng. Dữ liệu lưu trong một file trên ổ đĩa của bạn; đăng nhập đám mây chỉ để đồng bộ giữa các máy của chính bạn.</p>
         <div class="points">
-          <div class="point"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg><div><b>Chạy offline</b><span>Không cần tài khoản để dùng. Mọi phân tích tính ngay trên máy.</span></div></div>
-          <div class="point"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg><div><b>Sync vào thư mục ẩn của app</b><span>Google Drive appDataFolder hoặc OneDrive approot; app không đọc file khác của bạn.</span></div></div>
-          <div class="point"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg><div><b>Khoá bí mật trong kho khoá hệ điều hành</b><span>Token đăng nhập và token Notion không nằm trong file dữ liệu.</span></div></div>
+          <div class="point"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg><div><b data-i18n="p1.title">Chạy offline</b><span data-i18n="p1.body">Không cần tài khoản để dùng. Mọi phân tích tính ngay trên máy.</span></div></div>
+          <div class="point"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg><div><b data-i18n="p2.title">Sync vào thư mục ẩn của app</b><span data-i18n="p2.body">Google Drive appDataFolder hoặc OneDrive approot; app không đọc file khác của bạn.</span></div></div>
+          <div class="point"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg><div><b data-i18n="p3.title">Khoá bí mật trong kho khoá hệ điều hành</b><span data-i18n="p3.body">Token đăng nhập và token Notion không nằm trong file dữ liệu.</span></div></div>
         </div>
       </div>
       <div class="vault reveal" aria-hidden="true">
         <div class="vault-row">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></div>
-          <div><b>Máy của bạn</b><small>tradelens.db · ảnh chart · cài đặt</small></div>
-          <span class="tag ok">Gốc dữ liệu</span>
+          <div><b data-i18n="v1.title">Máy của bạn</b><small data-i18n="v1.body">tradelens.db · ảnh chart · cài đặt</small></div>
+          <span class="tag ok" data-i18n="v1.tag">Gốc dữ liệu</span>
         </div>
         <div class="flow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v16m0 0-4-4m4 4 4-4M12 20V4m0 0-4 4m4-4 4 4"/></svg></div>
         <div class="vault-row">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18a5 5 0 1 1 1-9.9A6 6 0 0 1 19 10a4 4 0 0 1-1 8z"/></svg></div>
-          <div><b>Drive / OneDrive của bạn</b><small>thư mục riêng của app, chỉ bạn thấy</small></div>
-          <span class="tag ok">Tuỳ chọn</span>
+          <div><b data-i18n="v2.title">Drive / OneDrive của bạn</b><small data-i18n="v2.body">thư mục riêng của app, chỉ bạn thấy</small></div>
+          <span class="tag ok" data-i18n="v2.tag">Tuỳ chọn</span>
         </div>
         <div class="flow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></div>
         <div class="vault-row">
           <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="6" rx="1.5"/><rect x="4" y="14" width="16" height="6" rx="1.5"/></svg></div>
-          <div><b>Máy chủ TradeLens</b><small>không tồn tại</small></div>
-          <span class="tag no">Không gửi</span>
+          <div><b data-i18n="v3.title">Máy chủ TradeLens</b><small data-i18n="v3.body">không tồn tại</small></div>
+          <span class="tag no" data-i18n="v3.tag">Không gửi</span>
         </div>
       </div>
     </div>
@@ -488,15 +589,15 @@
   <section id="lo-trinh" style="padding-top:24px">
     <div class="wrap">
       <div class="reveal">
-        <div class="eyebrow">Lộ trình</div>
-        <h2>Đang phát triển nhanh</h2>
-        <p class="sub">Bản hiện tại đã có nhật ký, phân tích và đồng bộ. Tiếp theo là kết nối MT5 trực tiếp và copier.</p>
+        <div class="eyebrow" data-i18n="roadmap.eyebrow">Lộ trình</div>
+        <h2 data-i18n="roadmap.title">Đang phát triển nhanh</h2>
+        <p class="sub" data-i18n="roadmap.sub">Nhật ký, phân tích và đồng bộ đã xong. Tiếp theo là kết nối MT5 trực tiếp, copier và bộ cài.</p>
       </div>
       <div class="timeline">
-        <div class="step done reveal"><span class="node"></span><div class="ver">v0.1 – v0.2</div><h3>Nhật ký & phân tích</h3><p>Import MT5, chi tiết lệnh, lịch P/L, phân tích, kỷ luật, playbook.</p></div>
-        <div class="step done reveal"><span class="node"></span><div class="ver">v0.3</div><h3>Đám mây</h3><p>Google / Microsoft, sync nhiều máy, import Notion, thẻ chia sẻ, PDF.</p></div>
-        <div class="step now reveal"><span class="node"></span><div class="ver">v0.4 · đang làm</div><h3>Kết nối MT5 & copier</h3><p>Đăng nhập MT5 trong app, lệnh tự vào nhật ký, copy lệnh nhiều tài khoản.</p></div>
-        <div class="step later reveal"><span class="node"></span><div class="ver">v1.0</div><h3>Phát hành</h3><p>Bộ cài Windows, tự cập nhật, bản macOS.</p></div>
+        <div class="step done reveal"><span class="node"></span><div class="ver">v0.1 – v0.2</div><h3 data-i18n="r1.title">Nhật ký & phân tích</h3><p data-i18n="r1.body">Import MT5, chi tiết lệnh, lịch P/L, phân tích, kỷ luật, playbook.</p></div>
+        <div class="step done reveal"><span class="node"></span><div class="ver">v0.3</div><h3 data-i18n="r2.title">Đám mây</h3><p data-i18n="r2.body">Google / Microsoft, sync nhiều máy, import Notion, thẻ chia sẻ, PDF.</p></div>
+        <div class="step now reveal"><span class="node"></span><div class="ver" data-i18n="r3.ver">v0.4 · đang làm</div><h3 data-i18n="r3.title">Kết nối MT5 & copier</h3><p data-i18n="r3.body">Đăng nhập MT5 trong app, lệnh tự vào nhật ký, copy lệnh nhiều tài khoản.</p></div>
+        <div class="step later reveal"><span class="node"></span><div class="ver">v1.0</div><h3 data-i18n="r4.title">Phát hành</h3><p data-i18n="r4.body">Bộ cài Windows, tự cập nhật, bản macOS.</p></div>
       </div>
     </div>
   </section>
@@ -506,21 +607,27 @@
     <div class="wrap">
       <div class="download reveal">
         <img class="logo" src="assets/icon.svg" alt="" width="76" height="76">
-        <h2>Bắt đầu ghi nhật ký hôm nay</h2>
-        <p class="sub" style="margin-inline:auto">Tải về, mở app, kéo báo cáo MT5 vào. Vài phút sau bạn đã thấy mình thắng ở setup nào và thua vì điều gì.</p>
+        <h2 data-i18n="dl.title">Bắt đầu ghi nhật ký hôm nay</h2>
+        <p class="sub" style="margin-inline:auto" data-i18n="dl.sub">Tải về, mở app, kéo báo cáo MT5 vào. Vài phút sau bạn đã thấy mình thắng ở setup nào và thua vì điều gì.</p>
         <div class="cta">
-          <a class="btn btn-primary btn-lg" data-download href="https://github.com/DEVfancybear/tradelens/releases/latest">
+          <a class="btn btn-primary btn-lg" data-download href="#tai-ve">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
-            Tải TradeLens cho Windows
+            <span data-i18n="cta.windows">Tải cho Windows</span>
+            <span class="soon" data-i18n="cta.soon">Sắp có</span>
           </a>
-          <a class="btn btn-ghost btn-lg" href="https://github.com/DEVfancybear/tradelens/releases">Tất cả phiên bản</a>
+          <a class="btn btn-ghost btn-lg only-ready" href="https://github.com/DEVfancybear/tradelens/releases" data-i18n="dl.all">Tất cả phiên bản</a>
+          <a class="btn btn-ghost btn-lg only-dev" href="https://github.com/DEVfancybear/tradelens" data-i18n="dl.follow">Theo dõi trên GitHub</a>
         </div>
         <div class="meta">
-          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7 10 17l-5-5"/></svg><span data-version>Bản mới nhất</span></span>
-          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7 10 17l-5-5"/></svg>Windows 10/11, 64-bit</span>
-          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7 10 17l-5-5"/></svg><span data-size>Không cần cài đặt</span></span>
+          <span class="only-ready"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7 10 17l-5-5"/></svg><span data-version></span></span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7 10 17l-5-5"/></svg><span data-i18n="cta.os">Windows 10/11, 64-bit</span></span>
+          <span class="only-ready"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7 10 17l-5-5"/></svg><span data-size></span></span>
         </div>
-        <p class="hint"><b>Windows SmartScreen</b> có thể cảnh báo vì bản này chưa ký số. Chọn <b>Thông tin thêm</b> → <b>Vẫn chạy</b> để mở app.</p>
+        <p class="hint hint-dev only-dev">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span data-i18n-html="dl.devHint"><b>TradeLens đang được phát triển</b> và chưa có bản tải về. Bản Windows đầu tiên sẽ có ở đây khi phát hành; bạn có thể <a href="https://github.com/DEVfancybear/tradelens">theo dõi trên GitHub</a> để biết sớm nhất.</span>
+        </p>
+        <p class="hint hint-warn only-ready" data-i18n-html="dl.smartscreen"><b>Windows SmartScreen</b> có thể cảnh báo vì bản này chưa ký số. Chọn <b>Thông tin thêm</b> → <b>Vẫn chạy</b> để mở app.</p>
       </div>
     </div>
   </section>
@@ -530,33 +637,168 @@
   <div class="wrap">
     <div class="foot">
       <a class="brand" href="#top"><img src="assets/icon.svg" alt="" width="26" height="26">TradeLens</a>
-      <nav aria-label="Liên kết">
-        <a href="privacy.html">Chính sách quyền riêng tư</a>
-        <a href="terms.html">Điều khoản sử dụng</a>
-        <a href="https://github.com/DEVfancybear/tradelens">Mã nguồn</a>
+      <nav aria-label="Liên kết" data-i18n-aria="foot.label">
+        <a href="privacy.html" data-i18n="foot.privacy">Chính sách quyền riêng tư</a>
+        <a href="terms.html" data-i18n="foot.terms">Điều khoản sử dụng</a>
+        <a href="https://github.com/DEVfancybear/tradelens" data-i18n="foot.source">Mã nguồn</a>
       </nav>
+      <p data-i18n="foot.note">Nhật ký giao dịch MT5 chạy trên máy tính. Dữ liệu nằm trên máy bạn.</p>
     </div>
-    <p class="en" lang="en"><i>English:</i> TradeLens is a desktop trading journal for MetaTrader 5. Your data stays on your computer; signing in to Google Drive or OneDrive only syncs your journal between your own devices. <a href="privacy.html"><u>Privacy policy</u></a> · <a href="terms.html"><u>Terms of service</u></a> · <a href="https://github.com/DEVfancybear/tradelens"><u>Source code</u></a></p>
   </div>
 </footer>
 
+<div class="toast" id="toast" role="status" aria-live="polite">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+  <div><b data-i18n="toast.title">Ứng dụng đang được phát triển</b><span data-i18n="toast.body">Chưa có bản tải về. Hãy quay lại sau hoặc theo dõi dự án trên GitHub.</span></div>
+  <button type="button" id="toastClose" aria-label="Đóng" data-i18n-aria="toast.close">×</button>
+</div>
+
 <script>
-  // Point the download buttons at the latest release's Windows asset, if there is one.
-  // Without a release (or offline) the buttons keep linking to the Releases page.
+  const REPO = "DEVfancybear/tradelens";
+
+  // English strings. Vietnamese is what the page is written in; it is read back from the page.
+  const EN = {
+    "nav.label": "Sections", "nav.features": "Features", "nav.screens": "Screens", "nav.privacy": "Privacy", "nav.roadmap": "Roadmap", "nav.download": "Download",
+    "hero.new": "New", "hero.pill": "Sync with Drive, OneDrive & Notion",
+    "hero.title1": "See every trade clearly.", "hero.title2": "Trade with discipline.",
+    "hero.lead": "TradeLens is a MetaTrader 5 trading journal that runs on your own computer: import trades, write down your plan and emotions, review by setup, and find out exactly where you lose.",
+    "cta.windows": "Download for Windows", "cta.soon": "Soon", "cta.tour": "See the app", "cta.dev": "In development",
+    "cta.os": "Windows 10/11, 64-bit", "cta.mac": "macOS coming soon",
+    "hero.net": "Net P/L · 30 days", "hero.window": "TradeLens — Dashboard",
+    "hero.alt": "TradeLens dashboard: P/L figures, balance and drawdown curve, today's discipline, P/L calendar and recent trades",
+    "sources.title": "Bring data from where you already are", "sources.mt5": "MT5 reports (HTML, XLSX)", "sources.notion": "Notion (API, zip export)", "sources.manual": "Manual entry",
+    "features.eyebrow": "Features", "features.title": "Everything a trader needs to improve",
+    "features.sub": "More than a list of trades. TradeLens records why you entered, compares it with what actually happened, then shows you the patterns.",
+    "f1.title": "Import MT5 trades in seconds", "f1.body": "Drop an HTML or XLSX report from MetaTrader 5 into the app; deals are grouped into trades with P/L, R and fees worked out.", "f1.t1": "Multiple accounts", "f1.t2": "No duplicates",
+    "f2.title": "A journal for every trade", "f2.body": "Plan at entry versus what happened, chart images, setup grade, exit reason, emotions. Forms you shape like Notion.", "f2.t1": "Plan vs reality", "f2.t2": "Chart images", "f2.t3": "Custom forms",
+    "f3.title": "Analysis down to the root", "f3.body": "Win rate, profit factor, expectancy, drawdown; split by symbol, hour, session and setup. A daily P/L calendar.", "f3.t1": "By setup", "f3.t2": "By session", "f3.t3": "P/L calendar",
+    "f4.title": "Stay disciplined every day", "f4.body": "Set a daily loss limit, a trade count and risk per trade; tick a checklist before entering. The app warns you before you break a rule.", "f4.t1": "Rules", "f4.t2": "Checklist", "f4.t3": "Cost of mistakes",
+    "f5.title": "Playbook & reviews", "f5.body": "Save your best setups as a playbook, log missed trades, review each week and month with a queue of trades to revisit.", "f5.t2": "Missed trades", "f5.t3": "Ctrl K search",
+    "f6.title": "Sync & share", "f6.body": "Sync across computers through your own Google Drive or OneDrive. Share image cards with amounts hidden, export a monthly PDF.", "f6.t1": "Auto sync every 15 min", "f6.t2": "Share cards", "f6.t3": "Monthly PDF",
+    "screens.eyebrow": "Interface", "screens.title": "Clean, dark, easy on numbers", "screens.pick": "Choose a screen",
+    "screens.sub": "Built for long review sessions: monospaced figures, green for profit and red for loss, everything in one window.",
+    "tab.0": "Dashboard", "tab.1": "Trades", "tab.2": "Trade detail", "tab.3": "P/L calendar", "tab.4": "Analytics", "tab.6": "Sync",
+    "privacy.eyebrow": "Privacy", "privacy.title": "Your journal stays on your computer",
+    "privacy.sub": "TradeLens has no server of its own. Your data lives in a file on your disk; signing in to the cloud only syncs it between your own computers.",
+    "p1.title": "Works offline", "p1.body": "No account needed to use it. All analysis runs on your machine.",
+    "p2.title": "Syncs into the app's hidden folder", "p2.body": "Google Drive appDataFolder or OneDrive approot; the app does not read your other files.",
+    "p3.title": "Secrets in the operating system's keychain", "p3.body": "Sign-in tokens and your Notion token are never stored in the data file.",
+    "v1.title": "Your computer", "v1.body": "tradelens.db · chart images · settings", "v1.tag": "Source of truth",
+    "v2.title": "Your Drive / OneDrive", "v2.body": "the app's private folder, only you see it", "v2.tag": "Optional",
+    "v3.title": "TradeLens server", "v3.body": "does not exist", "v3.tag": "Nothing sent",
+    "roadmap.eyebrow": "Roadmap", "roadmap.title": "Moving fast",
+    "roadmap.sub": "Journal, analytics and sync are done. Next up: a direct MT5 connection, a trade copier and the installer.",
+    "r1.title": "Journal & analytics", "r1.body": "MT5 import, trade detail, P/L calendar, analytics, discipline, playbook.",
+    "r2.title": "Cloud", "r2.body": "Google / Microsoft, multi-device sync, Notion import, share cards, PDF.",
+    "r3.ver": "v0.4 · in progress", "r3.title": "MT5 connection & copier", "r3.body": "Sign in to MT5 inside the app, trades flow into the journal, copy trades across accounts.",
+    "r4.title": "Release", "r4.body": "Windows installer, auto-update, macOS version.",
+    "dl.title": "Start journaling today", "dl.sub": "Download, open the app, drop in your MT5 report. Minutes later you'll see which setups win and why you lose.",
+    "dl.all": "All versions", "dl.follow": "Follow on GitHub",
+    "dl.devHint": "<b>TradeLens is still in development</b> and there is no download yet. The first Windows build will appear here when it is released; <a href=\"https://github.com/DEVfancybear/tradelens\">follow the project on GitHub</a> to hear about it first.",
+    "dl.smartscreen": "<b>Windows SmartScreen</b> may warn you because this build is not signed yet. Choose <b>More info</b> → <b>Run anyway</b> to open the app.",
+    "foot.label": "Links", "foot.privacy": "Privacy policy", "foot.terms": "Terms of service", "foot.source": "Source code",
+    "foot.note": "A desktop trading journal for MT5. Your data stays on your computer.",
+    "toast.title": "The app is still in development", "toast.body": "There is no download yet. Check back later or follow the project on GitHub.", "toast.close": "Close",
+    "version": "Version {v}", "size": "{name} · {mb} MB",
+    "title": "TradeLens — MT5 trading journal"
+  };
+  const VI_EXTRA = { "version": "Phiên bản {v}", "size": "{name} · {mb} MB", "title": document.title };
+  const CAPTIONS = {
+    vi: [
+      "Toàn cảnh 30 ngày: P/L, drawdown, kỷ luật hôm nay và lịch tháng.",
+      "Mọi lệnh đã đóng, lọc theo tài khoản, symbol, setup và khoảng thời gian.",
+      "Kế hoạch lúc vào so với thực tế, ảnh chart, cảm xúc và bài học của từng lệnh.",
+      "Lãi lỗ từng ngày trong tháng, bấm vào ngày để xem lệnh và nhật ký.",
+      "Hiệu quả theo symbol, giờ, phiên và setup; biết chính xác lỗi nào tốn tiền nhất.",
+      "Setup tốt nhất của bạn, kèm điều kiện vào lệnh và thống kê thực tế.",
+      "Đăng nhập Google hoặc Microsoft để đồng bộ nhật ký giữa các máy."
+    ],
+    en: [
+      "Your last 30 days at a glance: P/L, drawdown, today's discipline and the month's calendar.",
+      "Every closed trade, filtered by account, symbol, setup and date range.",
+      "Plan at entry versus what happened, chart images, emotions and the lesson of each trade.",
+      "Profit and loss for each day of the month; click a day to see its trades and journal.",
+      "Results by symbol, hour, session and setup; see exactly which mistakes cost the most.",
+      "Your best setups, with their entry conditions and real statistics.",
+      "Sign in with Google or Microsoft to sync your journal between computers."
+    ]
+  };
+
+  // Keep the Vietnamese text written in the page so switching back restores it.
+  const VI = {};
+  document.querySelectorAll("[data-i18n]").forEach((el) => { VI[el.dataset.i18n] = el.textContent; });
+  document.querySelectorAll("[data-i18n-html]").forEach((el) => { VI[el.dataset.i18nHtml] = el.innerHTML; });
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => { VI[el.dataset.i18nAria] ??= el.getAttribute("aria-label"); });
+  document.querySelectorAll("[data-i18n-alt]").forEach((el) => { VI[el.dataset.i18nAlt] = el.alt; });
+  Object.assign(VI, VI_EXTRA);
+
+  let lang = "vi";
+  let current = 0;
+  let release = null; // { version, url, name, size } once a downloadable asset is found
+  const t = (key) => (lang === "en" ? EN : VI)[key] ?? VI[key] ?? key;
+  const fill = (key, vars) => t(key).replace(/\{(\w+)\}/g, (_, k) => vars[k]);
+
+  function applyLang(next, remember) {
+    lang = next === "en" ? "en" : "vi";
+    document.documentElement.lang = lang;
+    document.title = t("title");
+    document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
+    document.querySelectorAll("[data-i18n-html]").forEach((el) => { el.innerHTML = t(el.dataset.i18nHtml); });
+    document.querySelectorAll("[data-i18n-aria]").forEach((el) => { el.setAttribute("aria-label", t(el.dataset.i18nAria)); });
+    document.querySelectorAll("[data-i18n-alt]").forEach((el) => { el.alt = t(el.dataset.i18nAlt); });
+    document.querySelectorAll(".lang button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+    showRelease();
+    select(current);
+    if (remember) { try { localStorage.setItem("tradelens-lang", lang); } catch (_) {} }
+  }
+
+  function showRelease() {
+    if (!release) return;
+    document.querySelectorAll("[data-version]").forEach((el) => { el.textContent = fill("version", { v: release.version }); });
+    const mb = (release.size / 1048576).toFixed(1);
+    document.querySelectorAll("[data-size]").forEach((el) => {
+      el.textContent = fill("size", { name: release.name, mb: lang === "vi" ? mb.replace(".", ",") : mb });
+    });
+  }
+
+  // Download state: "ready" (a release with a Windows file), "dev" (no release or no file yet),
+  // or "unknown" (GitHub could not be asked, e.g. offline or rate-limited) where the buttons
+  // fall back to the Releases page.
+  function setState(state) { document.body.dataset.state = state; }
   (async () => {
     try {
-      const res = await fetch("https://api.github.com/repos/DEVfancybear/tradelens/releases/latest", { headers: { Accept: "application/vnd.github+json" } });
-      if (!res.ok) return;
+      const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, { headers: { Accept: "application/vnd.github+json" } });
+      if (res.status === 404) { setState("dev"); return; }
+      if (!res.ok) { fallback(); return; }
       const rel = await res.json();
       const assets = rel.assets || [];
       const pick = ["msi", "exe", "zip"].map((ext) => assets.find((a) => a.name.toLowerCase().endsWith("." + ext))).find(Boolean);
-      document.querySelectorAll("[data-version]").forEach((el) => { el.textContent = "Phiên bản " + rel.tag_name.replace(/^v/i, ""); });
-      if (!pick) return;
-      document.querySelectorAll("[data-download]").forEach((el) => { el.href = pick.browser_download_url; });
-      const mb = (pick.size / 1048576).toFixed(1).replace(".", ",");
-      document.querySelectorAll("[data-size]").forEach((el) => { el.textContent = pick.name + " · " + mb + " MB"; });
-    } catch (_) { /* keep the fallback links */ }
+      if (!pick) { setState("dev"); return; }
+      release = { version: rel.tag_name.replace(/^v/i, ""), url: pick.browser_download_url, name: pick.name, size: pick.size };
+      document.querySelectorAll("[data-download]").forEach((el) => { el.href = release.url; });
+      showRelease();
+      setState("ready");
+    } catch (_) { fallback(); }
   })();
+  function fallback() {
+    document.querySelectorAll("[data-download]").forEach((el) => { el.href = `https://github.com/${REPO}/releases/latest`; });
+    setState("unknown");
+  }
+
+  // With nothing to download, a press says so instead of leading to an empty page.
+  const toast = document.getElementById("toast");
+  let toastTimer;
+  function showToast() {
+    toast.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove("show"), 6000);
+  }
+  document.getElementById("toastClose").addEventListener("click", () => toast.classList.remove("show"));
+  document.querySelectorAll("[data-download]").forEach((el) => el.addEventListener("click", (e) => {
+    if (document.body.dataset.state !== "dev") return;
+    e.preventDefault();
+    showToast();
+  }));
 
   // Sticky nav border once the page scrolls.
   const nav = document.getElementById("nav");
@@ -581,30 +823,32 @@
   // Screenshot tabs.
   const tabs = [...document.querySelectorAll(".tab")];
   const imgs = [...document.querySelectorAll("#shots img")];
-  const captions = [
-    "Toàn cảnh 30 ngày: P/L, drawdown, kỷ luật hôm nay và lịch tháng.",
-    "Mọi lệnh đã đóng, lọc theo tài khoản, symbol, setup và khoảng thời gian.",
-    "Kế hoạch lúc vào so với thực tế, ảnh chart, cảm xúc và bài học của từng lệnh.",
-    "Lãi lỗ từng ngày trong tháng, bấm vào ngày để xem lệnh và nhật ký.",
-    "Hiệu quả theo symbol, giờ, phiên và setup; biết chính xác lỗi nào tốn tiền nhất.",
-    "Setup tốt nhất của bạn, kèm điều kiện vào lệnh và thống kê thực tế.",
-    "Đăng nhập Google hoặc Microsoft để đồng bộ nhật ký giữa các máy."
-  ];
-  const select = (i, focus) => {
-    tabs.forEach((t, j) => { t.setAttribute("aria-selected", String(j === i)); t.tabIndex = j === i ? 0 : -1; });
-    imgs.forEach((im, j) => im.classList.toggle("on", j === i));
-    document.getElementById("caption").textContent = captions[i];
+  function select(i, focus) {
+    current = i;
+    tabs.forEach((tab, j) => { tab.setAttribute("aria-selected", String(j === i)); tab.tabIndex = j === i ? 0 : -1; });
+    imgs.forEach((im, j) => { im.classList.toggle("on", j === i); im.alt = j === i ? tabs[i].textContent : ""; });
+    document.getElementById("caption").textContent = CAPTIONS[lang][i];
     document.getElementById("shotTitle").textContent = "TradeLens — " + tabs[i].textContent;
-    if (focus) tabs[i].focus();
-  };
-  tabs.forEach((t, i) => {
-    t.addEventListener("click", () => select(i));
-    t.addEventListener("keydown", (e) => {
+    if (focus) {
+      tabs[i].focus();
+      tabs[i].scrollIntoView({ block: "nearest", inline: "center" });
+    }
+  }
+  tabs.forEach((tab, i) => {
+    tab.addEventListener("click", () => select(i));
+    tab.addEventListener("keydown", (e) => {
       if (e.key === "ArrowRight") select((i + 1) % tabs.length, true);
       if (e.key === "ArrowLeft") select((i - 1 + tabs.length) % tabs.length, true);
     });
   });
-  select(0);
+
+  // Language: a saved choice, then ?lang=, then the browser's language.
+  document.querySelectorAll(".lang button").forEach((b) => b.addEventListener("click", () => applyLang(b.dataset.lang, true)));
+  let saved = null;
+  try { saved = localStorage.getItem("tradelens-lang"); } catch (_) {}
+  const asked = new URLSearchParams(location.search).get("lang");
+  const browser = (navigator.languages || [navigator.language || "vi"]).some((l) => /^vi\b/i.test(l)) ? "vi" : "en";
+  applyLang(asked || saved || browser, false);
 </script>
 </body>
 </html>
