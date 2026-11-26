@@ -276,10 +276,12 @@ impl Worker {
     /// [`Mt5Error::Setup`] when the process does not start.
     pub fn spawn(python: &Python, script: &Path) -> Result<Self, Mt5Error> {
         let mut run = python.command();
-        // Not `-I`: isolated mode leaves the script's folder (where `tradelens_sync` is) and the
-        // user's site-packages (where `pip install --user` puts MetaTrader5) out of `sys.path`, and
-        // ignores `PYTHONIOENCODING`. `-u` makes every reply line reach the app at once.
-        run.arg("-u")
+        // Not `-I`: isolated mode leaves the user's site-packages (where `pip install --user` puts
+        // MetaTrader5) out of `sys.path`. The app's own Python is isolated anyway by its `._pth`
+        // (no script folder on `sys.path`, `PYTHONIOENCODING` ignored), which the worker handles
+        // itself; `-X utf8` makes its text UTF-8 in either case, and `-u` makes every reply line
+        // reach the app at once.
+        run.args(["-X", "utf8", "-u"])
             .arg(script)
             .env("PYTHONIOENCODING", "utf-8")
             .stdin(Stdio::piped())

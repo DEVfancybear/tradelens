@@ -93,12 +93,12 @@ pub(crate) struct Setup {
 }
 
 impl Setup {
-    /// Why an account cannot be connected yet, in Vietnamese; `None` when it can.
     /// Whether only Python (or its `MetaTrader5` package) is missing, which the app installs itself.
     pub(crate) fn needs_python(&self) -> bool {
         !self.demo && cfg!(windows) && self.checked && self.python.as_ref().is_none_or(|python| !python.has_package)
     }
 
+    /// Why an account cannot be connected yet, in Vietnamese; `None` when it can.
     pub(crate) fn missing(&self) -> Option<String> {
         if self.demo {
             return None;
@@ -199,7 +199,7 @@ pub(crate) struct State {
     /// A position that opens puts the plan prompt on screen.
     pub(crate) prompt_plans: bool,
     /// What the connection is busy with (installing the package, checking the machine).
-    pub(crate) busy: Option<&'static str>,
+    pub(crate) busy: Option<String>,
     /// Why the last sign-in or setting up failed.
     pub(crate) error: Option<String>,
     /// The settings were read: the saved accounts are being connected.
@@ -263,6 +263,20 @@ struct Polled {
 enum Mode {
     Terminal,
     Demo,
+}
+
+/// How Python is made ready: the package into a Python of the machine (for the user), or the app's
+/// own Python (installed when missing) with the pinned packages.
+#[derive(Debug)]
+enum Plan {
+    Package(Python),
+    Private,
+}
+
+/// A size as the busy line says it: `12,6 MB`.
+fn megabytes(bytes: u64) -> String {
+    let tenths = bytes.saturating_add(50_000) / 100_000;
+    format!("{},{} MB", tenths / 10, tenths % 10)
 }
 
 /// Whether a position that opens puts the plan prompt on screen.
@@ -544,7 +558,18 @@ impl Mt5 {
                 // Looking at the machine starts programs (each Python candidate): only when an account
                 // is kept, else when the connection's card is first shown ([`Mt5::look_once`]).
                 if !saved.is_empty() {
-                    self.check_then(move || self.connect_saved(saved));
+                    // Python first (installed again if the app's own is gone), then the logins.
+                    self.check_then(move || {
+                        let accounts: Vec<AccountRef> = saved.iter().map(Saved::account).collect();
+                        self.ensure_python(
+                            move || self.connect_saved(saved),
+                            move |why| {
+                                for account in &accounts {
+                                    self.set_status(account, Status::Retrying(why.clone()));
+                                }
+                            },
+                        );
+                    });
                 }
             }
             Err(error) => self.state.update(|state| state.error = Some(error)),
@@ -570,7 +595,7 @@ impl Mt5 {
         let (mode, python) = self.state.with_untracked(|state| {
             (if state.setup.demo { Mode::Demo } else { Mode::Terminal }, state.python_choice.clone())
         });
-        self.state.update(|state| state.busy = Some("Đang kiểm tra Python và MetaTrader 5…"));
+        self.state.update(|state| state.busy = Some("Đang kiểm tra Python và MetaTrader 5…".to_owned()));
         self.owner.run(move || {
             spawn(async move {
                 let setup = blocking(move || look(mode, python.as_deref())).await.unwrap_or_default();
@@ -635,6 +660,12 @@ impl Mt5 {
         }
         if self.state.with_untracked(|state| state.live(&account).is_some_and(|live| live.starting)) {
             return refuse("Tài khoản này đang được kết nối, hãy chờ một chút.");
+        }
+        if self.state.with_untracked(|state| state.busy.is_some()) {
+            return refuse("TradeLens đang cài đặt hoặc kiểm tra máy, hãy chờ xong rồi đăng nhập.");
+        }
+        if self.state.with_untracked(|state| !state.setup.demo && !state.setup.checked) {
+            return refuse("Đang kiểm tra Python và MetaTrader 5 trên máy, hãy thử lại sau giây lát.");
         }
         self.state.update(|state| {
             state.error = None;
@@ -962,15 +993,17 @@ impl Mt5 {
         );
     }
 
-    /// Installs the `MetaTrader5` package into the Python found, then looks at the machine again.
+    /// Makes Python ready: the button "Cài Python tự động" (or "Cài gói `MetaTrader5`").
     pub(crate) fn install_python(self) {
         self.state.update(|state| state.error = None);
         self.ensure_python(|| {}, move |why| self.state.update(|state| state.error = Some(why)));
     }
 
     /// Makes Python ready for the connection, then runs `then`: on a machine without Python the app
-    /// installs its own ([`runtime`]); a Python without the package gets it. `failed` hears why it
-    /// could not, in Vietnamese. Nothing is installed in the demo or when Python is ready already.
+    /// installs its own ([`runtime`]), and its own gets the pinned packages; a Python of the machine
+    /// without the package gets it for the user. `failed` hears why it could not, in Vietnamese.
+    /// Nothing is installed in the demo or when Python is ready already. The connection is marked
+    /// busy before this returns, so a second press while it runs is refused.
     fn ensure_python(self, then: impl FnOnce() + 'static, failed: impl FnOnce(String) + 'static) {
         let setup = self.state.with_untracked(|state| state.setup.clone());
         if !setup.needs_python() {
@@ -982,40 +1015,53 @@ impl Mt5 {
         let Some(root) = runtime_root() else {
             return failed("Ứng dụng không có thư mục dữ liệu để cài Python.".to_owned());
         };
-        let (mode, choice) = self.state.with_untracked(|state| (Mode::Terminal, state.python_choice.clone()));
+        let plan = match setup.python {
+            Some(python) if !runtime::is_private(&python, &root) => Plan::Package(python),
+            _ => Plan::Private,
+        };
+        let source = runtime::Source::official();
         let state = self.state;
-        let busy = move |text: &'static str| state.update(|s| s.busy = Some(text));
+        let busy = move |text: String| state.update(|s| s.busy = Some(text));
+        busy(match &plan {
+            Plan::Package(_) => "Đang cài gói MetaTrader5 (pip), có thể mất vài phút…".to_owned(),
+            Plan::Private => format!("Đang tải Python cho TradeLens ({})…", megabytes(source.python.size)),
+        });
+        let choice = self.state.with_untracked(|state| state.python_choice.clone());
         self.owner.run(move || {
             spawn(async move {
                 let stopped =
                     |error: &dyn std::fmt::Display| Err(Mt5Error::Setup(format!("Luồng cài đặt bị dừng: {error}")));
-                // A Python of the machine without the package gets the package, for the user; with no
-                // Python at all, the app installs its own, then the package into it.
-                let installed = if let Some(python) = setup.python {
-                    busy("Đang cài gói MetaTrader5 (pip), có thể mất vài phút…");
-                    blocking(move || python::install_package(&python)).await.unwrap_or_else(|e| stopped(&e))
-                } else {
-                    busy("Đang tải Python cho TradeLens (12,6 MB)…");
-                    let source = runtime::Source::official();
-                    let (python_root, python_source) = (root.clone(), source.clone());
-                    let python = blocking(move || runtime::install_python(&python_root, &python_source).map(drop))
-                        .await
-                        .unwrap_or_else(|e| stopped(&e));
-                    match python {
-                        Ok(()) => {
-                            busy("Đang cài gói MetaTrader5 vào Python của TradeLens, có thể mất vài phút…");
-                            blocking(move || runtime::install_package(&root, &source))
-                                .await
-                                .unwrap_or_else(|e| stopped(&e))
+                let installed = match plan {
+                    Plan::Package(python) => {
+                        blocking(move || python::install_package(&python)).await.unwrap_or_else(|e| stopped(&e))
+                    }
+                    Plan::Private => {
+                        let (python_root, python_source) = (root.clone(), source.clone());
+                        let python = blocking(move || runtime::install_python(&python_root, &python_source).map(drop))
+                            .await
+                            .unwrap_or_else(|e| stopped(&e));
+                        match python {
+                            Ok(()) => {
+                                busy(
+                                    "Đang cài gói MetaTrader5 vào Python của TradeLens, có thể mất vài phút…"
+                                        .to_owned(),
+                                );
+                                blocking(move || runtime::install_packages(&root, &source))
+                                    .await
+                                    .unwrap_or_else(|e| stopped(&e))
+                            }
+                            Err(error) => Err(error),
                         }
-                        Err(error) => Err(error),
                     }
                 };
-                busy("Đang kiểm tra lại Python…");
-                let setup = blocking(move || look(mode, choice.as_deref())).await.unwrap_or_default();
-                let ready = !setup.needs_python();
+                busy("Đang kiểm tra lại Python…".to_owned());
+                // A look that could not run is not taken for a machine ready to connect.
+                let looked = blocking(move || look(Mode::Terminal, choice.as_deref())).await.ok();
+                let ready = looked.as_ref().is_some_and(|setup| setup.checked && !setup.needs_python());
                 self.state.update(|state| {
-                    state.setup = setup;
+                    if let Some(setup) = looked {
+                        state.setup = setup;
+                    }
                     state.busy = None;
                 });
                 match (installed, ready) {

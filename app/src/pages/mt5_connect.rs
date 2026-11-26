@@ -43,8 +43,9 @@ struct Form {
 pub(super) fn mt5_card() -> impl IntoElement {
     let mt5 = mt5();
     // The machine is looked at (Python, terminals) once the card shows and the settings are read.
+    let loaded = computed(move || mt5.state.with(|state| state.loaded));
     effect(move || {
-        if mt5.state.with(|state| state.loaded) {
+        if loaded.get() {
             untracked(|| mt5.look_once());
         }
     });
@@ -78,10 +79,12 @@ pub(super) fn mt5_card() -> impl IntoElement {
 
 /// Why the connection cannot be used yet, with what fixes it; nothing when it can.
 fn setup_view(mt5: Mt5) -> impl IntoElement {
-    let shown = computed(move || mt5.state.with(|state| (state.setup.missing(), state.busy, state.setup.clone())));
+    let shown =
+        computed(move || mt5.state.with(|state| (state.setup.missing(), state.busy.clone(), state.setup.clone())));
     dynamic(move || {
         let (missing, busy, setup) = shown.get();
         untracked(|| {
+            let idle = busy.is_none();
             let line = match (&setup.python, setup.demo) {
                 (_, true) => Some("Chế độ thử: tài khoản và lệnh là dữ liệu mẫu trong bộ nhớ.".to_owned()),
                 (Some(python), false) if python.has_package => {
@@ -92,7 +95,7 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
             view()
                 .gap_2()
                 .when_some(busy, |v, busy| v.child(text(busy).text_xs().text_color(move || theme().muted_foreground)))
-                .when_some(missing.filter(|_| busy.is_none()), |v, missing| v.child(warning_banner(missing)))
+                .when_some(missing.filter(|_| idle), |v, missing| v.child(warning_banner(missing)))
                 .when_some(line, |v, line| v.child(text(line).text_xs().text_color(move || theme().muted_foreground)))
                 .when(!setup.demo && setup.checked, |v| {
                     v.child(
@@ -103,7 +106,7 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
                             .child(action_when(
                                 "Kiểm tra lại",
                                 Variant::Secondary,
-                                move || busy.is_none(),
+                                move || idle,
                                 move || mt5.check_again(),
                             ))
                             .when(setup.needs_python(), |v| {
@@ -115,7 +118,7 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
                                 v.child(action_when(
                                     label,
                                     Variant::Primary,
-                                    move || busy.is_none(),
+                                    move || idle,
                                     move || mt5.install_python(),
                                 ))
                             }),
@@ -152,6 +155,8 @@ fn chosen_terminal(state: &State, form: Form) -> Option<PathBuf> {
 
 fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
     let demo = computed(move || mt5.state.with(|state| state.setup.demo));
+    // No sign-in while Python is being installed or the machine looked at: it would start a second install.
+    let idle = computed(move || mt5.state.with(|state| state.busy.is_none()));
     let sign_in = move || {
         let terminal = mt5.state.with_untracked(|state| {
             if state.setup.demo { Some(PathBuf::from("terminal64.exe")) } else { chosen_terminal(state, form) }
@@ -176,11 +181,16 @@ fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
         .child(fields_row(form))
         .child(dynamic(move || (!demo.get()).then(|| untracked(|| terminal_row(mt5, form)))))
         .child(
-            view().flex_row().gap_3().items_center().child(action("Đăng nhập", Variant::Primary, sign_in)).child(
-                text("Lần đầu app chép terminal MT5 cho tài khoản này (vài trăm MB), mất khoảng một phút.")
-                    .text_xs()
-                    .text_color(move || theme().muted_foreground),
-            ),
+            view()
+                .flex_row()
+                .gap_3()
+                .items_center()
+                .child(action_when("Đăng nhập", Variant::Primary, move || idle.get(), sign_in))
+                .child(
+                    text("Lần đầu app chép terminal MT5 cho tài khoản này (vài trăm MB), mất khoảng một phút.")
+                        .text_xs()
+                        .text_color(move || theme().muted_foreground),
+                ),
         )
         .child({
             let error = computed(move || mt5.state.with(|state| state.error.clone()));

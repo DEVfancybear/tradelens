@@ -48,7 +48,7 @@ fn source(package: &[u8], url: String, sha256: Option<String>) -> Source {
         sha256: sha256.unwrap_or_else(|| hex(package)),
         size: u64::try_from(package.len()).expect("small"),
     };
-    Source { python, pip: Asset { url: String::new(), sha256: String::new(), size: 0 } }
+    Source { python, pip: Asset { url: String::new(), sha256: String::new(), size: 0 }, packages: Vec::new() }
 }
 
 const PTH: &[u8] = b"python314.zip\r\n.\r\n\r\n# Uncomment to run site.main() automatically\r\n#import site\r\n";
@@ -57,6 +57,7 @@ const PTH: &[u8] = b"python314.zip\r\n.\r\n\r\n# Uncomment to run site.main() au
 fn the_embeddable_package_is_checked_unpacked_and_its_site_switched_on() {
     let package = zip_of(&[("python.exe", b"MZ"), ("python314._pth", PTH), ("Lib/extra.txt", b"x")]);
     let url = serve(package.clone(), "python-embed.zip");
+    let url_again = url.clone();
     let dir = tempfile::tempdir().expect("a temp dir");
     let program = runtime::install_python(dir.path(), &source(&package, url, None)).expect("it installs");
     assert_eq!(program, runtime::executable(dir.path()));
@@ -65,9 +66,12 @@ fn the_embeddable_package_is_checked_unpacked_and_its_site_switched_on() {
     assert!(pth.contains("Lib\\site-packages") && pth.lines().any(|line| line == "import site"), "{pth}");
     assert!(runtime::folder(dir.path()).join("Lib").join("extra.txt").is_file(), "folders are unpacked too");
     assert_eq!(names(dir.path()), ["python"], "nothing but the Python is left: {:?}", names(dir.path()));
-    // A second call finds it there and downloads nothing.
-    let gone = source(&package, "http://127.0.0.1:9/none".to_owned(), None);
-    runtime::install_python(dir.path(), &gone).expect("an installed Python is kept");
+    let marker = fs::read_to_string(runtime::folder(dir.path()).join(".tradelens-python")).expect("the marker");
+    assert_eq!(marker, runtime::VERSION, "the marker is written last, with the version");
+    // This python.exe does not run: a second call takes it for broken and installs it again.
+    fs::write(runtime::folder(dir.path()).join("stale.txt"), b"x").expect("a file of the broken install");
+    runtime::install_python(dir.path(), &source(&package, url_again, None)).expect("a broken Python is replaced");
+    assert!(!runtime::folder(dir.path()).join("stale.txt").exists(), "the broken install is gone");
 }
 
 #[test]
@@ -92,6 +96,7 @@ fn an_entry_that_would_leave_the_folder_is_refused() {
     assert!(error.message().contains("đường dẫn lạ"), "{error:?}");
     assert!(!dir.path().join("outside.txt").exists(), "nothing is written outside");
     assert!(!runtime::executable(&root).exists());
+    assert!(names(&root).is_empty(), "nothing is left behind: {:?}", names(&root));
 }
 
 fn names(dir: &Path) -> Vec<String> {

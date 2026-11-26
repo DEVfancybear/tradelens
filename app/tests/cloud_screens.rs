@@ -260,10 +260,20 @@ fn the_automatic_sync_switch_is_kept_on_this_device() {
     app.press("label:Tự động sync").expect("the switch");
     let db = fixture.db();
     wait_until("the switch being kept", || db.setting("cloud.auto_sync").is_ok_and(|v| v.as_deref() == Some("1")));
-    app.press("label:Tự động sync").expect("the switch again");
-    wait_until("the switch being turned off", || {
-        db.setting("cloud.auto_sync").is_ok_and(|v| v.as_deref() == Some("0"))
-    });
+    // The card redraws once the first change is read back, and a press landing then is lost
+    // (tradelens-lessons §3): press again until the switch is kept off. Each press is given
+    // ample time to be stored (a write takes milliseconds) before the next, so a slow write is
+    // never undone by a second press.
+    let off = || db.setting("cloud.auto_sync").is_ok_and(|v| v.as_deref() == Some("0"));
+    let started = std::time::Instant::now();
+    while !off() {
+        assert!(started.elapsed() < WAIT, "the switch did not turn off within {WAIT:?}");
+        app.press("label:Tự động sync").expect("the switch again");
+        let pressed = std::time::Instant::now();
+        while !off() && pressed.elapsed() < std::time::Duration::from_secs(10) {
+            app.next_change(std::time::Duration::from_millis(100)).expect("the app runs");
+        }
+    }
 }
 
 #[test]
