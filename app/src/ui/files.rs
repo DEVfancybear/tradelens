@@ -106,9 +106,15 @@ pub fn copy_png(png: &[u8]) -> Result<(), String> {
         height: size(height)?,
         bytes: std::borrow::Cow::Owned(picture.into_raw()),
     };
-    arboard::Clipboard::new()
-        .and_then(|mut clipboard| clipboard.set_image(data))
-        .map_err(|error| format!("Không ghi được ảnh vào clipboard: {error}"))
+    arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_image(data)).map_err(|error| {
+        log::warn!("copying a picture to the clipboard: {error}");
+        match error {
+            arboard::Error::ClipboardOccupied => {
+                "Clipboard đang được ứng dụng khác dùng, bấm lại sau giây lát.".to_owned()
+            }
+            _ => "Không ghi được ảnh vào clipboard.".to_owned(),
+        }
+    })
 }
 
 /// The pictures on the clipboard: files copied in the file manager, else an image copied from
