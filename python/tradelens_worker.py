@@ -112,8 +112,12 @@ class Leash:
         info.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
         info.wShowWindow = SW_HIDE
         try:
-            command = start_command(self.program, write_start_config(self.program))
-            process = subprocess.Popen(command, startupinfo=info)  # noqa: S603 - the app's own copy
+            command = start_command(self.program, configured=write_start_config(self.program))
+            # Started in its own folder, so that the relative `/config:` needs no quoting for a
+            # user folder with spaces or Vietnamese letters.
+            process = subprocess.Popen(  # noqa: S603 - the app's own copy
+                command, startupinfo=info, cwd=os.path.dirname(self.program)
+            )
         except OSError as err:
             msg = f"không chạy được terminal MT5 ({self.program}): {err}"
             raise Failure(msg) from err
@@ -145,22 +149,27 @@ class Leash:
         return hidden
 
 
-def write_start_config(terminal: str) -> str:
+def write_start_config(terminal: str) -> bool:
     """Writes `START_CONFIG` into the folder of the account's portable `terminal` (the app's own
-    copy) and returns its path."""
+    copy). A folder it cannot write to does not stop the login: the terminal then starts as it
+    is, and `require_algo_trading` says why an order is refused."""
     path = os.path.join(os.path.dirname(os.path.abspath(terminal)), START_CONFIG_NAME)
     try:
         with open(path, "w", encoding="ascii", newline="\r\n") as file:
             file.write(START_CONFIG)
     except OSError as err:
-        msg = f"không ghi được cấu hình khởi động MT5 ({path}): {err}"
-        raise Failure(msg) from err
-    return path
+        print(f"tradelens worker: start config not written ({path}): {err}", file=sys.stderr)
+        return False
+    return True
 
 
-def start_command(terminal: str, config: str) -> list[str]:
-    """The command line of the account's terminal: portable, with the start configuration."""
-    return [terminal, "/portable", f"/config:{config}"]
+def start_command(terminal: str, *, configured: bool) -> list[str]:
+    """The command line of the account's terminal: portable, with the start configuration (a
+    path relative to the terminal's folder, where it is started) when it was written."""
+    command = [terminal, "/portable"]
+    if configured:
+        command.append(f"/config:{START_CONFIG_NAME}")
+    return command
 
 
 # Win32 constants (winnt.h, winbase.h, winuser.h).
@@ -427,7 +436,9 @@ class Session:
         self.hide = True
 
     def connect(self, request: dict[str, Any]) -> dict[str, Any]:
-        terminal = str(request["terminal"])
+        # One path for both the start and `initialize`, which finds the running terminal by the
+        # exact path it was started with.
+        terminal = os.path.abspath(str(request["terminal"]))
         self.hide = bool(request.get("hide", True))
         if self.hide and self.leash is None:
             self.leash = Leash(terminal)

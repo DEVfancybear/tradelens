@@ -48,6 +48,7 @@ class TradingMt5(FakeMt5):
         return NS(trade_allowed=self.trade_allowed, connected=self.logged_in)
 
     def initialize(self, path: str, **kwargs: Any) -> bool:
+        self.initialized_with = path
         if kwargs.get("password") != self.password:
             self.error = (-6, "Terminal: Authorization failed")
             return False
@@ -159,15 +160,32 @@ class WorkerTests(unittest.TestCase):
 
     def test_the_terminal_starts_portable_with_algo_trading_on(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
-            terminal = os.path.join(folder, "terminal64.exe")
-            config = worker.write_start_config(terminal)
-            self.assertEqual(os.path.dirname(config), folder, "the config sits beside the account's terminal")
+            terminal = os.path.join(folder, "Nguyễn Văn A", "terminal64.exe")
+            os.makedirs(os.path.dirname(terminal))
+            self.assertTrue(worker.write_start_config(terminal))
+            config = os.path.join(os.path.dirname(terminal), worker.START_CONFIG_NAME)
             with open(config, encoding="ascii") as file:
                 lines = [line.strip() for line in file]
             self.assertEqual(lines[0], "[Experts]")
             for setting in ("AllowLiveTrading=1", "Enabled=1", "Account=0"):
                 self.assertIn(setting, lines)
-            self.assertEqual(worker.start_command(terminal, config), [terminal, "/portable", f"/config:{config}"])
+            self.assertEqual(
+                worker.start_command(terminal, configured=True),
+                [terminal, "/portable", "/config:tradelens-start.ini"],
+                "relative to the terminal's folder, so no quoting for spaces or Vietnamese letters",
+            )
+
+    def test_a_folder_that_cannot_be_written_starts_the_terminal_without_the_config(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            terminal = os.path.join(folder, "missing", "terminal64.exe")
+            self.assertFalse(worker.write_start_config(terminal), "no folder to write in")
+            self.assertEqual(worker.start_command(terminal, configured=False), [terminal, "/portable"])
+
+    def test_the_login_uses_the_same_absolute_path_as_the_start(self) -> None:
+        relative = os.path.join("data", "..", "terminals", "terminal64.exe")
+        (connected,) = run(self.mt5, {**CONNECT, "terminal": relative})
+        self.assertTrue(connected["ok"], connected)
+        self.assertEqual(self.mt5.initialized_with, os.path.abspath(relative))
 
     def test_the_terminal_is_started_by_its_path_as_given_letter_case_included(self) -> None:
         terminal = os.path.abspath(os.path.join("Terminals", "434572098@Exness-MT5Trial7", "terminal64.exe"))
