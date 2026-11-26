@@ -479,18 +479,25 @@ fn account_row(mt5: Mt5, account: AccountRef) -> impl IntoElement {
                 })
             })
         }))
-        .child(
-            view()
-                .flex_row()
-                .gap_2()
-                .pt_1()
-                .child(dynamic(move || {
-                    let stuck = status.with(|status| status.as_ref().is_some_and(offers_reconnect));
-                    let reconnect = reconnect.clone();
-                    stuck.then(|| untracked(|| action("Kết nối lại", Variant::Secondary, reconnect)))
-                }))
-                .child(action("Đăng xuất", Variant::Destructive, forget)),
-        )
+        .child(account_buttons(status, reconnect, forget))
+}
+
+/// An account's buttons: "Kết nối lại" while its link is stuck (`offers_reconnect`), and "Đăng xuất".
+fn account_buttons(
+    status: Memo<Option<Status>>,
+    reconnect: impl Fn() + Clone + 'static,
+    forget: impl Fn() + 'static,
+) -> impl IntoElement {
+    view()
+        .flex_row()
+        .gap_2()
+        .pt_1()
+        .child(dynamic(move || {
+            let stuck = status.with(|status| status.as_ref().is_some_and(offers_reconnect));
+            let reconnect = reconnect.clone();
+            stuck.then(|| untracked(|| action("Kết nối lại", Variant::Secondary, reconnect)))
+        }))
+        .child(action("Đăng xuất", Variant::Destructive, forget))
 }
 
 /// Whether an account in `status` shows "Kết nối lại": only when its link gave up or keeps failing,
