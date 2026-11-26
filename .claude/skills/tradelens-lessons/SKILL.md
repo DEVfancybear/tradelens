@@ -62,6 +62,8 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
 - **Why:** NSH 0.7 on Windows writes only the registered `PNG` clipboard format. "Sao chép ảnh" said it had copied, yet pasting into Paint, Zalo or Telegram gave nothing: they read the bitmap (`CF_DIB`/`CF_DIBV5`). `arboard` writes the bitmap and the PNG together.
 - **Check:** after pressing the button in the real app, `[System.Windows.Forms.Clipboard]::GetDataObject().GetFormats()` in PowerShell lists `Bitmap` and `DeviceIndependentBitmap`, and Ctrl+V in Paint shows the card.
 
+- **Also:** each `#[cfg(target_os = ...)]` branch must pass clippy on its own. The local gate only compiles the Windows one; the non-Windows `put_on_clipboard` took an `Arc` by value it did not consume and CI failed on Linux and macOS (`needless_pass_by_value`). Give both branches the same borrowed signature and read the other branch line by line before pushing.
+
 ### 1.8 A wrapping row centres its lines with `content_center`
 - **Rule:** a row with `flex_wrap()` and a fixed or minimum height also gets `.content_center()`; `items_center` alone centres items inside a line, not the lines inside the row.
 - **Why:** the Phân tích tables (`ui/breakdown.rs`) packed each symbol and its figures against the rule above, with the empty part of the 40 pt row below them; the user read it as a broken symbol column.
