@@ -169,6 +169,12 @@ class WorkerTests(unittest.TestCase):
                 self.assertIn(setting, lines)
             self.assertEqual(worker.start_command(terminal, config), [terminal, "/portable", f"/config:{config}"])
 
+    def test_the_terminal_is_started_by_its_path_as_given_letter_case_included(self) -> None:
+        terminal = os.path.abspath(os.path.join("Terminals", "434572098@Exness-MT5Trial7", "terminal64.exe"))
+        leash = worker.Leash(terminal)
+        self.assertEqual(leash.program, terminal, "initialize finds the running terminal by this exact path")
+        self.assertEqual(leash.terminal, os.path.normcase(terminal), "windows are matched case-insensitively")
+
     def test_moving_the_levels_sends_an_sltp_request(self) -> None:
         _, moved = run(self.mt5, CONNECT, {"id": 2, "op": "modify", "ticket": 100, "sl": 2645.0, "tp": 0})
         self.assertTrue(moved["ok"], moved)

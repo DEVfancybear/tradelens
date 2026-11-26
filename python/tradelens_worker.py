@@ -88,7 +88,13 @@ class Leash:
     """
 
     def __init__(self, terminal: str) -> None:
-        self.terminal = os.path.normcase(os.path.abspath(terminal))
+        # Started by its path as given: `initialize` finds a running terminal by the path it was
+        # started with, letter case included. Started lowercased (`normcase`), the terminal was
+        # not found, `initialize` started a second one that handed over to it and exited, and the
+        # login failed with "IPC timeout" or "IPC send failed".
+        self.program = os.path.abspath(terminal)
+        # For comparing with the programs of running processes (`image_of`), which are normcased.
+        self.terminal = os.path.normcase(self.program)
         self.tied: set[int] = set()
         self.job: Any = None
         if sys.platform == "win32":
@@ -106,10 +112,10 @@ class Leash:
         info.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
         info.wShowWindow = SW_HIDE
         try:
-            command = start_command(self.terminal, write_start_config(self.terminal))
+            command = start_command(self.program, write_start_config(self.program))
             process = subprocess.Popen(command, startupinfo=info)  # noqa: S603 - the app's own copy
         except OSError as err:
-            msg = f"không chạy được terminal MT5 ({self.terminal}): {err}"
+            msg = f"không chạy được terminal MT5 ({self.program}): {err}"
             raise Failure(msg) from err
         self.tie(process.pid)
 
