@@ -15,6 +15,7 @@ Ngày là ước lượng cho một người làm toàn thời gian; mỗi mốc
 
 | Bản | Ngày | Có gì | Tải |
 |---|---|---|---|
+| **0.2.0** | 26/11/2026 | Tự cài Python riêng và gói MetaTrader5 khi máy chưa có, màn Tin quan trọng (tin đỏ tuần này của Forex Factory), chọn ngày bằng lịch ở Lịch P/L, bấm symbol/ngày ở Tổng quan mở trang lọc sẵn, thêm/xoá lựa chọn ngay ở ô chọn chip, Sao chép ảnh dán được vào Paint/Zalo/Telegram, sửa lỗi UI tìm thấy trên app thật. Bản 0.1.0 tự cập nhật lên bản này | [Release v0.2.0](https://github.com/DEVfancybear/tradelens/releases/tag/v0.2.0): cùng bộ file như 0.1.0 (`TradeLens-0.2.0-windows-x86_64.zip`) |
 | **0.1.0** | 26/11/2026 | Bản Windows đầu tiên: nhật ký và phân tích (v0.1–v0.2), đám mây (v0.3), kết nối MT5 trực tiếp và quản lý lệnh (v0.4, chưa có copier), tự cập nhật | [Release v0.1.0](https://github.com/DEVfancybear/tradelens/releases/tag/v0.1.0): `TradeLens-setup.exe` (bộ cài), `TradeLens-0.1.0-windows-x86_64.zip` (gói app tự cập nhật dùng), `latest.json` + `.sig` |
 
 Bộ cài chưa ký số nên Windows SmartScreen có thể cảnh báo (Thông tin thêm → Vẫn chạy). Trang giới thiệu
