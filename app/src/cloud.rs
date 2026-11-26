@@ -101,7 +101,7 @@ impl Env {
         keys
     }
 
-    fn read(db: &Db) -> Result<Self, DbError> {
+    pub(crate) fn read(db: &Db) -> Result<Self, DbError> {
         let mut settings = BTreeMap::new();
         for key in Self::keys() {
             if let Some(value) = db.setting(&key)? {

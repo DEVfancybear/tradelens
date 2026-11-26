@@ -86,7 +86,7 @@ pub(crate) enum Load {
     Failed(String),
 }
 
-type SharedDb = Arc<Mutex<Db>>;
+pub(crate) type SharedDb = Arc<Mutex<Db>>;
 
 /// Work that waits for the database to open; it is given the database, or `None` when opening failed.
 type WhenOpen = Box<dyn FnOnce(Option<SharedDb>)>;
@@ -175,6 +175,12 @@ impl Store {
                 Err(error) => self.load.set(Load::Failed(format!("Luồng đọc dữ liệu bị dừng: {error}"))),
             }
         });
+    }
+
+    /// The open database, for a writer off the UI thread (the MT5 connection) that bumps the
+    /// revision itself ([`data_changed`]); `None` until it is open.
+    pub(crate) fn database(&self) -> Option<SharedDb> {
+        self.db.get()
     }
 
     /// Whether the database is open: what waits for it (`query`, [`Store::read`]) starts then (tracked).

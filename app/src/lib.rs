@@ -10,6 +10,7 @@
 //! - `format`     numbers and times as text
 //! - `month_report` the week or month a share card or the monthly PDF is made from
 //! - `insight`   the calendar, analytics and discipline figures read out of a snapshot
+//! - `mt5`        the direct MT5 connection: a hidden terminal per account the trader signed in to
 //! - `ui`         the app's styled components and tokens; pages use only these
 //! - `pages`      one module per screen
 
@@ -18,6 +19,7 @@ mod format;
 mod insight;
 mod journal_draft;
 mod month_report;
+mod mt5;
 mod nav;
 mod pages;
 mod shell;
@@ -110,6 +112,7 @@ pub fn Workspace() -> impl IntoElement {
     store::provide();
     ui::controls::provide_root_owner();
     cloud::provide();
+    mt5::provide();
     pages::follow_appearance();
     view().flex_1().bg(move || theme().background).text_color(move || theme().foreground).child(shell::shell())
 }

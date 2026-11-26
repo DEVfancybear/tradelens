@@ -11,6 +11,25 @@ Ngày là ước lượng cho một người làm toàn thời gian; mỗi mốc
 | **v0.4 Kết nối MT5 & copier** | Đăng nhập tài khoản MT5 ngay trong app (mật khẩu trong Windows Credential Manager), app tự chạy terminal MT5 portable ẩn cho từng tài khoản và điều khiển qua gói Python `MetaTrader5` (không EA); lệnh tự vào nhật ký, popup ghi kế hoạch khi có lệnh mới; xem và quản lý lệnh trong app; copier nhiều tài khoản (cách tính lot, đổi symbol, copy ngược, lệnh chờ, sửa SL/TP, đóng một phần). Đặc tả đang chốt | — | Đăng nhập xong, lệnh đóng hiện trong app ≤ 5 giây không cần mở MT5 |
 | **v1.0 Phát hành** | Bộ cài Windows (`nsh package`), tự cập nhật, macOS, kiểm thử E2E, tài liệu người dùng | 23/01/2027 | Cài mới đến lệnh đầu tiên trong app dưới 10 phút |
 
+## Đã làm trong v0.4: kết nối MT5 (copier chưa làm)
+
+- **Kết nối** (`crates/mt5`): mỗi tài khoản một bản MT5 portable chép từ terminal đã cài
+  (`%APPDATA%\vn.dat.tradelens\mt5\terminals\<login>@<server>`), chạy ẩn bằng worker
+  `python/tradelens_worker.py` (gói `MetaTrader5`, nói chuyện với app bằng JSON từng dòng qua stdin/stdout). Mỗi tài
+  khoản một luồng `Link`: đăng nhập, đọc deal và lệnh đang mở mỗi 2 giây, tự kết nối lại sau 30 giây khi mất kết nối,
+  dừng hẳn khi server từ chối mật khẩu. Deal ghi thẳng vào DB với `source = mt5`.
+- **Thẻ "Kết nối MT5"** ở Nguồn dữ liệu: kiểm tra Python 3 và gói MetaTrader5 (nút "Cài gói MetaTrader5" chạy
+  `pip install --user`), chọn terminal tìm được (theo `origin.txt` của thư mục dữ liệu MT5 và `Program Files`) hoặc
+  chọn `terminal64.exe`; đăng nhập số tài khoản / mật khẩu / server; tài khoản chỉ được lưu (setting `mt5.accounts`,
+  mật khẩu trong Windows Credential Manager) sau lần đăng nhập đầu thành công và tự kết nối khi mở app; danh sách lệnh
+  đang mở; "Kết nối lại", "Xoá" (xoá cả bản terminal riêng).
+- **Lệnh mới → popup kế hoạch** (tắt bằng công tắc "Hỏi kế hoạch khi có lệnh mới", setting `mt5.plan_prompt = 0`).
+- **Quản lý lệnh** (`pages/position.rs`): sửa SL/TP, đóng toàn bộ hoặc một phần (hỏi trước), mở từ thẻ kết nối và từ nút
+  "Quản lý lệnh" ở chi tiết lệnh đang mở.
+- Chế độ thử: `TRADELENS_MT5=memory` hoặc setting `mt5.mode = memory` dùng broker giả trong bộ nhớ (test màn hình).
+- **Còn lại của v0.4:** copier nhiều tài khoản (cách tính lot, đổi symbol, copy ngược, lệnh chờ, chốt an toàn) — chờ chốt
+  đặc tả với người dùng; kiểm tra trên MT5 thật (máy dev chưa có Python và MT5).
+
 ## Đã làm trong v0.3
 
 - **Sync nhiều máy** (`crates/cloud`, `crates/core::sync`): nhật ký thay đổi theo từng trường, gộp theo lần sửa mới nhất,

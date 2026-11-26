@@ -3072,12 +3072,14 @@ dependencies = [
  "nsh-platform-macos",
  "nsh-platform-windows",
  "nsh-testing",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror",
  "tiny_http",
  "tradelens-cloud",
  "tradelens-core",
+ "tradelens-mt5",
  "url",
 ]
 
@@ -5711,6 +5713,18 @@ dependencies = [
  "ttf-parser",
  "unicode-normalization",
  "zip",
+]
+
+[[package]]
+name = "tradelens-mt5"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tradelens-core",
 ]
 
 [[package]]

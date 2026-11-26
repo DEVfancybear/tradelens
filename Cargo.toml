@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core", "crates/cloud", "app"]
+members = ["crates/core", "crates/cloud", "crates/mt5", "app"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,6 +12,7 @@ repository = "https://github.com/DEVfancybear/tradelens"
 [workspace.dependencies]
 tradelens-core = { path = "crates/core" }
 tradelens-cloud = { path = "crates/cloud" }
+tradelens-mt5 = { path = "crates/mt5" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock", "serde"] }

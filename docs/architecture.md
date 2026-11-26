@@ -11,13 +11,16 @@ Notion CSV / API ──┘                                ├─► tradelens-co
                             Google Drive / OneDrive ◄─► tradelens-cloud
 ```
 
-Kết nối MT5 trực tiếp (v0.4): app chạy terminal MT5 portable ẩn cho từng tài khoản người dùng đăng
-nhập và điều khiển qua gói Python `MetaTrader5`; không có EA. EA và bridge HTTP của v0.1 đã bỏ.
+Kết nối MT5 trực tiếp (v0.4, `tradelens-mt5`): mỗi tài khoản người dùng đăng nhập có một bản MT5 portable chạy ẩn
+và một worker Python (`python/tradelens_worker.py`, gói `MetaTrader5`) nói chuyện với app bằng JSON từng dòng qua
+stdin/stdout; luồng `Link` của tài khoản ghi deal thẳng vào SQLite (`source = mt5`) rồi tăng `Revision`. Không có EA;
+EA và bridge HTTP của v0.1 đã bỏ.
 
 | Crate | Trách nhiệm | Không làm |
 |---|---|---|
 | `tradelens-core` | Model, deal → lệnh, thống kê, quy tắc, SQLite, đọc file | Mạng, UI |
 | `tradelens-cloud` | OAuth, Drive API, Notion API, gộp thay đổi | Đọc báo cáo MT5 |
+| `tradelens-mt5` | Terminal portable, worker Python, luồng kết nối từng tài khoản, lệnh đóng / sửa SL-TP | Ghi DB, UI |
 | `nsh-app-tradelens` | Giao diện, store, điều phối luồng nền | Tính toán nghiệp vụ |
 
 ## Quy ước

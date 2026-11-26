@@ -102,12 +102,31 @@ fn route_row(route: Route) -> impl IntoElement {
     sidebar_row(route.icon(), route.label(), move || nav::current() == route, move || nav::go(route))
 }
 
-/// The sync's state, at the sidebar's foot.
+/// The MT5 connection's and the sync's state, at the sidebar's foot.
 fn status() -> impl IntoElement {
     let state = cloud::cloud().state;
-    view().px_3().gap_1().child(
-        text(move || state.with(status_line)).text_xs().number_of_lines(1).text_color(move || theme().muted_foreground),
-    )
+    let connection = crate::mt5::mt5().state;
+    let connected = computed(move || connection.with(mt5_line));
+    view()
+        .px_3()
+        .gap_1()
+        .child(text(move || connected.get()).text_xs().number_of_lines(1).text_color(move || theme().muted_foreground))
+        .child(
+            text(move || state.with(status_line))
+                .text_xs()
+                .number_of_lines(1)
+                .text_color(move || theme().muted_foreground),
+        )
+}
+
+/// `MT5: chưa kết nối`, or how many of the accounts signed in to are connected.
+fn mt5_line(state: &crate::mt5::State) -> String {
+    match (state.accounts.len(), state.connected()) {
+        (0, _) => "MT5: chưa kết nối".to_owned(),
+        (1, 1) => "MT5 · đã kết nối".to_owned(),
+        (_, 0) => "MT5 · mất kết nối".to_owned(),
+        (total, connected) => format!("MT5 · {connected}/{total} tài khoản kết nối"),
+    }
 }
 
 /// `Cloud: chưa đăng nhập`, or the account's drive and how the last sync went.
