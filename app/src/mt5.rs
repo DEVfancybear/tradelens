@@ -10,18 +10,18 @@
 //! credential store (`Env::save_secret`, in memory for tests and the demo).
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         mpsc::{self, Receiver, Sender},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use nsh_core::prelude::*;
 use serde::{Deserialize, Serialize};
-use tradelens_core::{AccountInfo, Db, DbError, TradeKey, journal::EntryPlan};
+use tradelens_core::{AccountInfo, Db, DbError, DealBatch, TradeKey, journal::EntryPlan};
 use tradelens_mt5::{
     AccountRef, Event, Levels, Link, LinkSettings, LinkState, Login, Mt5Error, Opener, Password, Position,
     install::{self, Install},
@@ -50,6 +50,11 @@ const SOURCE: &str = "mt5";
 
 /// How often the timer takes what the links' threads said.
 const DRAIN_EVERY: Duration = Duration::from_millis(250);
+
+/// How often a connected account's equity is written to the database. It moves with every tick
+/// while a position is open, and each write is a change the cloud sync uploads; the card shows the
+/// live figure anyway.
+const EQUITY_EVERY: Duration = Duration::from_mins(5);
 
 /// The name of an account's password in the credential store.
 fn secret_name(account: &AccountRef) -> String {
@@ -132,16 +137,41 @@ pub(crate) struct Live {
     saved: bool,
     /// The trader forgot it: it goes once its link has stopped.
     removing: bool,
+    /// The link this account listens to: what an older link of the account still says is ignored.
+    link_id: Option<u64>,
+    /// Its terminal is being made ready (or an older link is being stopped): a second start waits.
+    starting: bool,
     pub(crate) status: Status,
     pub(crate) info: Option<AccountInfo>,
     /// The account's id in the database, once a poll has been stored.
     pub(crate) account_id: Option<i64>,
     pub(crate) positions: Vec<Position>,
+    /// The positions the link has already seen (each puts the plan prompt on screen once): a
+    /// position missing from one poll does not count as new when it shows again.
+    seen: BTreeSet<i64>,
     /// When the last poll arrived, milliseconds since 1970 on the machine's clock.
     pub(crate) polled_at: Option<i64>,
 }
 
 impl Live {
+    /// An account not kept yet: it is once its first login succeeds.
+    fn new(account: AccountRef, terminal: PathBuf) -> Self {
+        Self {
+            account,
+            terminal,
+            saved: false,
+            removing: false,
+            link_id: None,
+            starting: false,
+            status: Status::Preparing,
+            info: None,
+            account_id: None,
+            positions: Vec::new(),
+            seen: BTreeSet::new(),
+            polled_at: None,
+        }
+    }
+
     /// `Exness Demo (52012345)`, or the login and the server before the first login.
     pub(crate) fn title(&self) -> String {
         match self.info.as_ref().map(|info| info.name.trim()).filter(|name| !name.is_empty()) {
@@ -177,6 +207,15 @@ impl State {
         self.accounts.iter_mut().find(|live| live.account == *account)
     }
 
+    /// The account whose current link is `id`.
+    fn of_link(&self, id: u64) -> Option<&Live> {
+        self.accounts.iter().find(|live| live.link_id == Some(id))
+    }
+
+    fn of_link_mut(&mut self, id: u64) -> Option<&mut Live> {
+        self.accounts.iter_mut().find(|live| live.link_id == Some(id))
+    }
+
     /// The connected account the database knows as `account_id`, and its position `ticket`.
     pub(crate) fn position(&self, account_id: i64, ticket: i64) -> Option<(&Live, &Position)> {
         self.accounts
@@ -191,10 +230,10 @@ impl State {
     }
 }
 
-/// What a link's thread tells the UI thread.
+/// What a link's thread tells the UI thread, tagged with the link it comes from.
 #[derive(Debug)]
 enum Heard {
-    State(AccountRef, LinkState),
+    State(u64, LinkState),
     Polled(Polled),
 }
 
@@ -202,7 +241,7 @@ enum Heard {
 /// shows. `first` is the first poll since the login: its positions were open before.
 #[derive(Debug)]
 struct Polled {
-    account: AccountRef,
+    link: u64,
     account_id: Option<i64>,
     info: AccountInfo,
     positions: Vec<Position>,
@@ -232,8 +271,10 @@ pub(crate) struct Mt5 {
     links: Stored<Links>,
     sender: Stored<Sender<Heard>>,
     receiver: Stored<Receiver<Heard>>,
-    /// The password of a sign-in that has not logged in yet, kept once it has.
-    pending: Stored<BTreeMap<AccountRef, Password>>,
+    /// The password of a sign-in that has not logged in yet, by link: kept once that link has.
+    pending: Stored<BTreeMap<u64, Password>>,
+    /// The id the next link gets.
+    next_link: Stored<u64>,
     store: Store,
     write: Writer,
     owner: Owner,
@@ -255,6 +296,7 @@ pub(crate) fn provide() {
         sender: stored(sender),
         receiver: stored(receiver),
         pending: stored(BTreeMap::new()),
+        next_link: stored(1),
         store: store(),
         write: writer(),
         owner: root_owner(),
@@ -285,8 +327,22 @@ struct Config {
     prompt: bool,
 }
 
+/// The accounts the setting keeps; the inner error (in Vietnamese) when the setting cannot be read,
+/// so that nothing writes over it.
+fn saved_accounts(db: &Db) -> Result<Result<Vec<Saved>, String>, DbError> {
+    Ok(match db.setting(ACCOUNTS_SETTING)? {
+        None => Ok(Vec::new()),
+        Some(json) if json.trim().is_empty() => Ok(Vec::new()),
+        Some(json) => serde_json::from_str(&json)
+            .map_err(|error| format!("Cài đặt {ACCOUNTS_SETTING} bị hỏng ({error}): không ghi đè lên nó.")),
+    })
+}
+
 fn read_config(db: &Db) -> Result<Config, DbError> {
-    let saved = db.setting(ACCOUNTS_SETTING)?.and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default();
+    let saved = saved_accounts(db)?.unwrap_or_else(|error| {
+        log::error!("mt5: {error}");
+        Vec::new()
+    });
     let demo = db.setting(MODE_SETTING)?.as_deref() == Some("memory")
         || std::env::var("TRADELENS_MT5").is_ok_and(|v| v.trim().eq_ignore_ascii_case("memory"));
     Ok(Config {
@@ -296,6 +352,18 @@ fn read_config(db: &Db) -> Result<Config, DbError> {
         python: db.setting(PYTHON_SETTING)?.filter(|p| !p.trim().is_empty()).map(PathBuf::from),
         prompt: db.setting(PROMPT_SETTING)?.as_deref() != Some("0"),
     })
+}
+
+/// Rewrites the kept accounts with `change`; refuses (inner error) when the setting cannot be read.
+fn change_saved(db: &mut Db, change: impl FnOnce(&mut Vec<Saved>)) -> Result<Result<(), String>, DbError> {
+    let mut saved = match saved_accounts(db)? {
+        Ok(saved) => saved,
+        Err(error) => return Ok(Err(error)),
+    };
+    change(&mut saved);
+    let json = serde_json::to_string(&saved).map_err(|error| DbError::Invalid(error.to_string()))?;
+    db.set_setting(ACCOUNTS_SETTING, &json)?;
+    Ok(Ok(()))
 }
 
 /// The folder the connection keeps its files in (the worker's scripts, the portable terminals),
@@ -325,6 +393,12 @@ struct Prepared {
 /// Blocks: the first copy of a terminal takes a while.
 fn prepare(setup: &Setup, account: &AccountRef, terminal: &Path, password: Password) -> Result<Prepared, String> {
     if setup.demo {
+        // Any login works in the demo: the first sign-in opens a sample account with that password.
+        memory::Broker::named(&account.server).open_demo_account(
+            &account.login,
+            password.expose(),
+            chrono::Utc::now().timestamp_millis(),
+        );
         let login = Login { account: account.clone(), password, terminal: terminal.to_path_buf() };
         return Ok(Prepared { open: memory::opener(), login });
     }
@@ -345,9 +419,12 @@ fn prepare(setup: &Setup, account: &AccountRef, terminal: &Path, password: Passw
 
 /// Stores a poll's deals; bumps the revision when something changed. The account's id, `None`
 /// when the database refused (logged: the next poll tries again).
-fn store_poll(db: &SharedDb, poll: &tradelens_mt5::Poll) -> Option<i64> {
-    let mut db = db.lock().expect("database lock poisoned");
-    match db.upsert_batch(&poll.batch(), SOURCE) {
+fn store_poll(db: &SharedDb, batch: &DealBatch) -> Option<i64> {
+    let Ok(mut db) = db.lock() else {
+        log::error!("mt5 {}: the database lock is poisoned, the deals are not stored", batch.account.login);
+        return None;
+    };
+    match db.upsert_batch(batch, SOURCE) {
         Ok(report) => {
             if report.inserted + report.updated > 0 {
                 store::data_changed();
@@ -355,7 +432,7 @@ fn store_poll(db: &SharedDb, poll: &tradelens_mt5::Poll) -> Option<i64> {
             Some(report.account_id)
         }
         Err(error) => {
-            log::error!("mt5 {}: the deals could not be stored: {error}", poll.account.login);
+            log::error!("mt5 {}: the deals could not be stored: {error}", batch.account.login);
             None
         }
     }
@@ -367,6 +444,7 @@ pub(crate) fn describe(error: &Mt5Error) -> String {
         Mt5Error::LoginRefused(message) => format!("MT5 từ chối đăng nhập: {message}"),
         Mt5Error::Refused { message, .. } => format!("MT5 từ chối: {message}"),
         Mt5Error::Unreachable(message) => format!("Không kết nối được MT5: {message}"),
+        Mt5Error::Uncertain(message) => format!("Không rõ kết quả: {message}"),
         Mt5Error::Setup(message) => message.clone(),
     }
 }
@@ -390,6 +468,31 @@ fn plan_request(live: &Live, account_id: i64, position: &Position) -> PlanReques
     }
 }
 
+/// The listener of link `id`: stores each poll's deals on the link's thread (equity at most every
+/// [`EQUITY_EVERY`]) and passes what the screens show to the UI thread.
+fn listener(id: u64, db: SharedDb, sender: Sender<Heard>) -> tradelens_mt5::Listener {
+    let equity_written = Mutex::new(None::<Instant>);
+    Arc::new(move |event: Event| {
+        let heard = match event {
+            Event::State(_, state) => Heard::State(id, state),
+            Event::Polled { poll, first, .. } => {
+                let mut batch = poll.batch();
+                if let Ok(mut written) = equity_written.lock() {
+                    if written.is_some_and(|at| at.elapsed() < EQUITY_EVERY) {
+                        batch.account.equity = None;
+                    } else {
+                        *written = Some(Instant::now());
+                    }
+                }
+                let account_id = store_poll(&db, &batch);
+                Heard::Polled(Polled { link: id, account_id, info: poll.account, positions: poll.positions, first })
+            }
+        };
+        // The app may be closing: nobody hears it then.
+        drop(sender.send(heard));
+    })
+}
+
 impl Mt5 {
     /// Reads the settings, looks at the machine and connects the saved accounts.
     fn load(self) {
@@ -404,17 +507,7 @@ impl Mt5 {
                     state.loaded = true;
                     state.accounts = saved
                         .iter()
-                        .map(|saved| Live {
-                            account: saved.account(),
-                            terminal: saved.terminal.clone(),
-                            saved: true,
-                            removing: false,
-                            status: Status::Preparing,
-                            info: None,
-                            account_id: None,
-                            positions: Vec::new(),
-                            polled_at: None,
-                        })
+                        .map(|saved| Live { saved: true, ..Live::new(saved.account(), saved.terminal.clone()) })
                         .collect();
                 });
                 self.check_then(move || self.connect_saved(saved));
@@ -460,7 +553,9 @@ impl Mt5 {
                 .unwrap_or_default();
                 for (password, saved) in passwords {
                     match password {
-                        Ok(Some(password)) => self.start(saved.account(), saved.terminal, Password::new(password)),
+                        Ok(Some(password)) => {
+                            self.start(saved.account(), saved.terminal, Password::new(password), None);
+                        }
                         Ok(None) => self.set_status(
                             &saved.account(),
                             Status::Refused("Chưa có mật khẩu của tài khoản này: hãy đăng nhập lại.".to_owned()),
@@ -481,94 +576,108 @@ impl Mt5 {
     }
 
     /// Signs in to `account` with `password`, running it in a copy of the installed `terminal`.
-    /// The account is kept (with its password) once its first login succeeds.
+    /// The account is kept (with its password) once this login succeeds.
     pub(crate) fn sign_in(self, account: AccountRef, terminal: PathBuf, password: &str) {
+        let refuse = |why: &str| self.state.update(|state| state.error = Some(why.to_owned()));
+        if !self.state.with_untracked(|state| state.loaded) {
+            return refuse("Đang đọc cài đặt, hãy thử lại sau giây lát.");
+        }
         if account.login.is_empty() || !account.login.chars().all(|c| c.is_ascii_digit()) {
-            return self.state.update(|state| state.error = Some("Số tài khoản MT5 chỉ gồm chữ số.".to_owned()));
+            return refuse("Số tài khoản MT5 chỉ gồm chữ số.");
         }
         if account.server.is_empty() || password.is_empty() {
-            return self
-                .state
-                .update(|state| state.error = Some("Hãy nhập đủ số tài khoản, mật khẩu và server.".to_owned()));
+            return refuse("Hãy nhập đủ số tài khoản, mật khẩu và server.");
+        }
+        if self.state.with_untracked(|state| state.live(&account).is_some_and(|live| live.starting)) {
+            return refuse("Tài khoản này đang được kết nối, hãy chờ một chút.");
         }
         self.state.update(|state| {
             state.error = None;
             match state.live_mut(&account) {
                 Some(live) => {
                     live.terminal.clone_from(&terminal);
-                    live.status = Status::Preparing;
                     live.removing = false;
                 }
-                None => state.accounts.push(Live {
-                    account: account.clone(),
-                    terminal: terminal.clone(),
-                    saved: false,
-                    removing: false,
-                    status: Status::Preparing,
-                    info: None,
-                    account_id: None,
-                    positions: Vec::new(),
-                    polled_at: None,
-                }),
+                None => state.accounts.push(Live::new(account.clone(), terminal.clone())),
             }
         });
         // Kept once it logs in: for a new account, and for a new password of one already kept.
-        self.pending.with(|pending| pending.insert(account.clone(), Password::new(password)));
-        self.start(account, terminal, Password::new(password));
+        self.start(account, terminal, Password::new(password), Some(Password::new(password)));
     }
 
-    /// Makes the account's terminal ready, then starts its link.
-    fn start(self, account: AccountRef, terminal: PathBuf, password: Password) {
-        self.stop_link(&account);
-        self.set_status(&account, Status::Preparing);
-        let setup = self.state.with_untracked(|state| state.setup.clone());
+    /// Makes the account's terminal ready, then starts a new link for it once the old one (if any)
+    /// has stopped: two workers never drive one portable terminal. `keep` is the password to keep
+    /// once this link logs in. A start while another is making the terminal ready is dropped.
+    fn start(self, account: AccountRef, terminal: PathBuf, password: Password, keep: Option<Password>) {
+        if self.state.with_untracked(|state| state.live(&account).is_none_or(|live| live.starting)) {
+            return;
+        }
         let Some(db) = self.store.database() else {
             return self.set_status(&account, Status::Retrying("Chưa mở được cơ sở dữ liệu.".to_owned()));
         };
+        let id = self.next_link.with(|next| {
+            *next += 1;
+            *next - 1
+        });
+        let old = self.links.with(|links| links.lock().expect("lock poisoned").remove(&account));
+        self.state.update(|state| {
+            if let Some(live) = state.live_mut(&account) {
+                live.link_id = Some(id);
+                live.starting = true;
+                live.status = Status::Preparing;
+                live.seen.clear();
+            }
+        });
+        if let Some(keep) = keep {
+            self.pending.with(|pending| pending.insert(id, keep));
+        }
+        let setup = self.state.with_untracked(|state| state.setup.clone());
         let sender = self.sender.with(|sender| sender.clone());
         self.owner.run(move || {
             spawn(async move {
                 let wanted = account.clone();
-                let prepared = blocking(move || prepare(&setup, &wanted, &terminal, password))
-                    .await
-                    .unwrap_or_else(|error| Err(format!("Luồng chuẩn bị MT5 bị dừng: {error}")));
-                let prepared = match prepared {
-                    Ok(prepared) => prepared,
+                let prepared = blocking(move || {
+                    if let Some(old) = old {
+                        old.stop_and_wait();
+                    }
+                    prepare(&setup, &wanted, &terminal, password)
+                })
+                .await
+                .unwrap_or_else(|error| Err(format!("Luồng chuẩn bị MT5 bị dừng: {error}")));
+                // The trader may have forgotten the account, or started it again, meanwhile.
+                let current = self.state.with_untracked(|state| state.of_link(id).is_some_and(|live| !live.removing));
+                if !current {
+                    self.pending.with(|pending| pending.remove(&id));
+                    return;
+                }
+                match prepared {
+                    Ok(prepared) => {
+                        let link = Link::start(
+                            prepared.login,
+                            prepared.open,
+                            LinkSettings::default(),
+                            listener(id, db, sender),
+                        );
+                        self.links.with(|links| links.lock().expect("lock poisoned").insert(account, Arc::new(link)));
+                        self.state.update(|state| {
+                            if let Some(live) = state.of_link_mut(id) {
+                                live.starting = false;
+                            }
+                        });
+                    }
                     Err(why) => {
+                        self.pending.with(|pending| pending.remove(&id));
                         // A new sign-in that cannot start is not listed: the form says why.
-                        self.pending.with(|pending| pending.remove(&account));
-                        return self.state.update(|state| {
-                            state.accounts.retain(|live| live.saved || live.account != account);
-                            if let Some(live) = state.live_mut(&account) {
+                        self.state.update(|state| {
+                            state.accounts.retain(|live| live.saved || live.link_id != Some(id));
+                            if let Some(live) = state.of_link_mut(id) {
+                                live.starting = false;
                                 live.status = Status::Retrying(why.clone());
                             }
                             state.error = Some(why);
                         });
                     }
-                };
-                // The trader may have forgotten the account while its terminal was being copied.
-                if self.state.with_untracked(|state| state.live(&account).is_none_or(|live| live.removing)) {
-                    return;
                 }
-                let listen = Arc::new(move |event: Event| {
-                    let heard = match event {
-                        Event::State(account, state) => Heard::State(account, state),
-                        Event::Polled { account, poll, first } => {
-                            let account_id = store_poll(&db, &poll);
-                            Heard::Polled(Polled {
-                                account,
-                                account_id,
-                                info: poll.account,
-                                positions: poll.positions,
-                                first,
-                            })
-                        }
-                    };
-                    // The app may be closing: nobody hears it then.
-                    drop(sender.send(heard));
-                });
-                let link = Link::start(prepared.login, prepared.open, LinkSettings::default(), listen);
-                self.links.with(|links| links.lock().expect("lock poisoned").insert(account, Arc::new(link)));
             });
         });
     }
@@ -615,10 +724,9 @@ impl Mt5 {
         let env = self.state.with_untracked(|state| state.env.clone());
         self.write.run(
             move |db: &mut Db| {
-                let mut saved: Vec<Saved> =
-                    db.setting(ACCOUNTS_SETTING)?.and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default();
-                saved.retain(|kept| kept.account() != wanted);
-                db.set_setting(ACCOUNTS_SETTING, &serde_json::to_string(&saved).unwrap_or_default())?;
+                if let Err(error) = change_saved(db, |saved| saved.retain(|kept| kept.account() != wanted))? {
+                    return Ok(Err(error));
+                }
                 Ok(env.map_or(Ok(()), |env| env.clear_secret(&secret_name(&wanted))))
             },
             move |result| {
@@ -629,20 +737,22 @@ impl Mt5 {
         );
     }
 
-    /// Keeps `account` in the settings and its password in the credential store, after its first login.
+    /// Keeps `account` in the settings and its password in the credential store, after a login.
     fn keep(self, account: &AccountRef, password: Password) {
         let Some(live) = self.state.with_untracked(|state| state.live(account).cloned()) else { return };
-        let env = self.state.with_untracked(|state| state.env.clone());
+        let Some(env) = self.state.with_untracked(|state| state.env.clone()) else { return };
         let kept = Saved { login: live.account.login, server: live.account.server, terminal: live.terminal };
         let wanted = account.clone();
         self.write.run(
             move |db: &mut Db| {
-                let mut saved: Vec<Saved> =
-                    db.setting(ACCOUNTS_SETTING)?.and_then(|json| serde_json::from_str(&json).ok()).unwrap_or_default();
-                saved.retain(|other| other.account() != kept.account());
-                saved.push(kept);
-                db.set_setting(ACCOUNTS_SETTING, &serde_json::to_string(&saved).unwrap_or_default())?;
-                Ok(env.map_or(Ok(()), |env| env.save_secret(&secret_name(&wanted), password.expose())))
+                let account = kept.account();
+                if let Err(error) = change_saved(db, |saved| {
+                    saved.retain(|other| other.account() != account);
+                    saved.push(kept);
+                })? {
+                    return Ok(Err(error));
+                }
+                Ok(env.save_secret(&secret_name(&wanted), password.expose()))
             },
             move |result| {
                 if let Err(error) = result.and_then(|saved| saved) {
@@ -657,62 +767,63 @@ impl Mt5 {
         let heard: Vec<Heard> = self.receiver.with(|receiver| receiver.try_iter().collect());
         for heard in heard {
             match heard {
-                Heard::State(account, state) => self.on_state(&account, state),
+                Heard::State(id, state) => self.on_state(id, state),
                 Heard::Polled(polled) => self.on_poll(polled),
             }
         }
     }
 
-    fn on_state(self, account: &AccountRef, state: LinkState) {
-        let Some(live) = self.state.with_untracked(|s| s.live(account).cloned()) else { return };
+    /// What link `id` says of itself; nothing when it is not the account's current link.
+    fn on_state(self, id: u64, state: LinkState) {
+        let Some(live) = self.state.with_untracked(|s| s.of_link(id).cloned()) else { return };
+        let account = &live.account;
+        let set = |status: Status| {
+            self.state.update(|s| {
+                if let Some(live) = s.of_link_mut(id) {
+                    live.status = status;
+                }
+            });
+        };
         match state {
-            LinkState::Connecting => self.set_status(account, Status::Connecting),
+            LinkState::Connecting => set(Status::Connecting),
             LinkState::Connected(info) => {
+                let keep = self.pending.with(|pending| pending.remove(&id));
                 self.state.update(|s| {
-                    if let Some(live) = s.live_mut(account) {
+                    if let Some(live) = s.of_link_mut(id) {
                         live.status = Status::Connected;
                         live.info = Some(info);
+                        live.saved |= keep.is_some();
                     }
                 });
-                if let Some(password) = self.pending_password(account) {
-                    self.state.update(|s| {
-                        if let Some(live) = s.live_mut(account) {
-                            live.saved = true;
-                        }
-                    });
+                if let Some(password) = keep {
                     self.keep(account, password);
                 }
             }
-            LinkState::Retrying(error) => self.set_status(account, Status::Retrying(describe(&error))),
+            LinkState::Retrying(error) => set(Status::Retrying(describe(&error))),
             LinkState::Refused(error) => {
-                drop(self.pending_password(account));
+                self.pending.with(|pending| pending.remove(&id));
                 if live.saved {
                     // An account kept before stays listed (with the password it had), saying why.
-                    self.set_status(account, Status::Refused(describe(&error)));
+                    set(Status::Refused(describe(&error)));
                     self.state.update(|s| s.error = Some(describe(&error)));
                 } else {
                     // A first sign-in that failed: nothing is kept, the form says why.
                     self.stop_link(account);
                     self.state.update(|s| {
-                        s.accounts.retain(|live| live.account != *account);
+                        s.accounts.retain(|live| live.link_id != Some(id));
                         s.error = Some(describe(&error));
                     });
                 }
             }
             LinkState::Stopped => {
                 if live.removing {
-                    self.state.update(|s| s.accounts.retain(|live| live.account != *account));
+                    self.state.update(|s| s.accounts.retain(|live| live.link_id != Some(id)));
                     self.remove_copy(account);
-                } else if self.link(account).is_none() {
-                    self.set_status(account, Status::Stopped);
+                } else {
+                    set(Status::Stopped);
                 }
             }
         }
-    }
-
-    /// The password a link was started with, for keeping it once the login succeeded.
-    fn pending_password(self, account: &AccountRef) -> Option<Password> {
-        self.pending.with(|pending| pending.remove(account))
     }
 
     fn remove_copy(self, account: &AccountRef) {
@@ -728,16 +839,23 @@ impl Mt5 {
         });
     }
 
+    /// What a poll of link `id` read; a position the link has not seen before puts the plan prompt
+    /// on screen, unless it was already open when the link logged in.
     fn on_poll(self, polled: Polled) {
-        let Polled { account, account_id, info, positions, first } = polled;
-        let account = &account;
-        let Some(live) = self.state.with_untracked(|s| s.live(account).cloned()) else { return };
-        let known: HashSet<i64> = live.positions.iter().map(|p| p.ticket).collect();
-        let opened: Vec<Position> =
-            if first { Vec::new() } else { positions.iter().filter(|p| !known.contains(&p.ticket)).cloned().collect() };
+        let Polled { link, account_id, info, positions, first } = polled;
+        let Some(live) = self.state.with_untracked(|s| s.of_link(link).cloned()) else { return };
+        if live.removing {
+            return;
+        }
+        let opened: Vec<Position> = if first {
+            Vec::new()
+        } else {
+            positions.iter().filter(|p| !live.seen.contains(&p.ticket)).cloned().collect()
+        };
         let now = chrono::Utc::now().timestamp_millis();
         self.state.update(|s| {
-            if let Some(live) = s.live_mut(account) {
+            if let Some(live) = s.of_link_mut(link) {
+                live.seen.extend(positions.iter().map(|p| p.ticket));
                 live.info = Some(info);
                 live.positions = positions;
                 live.polled_at = Some(now);
@@ -817,14 +935,17 @@ impl Mt5 {
         ask: impl FnOnce(&Link) -> Result<(), Mt5Error> + Send + 'static,
         done: impl FnOnce(Result<(), String>) + 'static,
     ) {
-        let Some(link) = self.link(account) else {
-            return done(Err("Tài khoản MT5 này chưa kết nối.".to_owned()));
+        let connected =
+            self.state.with_untracked(|state| state.live(account).is_some_and(|l| l.status == Status::Connected));
+        let link = self.link(account).filter(|_| connected);
+        let Some(link) = link else {
+            return done(Err("Tài khoản MT5 này chưa kết nối: lệnh chưa được gửi.".to_owned()));
         };
         self.owner.run(move || {
             spawn(async move {
                 let result = blocking(move || ask(&link))
                     .await
-                    .unwrap_or_else(|error| Err(Mt5Error::Unreachable(format!("luồng gửi lệnh bị dừng: {error}"))));
+                    .unwrap_or_else(|error| Err(Mt5Error::Uncertain(format!("luồng gửi lệnh bị dừng: {error}"))));
                 done(result.map_err(|error| describe(&error)));
             });
         });

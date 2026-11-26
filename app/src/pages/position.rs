@@ -8,7 +8,7 @@ use tradelens_mt5::{AccountRef, Levels, Position};
 
 use crate::{
     format::{self, Sign},
-    mt5::mt5,
+    mt5::{Status, mt5},
     ui::{
         chips::pnl_text,
         controls::{Variant, action_when, confirm_then, root_owner},
@@ -51,28 +51,61 @@ enum Outcome {
     Failed(String),
 }
 
+/// What the trader typed in a level field: `None` while untouched (the field follows the position),
+/// `Some(None)` for an emptied field (remove the level), `Some(Some(v))` for a new level.
+type Typed = Option<Option<f64>>;
+
+/// The position's level, `None` for 0 (no level).
+fn level(value: f64) -> Option<f64> {
+    (value > 0.0).then_some(value)
+}
+
+/// The levels to send: what the trader typed, and the position's current level for a field left
+/// alone (a stop moved in MT5 meanwhile is not undone). Also the names of the levels it removes.
+fn levels_to_send(sl: Typed, tp: Typed, current: &Position) -> (Levels, Vec<&'static str>) {
+    let levels = Levels { sl: sl.unwrap_or(level(current.sl)), tp: tp.unwrap_or(level(current.tp)) };
+    let mut removed = Vec::new();
+    if levels.sl.is_none() && level(current.sl).is_some() {
+        removed.push("stop loss");
+    }
+    if levels.tp.is_none() && level(current.tp).is_some() {
+        removed.push("take profit");
+    }
+    (levels, removed)
+}
+
 fn panel(account: AccountRef, ticket: i64) -> impl IntoElement {
     let mt5 = mt5();
     let owner = root_owner();
     let wanted = account.clone();
+    // The position, its account's currency, and whether the account is connected now: orders are
+    // sent only then (an order made while it logs in again would be dropped).
     let position = computed(move || {
         mt5.state.with(|state| {
             state.live(&wanted).and_then(|live| {
                 let currency = live.info.as_ref().map_or_default(|info| info.currency.clone());
-                live.positions.iter().find(|p| p.ticket == ticket).cloned().map(|p| (p, currency))
+                let connected = live.status == Status::Connected;
+                live.positions.iter().find(|p| p.ticket == ticket).cloned().map(|p| (p, currency, connected))
             })
         })
     });
-    let start = position.get_untracked().map(|(p, _)| p);
-    let level = |v: f64| (v > 0.0).then_some(v);
-    let sl = signal(start.as_ref().and_then(|p| level(p.sl)));
-    let tp = signal(start.as_ref().and_then(|p| level(p.tp)));
-    let volume = signal(start.as_ref().map(|p| p.volume));
+    let sl = signal(None::<Option<f64>>);
+    let tp = signal(None::<Option<f64>>);
+    let volume = signal(position.get_untracked().map(|(p, ..)| p.volume));
     let outcome = signal(None::<Outcome>);
-    let still_open = move || position.get().is_some();
-    let idle = move || still_open() && outcome.get() != Some(Outcome::Sending);
+    let current = move |pick: fn(&Position) -> f64| position.with(|p| p.as_ref().and_then(|(p, ..)| level(pick(p))));
+    let idle = move || {
+        position.with(|p| p.as_ref().is_some_and(|(_, _, connected)| *connected))
+            && outcome.get() != Some(Outcome::Sending)
+    };
     let done = move |what: &'static str| {
         move |result: Result<(), String>| {
+            if result.is_ok() {
+                batch(|| {
+                    sl.set(None);
+                    tp.set(None);
+                });
+            }
             outcome.set(Some(match result {
                 Ok(()) => Outcome::Done(what.to_owned()),
                 Err(error) => Outcome::Failed(error),
@@ -82,18 +115,24 @@ fn panel(account: AccountRef, ticket: i64) -> impl IntoElement {
     let save_levels = {
         let account = account.clone();
         move || {
-            outcome.set(Some(Outcome::Sending));
-            mt5.modify(
-                &account,
-                ticket,
-                Levels { sl: sl.get_untracked(), tp: tp.get_untracked() },
-                done("Đã đặt SL/TP."),
-            );
+            let Some((open, ..)) = position.get_untracked() else { return };
+            let (levels, removed) = levels_to_send(sl.get_untracked(), tp.get_untracked(), &open);
+            let account = account.clone();
+            let send = move || {
+                outcome.set(Some(Outcome::Sending));
+                mt5.modify(&account, ticket, levels, done("Đã đặt SL/TP."));
+            };
+            if removed.is_empty() {
+                send();
+            } else {
+                let said = format!("Ô để trống sẽ bỏ {} của lệnh {ticket} trên MT5.", removed.join(" và "));
+                confirm_then(owner, "Bỏ mức dừng của lệnh?", said, "Bỏ và lưu", send);
+            }
         }
     };
     let close = move || {
         let account = account.clone();
-        let Some((open, _)) = position.get_untracked() else { return };
+        let Some((open, ..)) = position.get_untracked() else { return };
         let (description, what, lots) = close_plan(&open, volume.get_untracked());
         confirm_then(owner, "Đóng lệnh trên MT5?", description, "Đóng lệnh", move || {
             outcome.set(Some(Outcome::Sending));
@@ -102,28 +141,16 @@ fn panel(account: AccountRef, ticket: i64) -> impl IntoElement {
     };
     view()
         .gap_4()
-        .child(dynamic(move || position.get().map(|(p, currency)| untracked(move || summary(&p, &currency)))))
-        .child(dynamic(move || {
-            (!still_open()).then(|| {
-                text("Lệnh này không còn mở trên tài khoản đang kết nối.")
-                    .text_sm()
-                    .text_color(move || theme().muted_foreground)
-            })
-        }))
+        .child(dynamic(move || position.get().map(|(p, currency, _)| untracked(move || summary(&p, &currency)))))
+        .child(connection_note(position))
         .child(
             view()
                 .flex_row()
                 .flex_wrap()
                 .items_end()
                 .gap_3()
-                .child(field(
-                    "Stop loss",
-                    number_field("Stop loss", None, NumberRange::any(), move || sl.get(), move |v| sl.set(v)),
-                ))
-                .child(field(
-                    "Take profit",
-                    number_field("Take profit", None, NumberRange::any(), move || tp.get(), move |v| tp.set(v)),
-                ))
+                .child(level_field("Stop loss", sl, move || current(|p| p.sl)))
+                .child(level_field("Take profit", tp, move || current(|p| p.tp)))
                 .child(action_when("Lưu SL/TP", Variant::Secondary, idle, save_levels)),
         )
         .child(
@@ -174,6 +201,36 @@ fn outcome_view(outcome: Outcome) -> AnyElement {
     }
 }
 
+/// Why the dialog cannot send orders now, if it cannot.
+fn connection_note(position: Memo<Option<(Position, String, bool)>>) -> impl IntoElement {
+    dynamic(move || {
+        let said = match position.get() {
+            None => Some("Lệnh này không còn mở trên tài khoản đang kết nối."),
+            Some((_, _, false)) => Some("Tài khoản đang kết nối lại: chờ kết nối xong rồi gửi lệnh."),
+            Some(_) => None,
+        };
+        said.map(|said| text(said).text_sm().text_color(move || theme().muted_foreground))
+    })
+}
+
+/// A stop or a target: what the trader typed, else the position's level as it is now.
+fn level_field(
+    label: &'static str,
+    typed: Signal<Typed>,
+    current: impl Fn() -> Option<f64> + 'static,
+) -> impl IntoElement {
+    field(
+        label,
+        number_field(
+            label,
+            None,
+            NumberRange::any(),
+            move || typed.get().unwrap_or_else(&current),
+            move |v| typed.set(Some(v)),
+        ),
+    )
+}
+
 /// A field with its label above it.
 fn field(label: &'static str, control: impl IntoElement) -> impl IntoElement {
     view()
@@ -218,6 +275,36 @@ mod tests {
     use tradelens_mt5::Direction;
 
     use super::*;
+
+    fn open_position() -> Position {
+        Position {
+            ticket: 7,
+            time_msc: 0,
+            symbol: "XAUUSD".into(),
+            side: Direction::Buy,
+            volume: 0.3,
+            open_price: 0.0,
+            current_price: 0.0,
+            sl: 2640.0,
+            tp: 2680.0,
+            profit: 0.0,
+            swap: 0.0,
+            magic: 0,
+            comment: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_level_left_alone_is_sent_as_it_is_now_and_an_emptied_one_is_named_as_removed() {
+        let mut now = open_position();
+        now.sl = 2645.0; // moved in MT5 after the dialog opened
+        let (levels, removed) = levels_to_send(None, Some(Some(2700.0)), &now);
+        assert_eq!(levels, Levels { sl: Some(2645.0), tp: Some(2700.0) }, "only the target changes");
+        assert_eq!(removed, Vec::<&str>::new(), "nothing is removed");
+        let (levels, removed) = levels_to_send(Some(None), None, &now);
+        assert_eq!(levels, Levels { sl: None, tp: Some(2680.0) });
+        assert_eq!(removed, vec!["stop loss"]);
+    }
 
     #[test]
     fn closing_asks_for_all_of_it_unless_fewer_lots_are_given() {

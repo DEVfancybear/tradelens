@@ -76,6 +76,66 @@ impl Broker {
         }
     }
 
+    /// For the demo: when the broker has no account `login`, opens one with `password`, a deposit,
+    /// a closed XAUUSD trade of yesterday and an open EURUSD position, all around `now_ms`. An
+    /// account already there is left as it is (its password still decides the login).
+    pub fn open_demo_account(&self, login: &str, password: &str, now_ms: i64) {
+        if self.accounts().contains_key(login) {
+            return;
+        }
+        let info = AccountInfo {
+            name: "Tài khoản thử".to_owned(),
+            broker: "TradeLens Demo".to_owned(),
+            currency: "USD".to_owned(),
+            balance: Some(10_120.0),
+            equity: Some(10_135.5),
+            server_offset_min: Some(0),
+            ..AccountInfo::default()
+        };
+        self.add_account(login, password, info);
+        let day = 24 * 3600 * 1000;
+        let closed = Position {
+            ticket: 900_001,
+            time_msc: now_ms - day,
+            symbol: "XAUUSD".to_owned(),
+            side: Direction::Buy,
+            volume: 0.1,
+            open_price: 2650.0,
+            current_price: 2662.0,
+            sl: 2640.0,
+            tp: 2665.0,
+            profit: 120.0,
+            swap: 0.0,
+            magic: 0,
+            comment: String::new(),
+        };
+        let mut deposit = deal_of(&closed, 1, DealEntry::None, 0.0, 10_000.0, now_ms - 2 * day);
+        deposit.kind = DealKind::Balance;
+        deposit.symbol.clear();
+        deposit.position_id = 0;
+        self.push_deal(login, deposit);
+        self.push_deal(login, deal_of(&closed, 2, DealEntry::In, 0.1, 0.0, closed.time_msc));
+        self.push_deal(login, deal_of(&closed, 3, DealEntry::Out, 0.1, 120.0, closed.time_msc + 3_600_000));
+        self.open(
+            login,
+            Position {
+                ticket: 900_002,
+                time_msc: now_ms - 600_000,
+                symbol: "EURUSD".to_owned(),
+                side: Direction::Sell,
+                volume: 0.5,
+                open_price: 1.085,
+                current_price: 1.0847,
+                sl: 1.088,
+                tp: 1.079,
+                profit: 15.5,
+                swap: 0.0,
+                magic: 0,
+                comment: String::new(),
+            },
+        );
+    }
+
     /// Opens `position` on the account, with its entry deal.
     pub fn open(&self, login: &str, position: Position) {
         let mut accounts = self.accounts();

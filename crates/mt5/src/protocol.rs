@@ -153,6 +153,9 @@ pub enum Mt5Error {
     /// The terminal or its worker cannot be reached: it did not start, stopped or stopped answering.
     #[error("terminal unreachable: {0}")]
     Unreachable(String),
+    /// An order was sent to the terminal but no answer came: it may or may not have been carried out.
+    #[error("outcome unknown: {0}")]
+    Uncertain(String),
     /// Something the connection needs is missing (Python, the package, the terminal).
     #[error("not set up: {0}")]
     Setup(String),
@@ -165,6 +168,7 @@ impl Mt5Error {
             Self::LoginRefused(message)
             | Self::Refused { message, .. }
             | Self::Unreachable(message)
+            | Self::Uncertain(message)
             | Self::Setup(message) => message,
         }
     }

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use chrono::{DateTime, Local};
 use nsh_base::theme;
 use nsh_core::prelude::*;
-use tradelens_mt5::{AccountRef, Position};
+use tradelens_mt5::AccountRef;
 
 use super::position;
 use crate::{
@@ -16,11 +16,12 @@ use crate::{
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{
-            Choice, Variant, action, action_when, confirm_then, root_owner, secret_field, select_field, text_field,
+            Choice, Variant, action, action_when, confirm_then, root_owner, secret_field, select_value, text_field,
         },
         files::{Accept, Pick, pick_files},
         forms::switch_row,
         parts::{card, error_line, warning_banner},
+        theme as tokens,
     },
 };
 
@@ -171,7 +172,10 @@ fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
                     .text_color(move || theme().muted_foreground),
             ),
         )
-        .child(dynamic(move || mt5.state.with(|state| state.error.clone()).map(error_line)))
+        .child({
+            let error = computed(move || mt5.state.with(|state| state.error.clone()));
+            dynamic(move || error.get().map(error_line))
+        })
 }
 
 /// The login, the password and the server.
@@ -240,12 +244,24 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
         .gap_3()
         .child(labelled(
             "Terminal MT5",
-            select_field(
-                "Terminal",
-                move || mt5.state.with(|state| terminal_choices(state, form.picked.get().as_ref())),
-                move || SharedString::from(form.terminal.get()),
-                move |next| form.terminal.set(next.to_string()),
-            ),
+            dynamic(move || {
+                let none = mt5.state.with(|state| terminal_choices(state, form.picked.get().as_ref()).is_empty());
+                untracked(|| {
+                    if none {
+                        return text("Chưa thấy MetaTrader 5 trên máy: cài MT5 của broker rồi bấm \"Kiểm tra lại\", hoặc chọn terminal64.exe.")
+                            .text_sm()
+                            .text_color(tokens::warning)
+                            .into_element();
+                    }
+                    select_value(
+                        "Terminal MT5",
+                        move || mt5.state.with(|state| terminal_choices(state, form.picked.get().as_ref())),
+                        move || SharedString::from(form.terminal.get()),
+                        move |next| form.terminal.set(next.to_string()),
+                    )
+                    .into_element()
+                })
+            }),
         ))
         .child(action("Chọn terminal64.exe…", Variant::Ghost, pick))
 }
@@ -289,8 +305,13 @@ fn account_line(live: &Live) -> String {
     parts.join(" · ")
 }
 
+/// The accounts, one block each. The list is rebuilt only when an account comes or goes: each
+/// block follows its account's figures in place, so that a press on its buttons is never lost to a
+/// poll (every 2 s).
 fn accounts_view(mt5: Mt5) -> impl IntoElement {
-    let accounts = computed(move || mt5.state.with(|state| state.accounts.clone()));
+    let accounts = computed(move || {
+        mt5.state.with(|state| state.accounts.iter().map(|live| live.account.clone()).collect::<Vec<_>>())
+    });
     dynamic(move || {
         let accounts = accounts.get();
         untracked(|| {
@@ -299,26 +320,28 @@ fn accounts_view(mt5: Mt5) -> impl IntoElement {
                     text("Chưa có tài khoản MT5 nào kết nối.").text_sm().text_color(move || theme().muted_foreground),
                 );
             }
-            view().gap_3().children(accounts.iter().map(move |live| account_row(mt5, live)))
+            view().gap_3().children(accounts.into_iter().map(move |account| account_row(mt5, account)))
         })
     })
 }
 
-fn account_row(mt5: Mt5, live: &Live) -> impl IntoElement + use<> {
+fn account_row(mt5: Mt5, account: AccountRef) -> impl IntoElement {
     let owner = root_owner();
-    let (label, tone) = status_chip(&live.status);
-    let detail = match &live.status {
-        Status::Retrying(why) | Status::Refused(why) => Some(why.clone()),
-        _ => None,
+    let live = {
+        let account = account.clone();
+        computed(move || mt5.state.with(|state| state.live(&account).cloned()))
     };
-    let account = live.account.clone();
-    let title = live.title();
-    let currency = live.info.as_ref().map_or_default(|info| info.currency.clone());
+    let status = computed(move || live.with(|live| live.as_ref().map(|live| live.status.clone())));
+    let tickets = computed(move || {
+        live.with(|live| {
+            live.as_ref().map_or_default(|live| live.positions.iter().map(|p| p.ticket).collect::<Vec<_>>())
+        })
+    });
     let forget = {
         let account = account.clone();
-        let title = title.clone();
         move || {
             let account = account.clone();
+            let title = live.with_untracked(|live| live.as_ref().map_or_default(Live::title));
             confirm_then(
                 owner,
                 "Xoá tài khoản MT5?",
@@ -351,26 +374,49 @@ fn account_row(mt5: Mt5, live: &Live) -> impl IntoElement + use<> {
                         .flex_1()
                         .min_w(px(0.0))
                         .gap_1()
-                        .child(text(title).text_sm().font_weight(FontWeight::SEMIBOLD).number_of_lines(1))
-                        .child(text(account_line(live)).text_xs().text_color(move || theme().muted_foreground)),
+                        .child(
+                            text(move || live.with(|live| live.as_ref().map_or_default(Live::title)))
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .number_of_lines(1),
+                        )
+                        .child(
+                            text(move || live.with(|live| live.as_ref().map_or_default(account_line)))
+                                .text_xs()
+                                .text_color(move || theme().muted_foreground),
+                        ),
                 )
-                .child(chip(label, tone)),
+                .child(dynamic(move || {
+                    status.get().map(|status| {
+                        let (label, tone) = status_chip(&status);
+                        untracked(|| chip(label, tone))
+                    })
+                })),
         )
-        .when_some(detail, |v, detail| v.child(error_line(detail)))
-        .when(!live.positions.is_empty(), |v| {
-            v.child(
-                view()
-                    .gap_1()
-                    .pt_1()
-                    .child(
-                        text(format!("Lệnh đang mở ({})", live.positions.len()))
-                            .text_xs()
-                            .font_weight(FontWeight::MEDIUM)
-                            .text_color(move || theme().muted_foreground),
-                    )
-                    .children(live.positions.iter().map(|p| position_row(&account, p, &currency))),
-            )
-        })
+        .child(dynamic(move || {
+            status.get().and_then(|status| match status {
+                Status::Retrying(why) | Status::Refused(why) => Some(error_line(why)),
+                _ => None,
+            })
+        }))
+        .child(dynamic(move || {
+            let tickets = tickets.get();
+            let account = account.clone();
+            (!tickets.is_empty()).then(|| {
+                untracked(|| {
+                    view()
+                        .gap_1()
+                        .pt_1()
+                        .child(
+                            text(format!("Lệnh đang mở ({})", tickets.len()))
+                                .text_xs()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(move || theme().muted_foreground),
+                        )
+                        .children(tickets.into_iter().map(|ticket| position_row(live, account.clone(), ticket)))
+                })
+            })
+        }))
         .child(
             view().flex_row().gap_2().pt_1().child(action("Kết nối lại", Variant::Secondary, reconnect)).child(action(
                 "Xoá",
@@ -380,10 +426,16 @@ fn account_row(mt5: Mt5, live: &Live) -> impl IntoElement + use<> {
         )
 }
 
-fn position_row(account: &AccountRef, p: &Position, currency: &str) -> impl IntoElement + use<> {
-    let profit = format::money(p.profit, Sign::Always, currency);
-    let ticket = p.ticket;
-    let account = account.clone();
+/// One open position: its figures follow each poll in place.
+fn position_row(live: Memo<Option<Live>>, account: AccountRef, ticket: i64) -> impl IntoElement {
+    let position = move || {
+        live.with(|live| {
+            live.as_ref().and_then(|live| {
+                let currency = live.info.as_ref().map_or_default(|info| info.currency.clone());
+                live.positions.iter().find(|p| p.ticket == ticket).map(|p| (p.clone(), currency))
+            })
+        })
+    };
     view()
         .flex_row()
         .items_center()
@@ -392,18 +444,27 @@ fn position_row(account: &AccountRef, p: &Position, currency: &str) -> impl Into
         .border_b_1()
         .border_color(move || theme().border)
         .child(
-            text(format!(
-                "{} · {} {} · {} → {}",
-                p.symbol,
-                p.side.side().label(),
-                format::lots(p.volume),
-                format::price(p.open_price),
-                format::price(p.current_price)
-            ))
+            text(move || {
+                position().map_or_default(|(p, _)| {
+                    format!(
+                        "{} · {} {} · {} → {}",
+                        p.symbol,
+                        p.side.side().label(),
+                        format::lots(p.volume),
+                        format::price(p.open_price),
+                        format::price(p.current_price)
+                    )
+                })
+            })
             .flex_1()
             .text_sm()
             .number_of_lines(1),
         )
-        .child(pnl_text(move || profit.clone()).text_sm())
+        .child(
+            pnl_text(move || {
+                position().map_or_default(|(p, currency)| format::money(p.profit, Sign::Always, &currency))
+            })
+            .text_sm(),
+        )
         .child(action("Quản lý", Variant::Secondary, move || position::open(account.clone(), ticket)))
 }

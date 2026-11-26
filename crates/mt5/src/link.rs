@@ -3,10 +3,11 @@
 use std::{
     fmt,
     sync::{
-        Arc,
+        Arc, Mutex,
+        atomic::{AtomicU8, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
     },
-    thread,
+    thread::{self, JoinHandle},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -26,7 +27,11 @@ pub struct LinkSettings {
     pub retry_after: Duration,
     /// How far back the first poll reads.
     pub first_days: u32,
-    /// The longest an order waits for the link's thread.
+    /// The longest an order may wait for the link's thread to take it (the thread may be logging in
+    /// or polling). An order not taken by then is dropped, never sent later.
+    pub order_queue: Duration,
+    /// The longest an order taken by the thread waits for the terminal's answer. Longer than the
+    /// worker's own limit on a call, so that the worker's answer (even a timeout) arrives first.
     pub order_timeout: Duration,
 }
 
@@ -36,7 +41,8 @@ impl Default for LinkSettings {
             poll_every: Duration::from_secs(2),
             retry_after: Duration::from_secs(30),
             first_days: 365,
-            order_timeout: Duration::from_secs(60),
+            order_queue: Duration::from_secs(10),
+            order_timeout: Duration::from_secs(90),
         }
     }
 }
@@ -72,10 +78,40 @@ pub enum Event {
 /// What the app hears events with; it is called on the link's thread.
 pub type Listener = Arc<dyn Fn(Event) + Send + Sync>;
 
+/// An order waiting in the queue: not taken by the link's thread yet.
+const QUEUED: u8 = 0;
+/// The link's thread took the order and is sending it to the terminal.
+const TAKEN: u8 = 1;
+/// The app stopped waiting before the thread took it: the thread must drop it.
+const DROPPED: u8 = 2;
+
+/// Who has an order: the queue, the link's thread or nobody. The app and the thread race to move
+/// it out of [`QUEUED`]; only one of them wins, so an order the app gave up on is never sent.
+#[derive(Debug, Default)]
+struct Claim(AtomicU8);
+
+impl Claim {
+    /// The thread takes the order; `false` when the app already dropped it.
+    fn take(&self) -> bool {
+        self.0.compare_exchange(QUEUED, TAKEN, Ordering::AcqRel, Ordering::Acquire).is_ok()
+    }
+
+    /// The app drops the order; `false` when the thread already took it.
+    fn drop_unsent(&self) -> bool {
+        self.0.compare_exchange(QUEUED, DROPPED, Ordering::AcqRel, Ordering::Acquire).is_ok()
+    }
+}
+
+/// What the app asks the terminal to do with a position.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Action {
+    Close { ticket: i64, volume: Option<f64> },
+    Modify { ticket: i64, levels: Levels },
+}
+
 /// What the app asks of a link's thread.
 enum Order {
-    Close { ticket: i64, volume: Option<f64>, reply: Sender<Result<(), Mt5Error>> },
-    Modify { ticket: i64, levels: Levels, reply: Sender<Result<(), Mt5Error>> },
+    Trade { action: Action, claim: Arc<Claim>, reply: Sender<Result<(), Mt5Error>> },
     Stop,
 }
 
@@ -84,7 +120,8 @@ enum Order {
 pub struct Link {
     account: AccountRef,
     orders: Sender<Order>,
-    order_timeout: Duration,
+    settings: LinkSettings,
+    thread: Mutex<Option<JoinHandle<()>>>,
 }
 
 impl fmt::Debug for Link {
@@ -103,11 +140,11 @@ impl Link {
     pub fn start(login: Login, open: Opener, settings: LinkSettings, listen: Listener) -> Self {
         let account = login.account.clone();
         let (orders, inbox) = mpsc::channel();
-        thread::Builder::new()
+        let thread = thread::Builder::new()
             .name(format!("mt5 {account}"))
             .spawn(move || run(&login, &open, settings, &listen, &inbox))
             .expect("the system starts a thread for the MT5 link");
-        Self { account, orders, order_timeout: settings.order_timeout }
+        Self { account, orders, settings, thread: Mutex::new(Some(thread)) }
     }
 
     pub fn account(&self) -> &AccountRef {
@@ -119,9 +156,11 @@ impl Link {
     ///
     /// # Errors
     ///
-    /// The terminal's refusal, or [`Mt5Error::Unreachable`] when the account is not connected.
+    /// The terminal's refusal; [`Mt5Error::Unreachable`] when the order was not sent (the account
+    /// is not connected, or the link stayed busy past [`LinkSettings::order_queue`]); and
+    /// [`Mt5Error::Uncertain`] when it was sent but no answer came.
     pub fn close(&self, ticket: i64, volume: Option<f64>) -> Result<(), Mt5Error> {
-        self.ask(|reply| Order::Close { ticket, volume, reply })
+        self.ask(Action::Close { ticket, volume })
     }
 
     /// Puts `levels` on the position `ticket`. Blocks like [`Link::close`].
@@ -130,16 +169,26 @@ impl Link {
     ///
     /// As [`Link::close`].
     pub fn modify(&self, ticket: i64, levels: Levels) -> Result<(), Mt5Error> {
-        self.ask(|reply| Order::Modify { ticket, levels, reply })
+        self.ask(Action::Modify { ticket, levels })
     }
 
-    fn ask(&self, order: impl FnOnce(Sender<Result<(), Mt5Error>>) -> Order) -> Result<(), Mt5Error> {
+    fn ask(&self, action: Action) -> Result<(), Mt5Error> {
         let (reply, answer) = mpsc::channel();
-        self.orders.send(order(reply)).map_err(|_| unreachable_link())?;
-        answer.recv_timeout(self.order_timeout).map_err(|error| match error {
-            RecvTimeoutError::Timeout => Mt5Error::Unreachable("MT5 không trả lời kịp".to_owned()),
-            RecvTimeoutError::Disconnected => unreachable_link(),
-        })?
+        let claim = Arc::new(Claim::default());
+        self.orders.send(Order::Trade { action, claim: Arc::clone(&claim), reply }).map_err(|_| unreachable_link())?;
+        match answer.recv_timeout(self.settings.order_queue) {
+            Ok(result) => return result,
+            Err(RecvTimeoutError::Disconnected) => return Err(unreachable_link()),
+            Err(RecvTimeoutError::Timeout) => {}
+        }
+        if claim.drop_unsent() {
+            return Err(Mt5Error::Unreachable(
+                "MT5 đang bận (đăng nhập lại hoặc đọc dữ liệu): lệnh chưa được gửi, hãy thử lại".to_owned(),
+            ));
+        }
+        // The thread took it: the terminal is on it, and its answer comes within the worker's limit.
+        let rest = self.settings.order_timeout.saturating_sub(self.settings.order_queue);
+        answer.recv_timeout(rest).unwrap_or_else(|_| Err(uncertain()))
     }
 
     /// Tells the thread to log out and stop the terminal, without waiting for it: the link
@@ -147,6 +196,23 @@ impl Link {
     pub fn stop(&self) {
         // The thread may have ended already; there is nothing left to stop then.
         drop(self.orders.send(Order::Stop));
+    }
+
+    /// Stops the link and waits for its thread to end: its terminal has then logged out and
+    /// stopped, so another link may use the same portable terminal. Blocks for as long as a login
+    /// in progress takes: call it off the UI thread.
+    ///
+    /// # Panics
+    ///
+    /// When another thread panicked while holding the link's lock.
+    pub fn stop_and_wait(&self) {
+        self.stop();
+        let thread = self.thread.lock().expect("lock poisoned").take();
+        if let Some(thread) = thread
+            && thread.join().is_err()
+        {
+            log::error!("mt5 {}: the link's thread panicked", self.account);
+        }
     }
 }
 
@@ -161,7 +227,11 @@ fn unreachable_link() -> Mt5Error {
 }
 
 fn not_connected() -> Mt5Error {
-    Mt5Error::Unreachable("tài khoản đang kết nối lại, hãy thử lại sau ít giây".to_owned())
+    Mt5Error::Unreachable("tài khoản đang kết nối lại, lệnh chưa được gửi; hãy thử lại sau ít giây".to_owned())
+}
+
+fn uncertain() -> Mt5Error {
+    Mt5Error::Uncertain("lệnh đã gửi tới MT5 nhưng chưa có trả lời; hãy xem lại lệnh trước khi gửi lần nữa".to_owned())
 }
 
 /// Whether the thread goes on after a wait.
@@ -183,7 +253,7 @@ fn run(login: &Login, open: &Opener, settings: LinkSettings, listen: &Listener, 
                 listen(Event::State(account.clone(), LinkState::Refused(error)));
                 // Nothing to do but answer orders until stopped: the password is wrong.
                 while let Ok(order) = inbox.recv() {
-                    if refuse(order, not_connected) {
+                    if matches!(refuse(order), Next::Stop) {
                         break;
                     }
                 }
@@ -261,7 +331,7 @@ fn wait(inbox: &Receiver<Order>, pause: Duration, mut terminal: Option<&mut dyn 
                     return Next::Go;
                 }
                 None => {
-                    if refuse(order, not_connected) {
+                    if matches!(refuse(order), Next::Stop) {
                         return Next::Stop;
                     }
                 }
@@ -270,23 +340,30 @@ fn wait(inbox: &Receiver<Order>, pause: Duration, mut terminal: Option<&mut dyn 
     }
 }
 
-/// Does an order on the terminal and answers it.
+/// Does an order on the terminal and answers it, unless the app already gave up on it.
 fn carry(terminal: &mut dyn Terminal, order: Order) {
-    match order {
-        Order::Close { ticket, volume, reply } => drop(reply.send(terminal.close(ticket, volume))),
-        Order::Modify { ticket, levels, reply } => drop(reply.send(terminal.modify(ticket, levels))),
-        Order::Stop => {}
+    let Order::Trade { action, claim, reply } = order else { return };
+    if !claim.take() {
+        log::info!("mt5: an order the app stopped waiting for is dropped unsent");
+        return;
     }
+    let done = match action {
+        Action::Close { ticket, volume } => terminal.close(ticket, volume),
+        Action::Modify { ticket, levels } => terminal.modify(ticket, levels),
+    };
+    drop(reply.send(done));
 }
 
-/// Answers an order that cannot be done now with `error`; `true` when the order was to stop.
-fn refuse(order: Order, error: fn() -> Mt5Error) -> bool {
+/// Answers an order that cannot be done now: it was not sent. `Stop` when the order was to stop.
+fn refuse(order: Order) -> Next {
     match order {
-        Order::Close { reply, .. } | Order::Modify { reply, .. } => {
-            drop(reply.send(Err(error())));
-            false
+        Order::Trade { claim, reply, .. } => {
+            if claim.take() {
+                drop(reply.send(Err(not_connected())));
+            }
+            Next::Go
         }
-        Order::Stop => true,
+        Order::Stop => Next::Stop,
     }
 }
 

@@ -376,13 +376,26 @@ impl Terminal for Worker {
     }
 
     fn close(&mut self, ticket: i64, volume: Option<f64>) -> Result<(), Mt5Error> {
-        self.call(json!({"op": "close", "ticket": ticket, "volume": volume}), CALL_TIMEOUT).map(drop)
+        self.call(json!({"op": "close", "ticket": ticket, "volume": volume}), CALL_TIMEOUT)
+            .map(drop)
+            .map_err(sent_order)
     }
 
     fn modify(&mut self, ticket: i64, levels: Levels) -> Result<(), Mt5Error> {
         let request =
             json!({"op": "modify", "ticket": ticket, "sl": levels.sl.unwrap_or(0.0), "tp": levels.tp.unwrap_or(0.0)});
-        self.call(request, CALL_TIMEOUT).map(drop)
+        self.call(request, CALL_TIMEOUT).map(drop).map_err(sent_order)
+    }
+}
+
+/// The failure of an order already written to the worker: when the worker did not answer, the
+/// terminal may still have carried it out.
+fn sent_order(error: Mt5Error) -> Mt5Error {
+    match error {
+        Mt5Error::Unreachable(why) => Mt5Error::Uncertain(format!(
+            "{why}; lệnh có thể đã được thực hiện, hãy xem lại trên MT5 trước khi gửi lần nữa"
+        )),
+        other => other,
     }
 }
 

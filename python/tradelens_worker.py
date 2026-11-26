@@ -18,6 +18,7 @@ A `poll` answers a DealBatch (`crates/core/src/model.rs`) with the open position
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -59,40 +60,208 @@ def last_error(mt5: Any) -> tuple[int, str]:
 # --- the terminal's windows --------------------------------------------------------------------
 
 
-def start_hidden(terminal: str) -> subprocess.Popen[bytes] | None:
-    """Starts `terminal` in portable mode with its window hidden, so that `initialize` attaches to
-    it instead of showing a new one. `None` off Windows (tests)."""
-    if sys.platform != "win32":
-        return None
-    info = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
-    info.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
-    info.wShowWindow = 0  # SW_HIDE
-    return subprocess.Popen([terminal, "/portable"], startupinfo=info)  # noqa: S603 - the app's own copy
+class Leash:
+    """The account's terminal kept hidden and tied to this worker (Windows only; nothing elsewhere).
+
+    The terminal runs inside a Job Object that ends it when the job's last handle closes, which is
+    when this process ends, even when the app kills it: no terminal is left running unseen. Its
+    windows are found by the program's path, not by the pid of the process this worker started: a
+    terminal already running in that folder takes over a second start and the started one exits.
+    """
+
+    def __init__(self, terminal: str) -> None:
+        self.terminal = os.path.normcase(os.path.abspath(terminal))
+        self.tied: set[int] = set()
+        self.job: Any = None
+        if sys.platform == "win32":
+            try:
+                self.job = kill_on_close_job()
+            except OSError as err:
+                print(f"tradelens worker: no job object: {err}", file=sys.stderr)
+
+    def start(self) -> None:
+        """Starts the terminal in portable mode with its window hidden, so that `initialize`
+        attaches to it instead of showing a new one."""
+        if sys.platform != "win32":
+            return
+        info = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
+        info.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
+        info.wShowWindow = SW_HIDE
+        try:
+            process = subprocess.Popen([self.terminal, "/portable"], startupinfo=info)  # noqa: S603 - the app's own copy
+        except OSError as err:
+            msg = f"không chạy được terminal MT5 ({self.terminal}): {err}"
+            raise Failure(msg) from err
+        self.tie(process.pid)
+
+    def tie(self, pid: int) -> None:
+        if self.job is None or pid in self.tied:
+            return
+        try:
+            assign_to_job(self.job, pid)
+            self.tied.add(pid)
+        except OSError as err:
+            print(f"tradelens worker: terminal {pid} not tied: {err}", file=sys.stderr)
+
+    def tend(self) -> int:
+        """Hides the terminal's visible windows (it shows its main window and dialogs by itself) and
+        ties each of its processes to the job. Returns how many windows it hid; never fails a request."""
+        if sys.platform != "win32":
+            return 0
+        try:
+            hidden = 0
+            for hwnd, pid in visible_windows_of(self.terminal):
+                hide_window(hwnd)
+                self.tie(pid)
+                hidden += 1
+        except OSError as err:
+            print(f"tradelens worker: windows not hidden: {err}", file=sys.stderr)
+            return 0
+        return hidden
 
 
-def hide_windows(pid: int) -> int:
-    """Hides every visible top-level window of process `pid` (the terminal shows its main window
-    and dialogs on its own once started). Returns how many it hid; 0 off Windows."""
-    if sys.platform != "win32" or pid <= 0:
-        return 0
+# Win32 constants (winnt.h, winbase.h, winuser.h).
+JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
+JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
+PROCESS_TERMINATE = 0x0001
+PROCESS_SET_QUOTA = 0x0100
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+SW_HIDE = 0
+
+
+def win32() -> Any:
+    """`ctypes`, `wintypes` and the kernel32 / user32 functions the leash calls, typed for 64-bit
+    handles."""
     import ctypes  # noqa: PLC0415 - Windows only
     from ctypes import wintypes  # noqa: PLC0415
 
-    user32 = ctypes.windll.user32  # type: ignore[attr-defined]
-    hidden = 0
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
+    user32 = ctypes.WinDLL("user32", use_last_error=True)  # type: ignore[attr-defined]
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    kernel32.QueryFullProcessImageNameW.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.LPWSTR,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+    return ctypes, wintypes, kernel32, user32
+
+
+def kill_on_close_job() -> Any:
+    """A Job Object whose processes end when its last handle closes."""
+    ctypes, wintypes, kernel32, _ = win32()
+
+    class BasicLimits(ctypes.Structure):
+        _fields_ = [  # noqa: RUF012 - ctypes layout
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        ]
+
+    class IoCounters(ctypes.Structure):
+        _fields_ = [  # noqa: RUF012 - ctypes layout
+            ("ReadOperationCount", ctypes.c_uint64),
+            ("WriteOperationCount", ctypes.c_uint64),
+            ("OtherOperationCount", ctypes.c_uint64),
+            ("ReadTransferCount", ctypes.c_uint64),
+            ("WriteTransferCount", ctypes.c_uint64),
+            ("OtherTransferCount", ctypes.c_uint64),
+        ]
+
+    class ExtendedLimits(ctypes.Structure):
+        _fields_ = [  # noqa: RUF012 - ctypes layout
+            ("BasicLimitInformation", BasicLimits),
+            ("IoInfo", IoCounters),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        ]
+
+    job = kernel32.CreateJobObjectW(None, None)
+    if not job:
+        raise ctypes.WinError(ctypes.get_last_error())
+    limits = ExtendedLimits()
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not kernel32.SetInformationJobObject(
+        job, JOB_OBJECT_EXTENDED_LIMIT_INFORMATION_CLASS, ctypes.byref(limits), ctypes.sizeof(limits)
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return job
+
+
+def assign_to_job(job: Any, pid: int) -> None:
+    ctypes, _, kernel32, _ = win32()
+    process = kernel32.OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, False, pid)  # noqa: FBT003 - Win32 BOOL
+    if not process:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        if not kernel32.AssignProcessToJobObject(job, process):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        kernel32.CloseHandle(process)
+
+
+def image_of(pid: int) -> str | None:
+    """The program a process runs, as a normalised path; `None` when it cannot be read."""
+    ctypes, wintypes, kernel32, _ = win32()
+    process = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)  # noqa: FBT003 - Win32 BOOL
+    if not process:
+        return None
+    try:
+        size = wintypes.DWORD(32_768)
+        buffer = ctypes.create_unicode_buffer(size.value)
+        if not kernel32.QueryFullProcessImageNameW(process, 0, buffer, ctypes.byref(size)):
+            return None
+        return os.path.normcase(os.path.abspath(buffer.value))
+    finally:
+        kernel32.CloseHandle(process)
+
+
+def visible_windows_of(program: str) -> list[tuple[int, int]]:
+    """The visible top-level windows of the processes running `program`: (window, pid) pairs."""
+    ctypes, wintypes, _, user32 = win32()
+    found: list[tuple[int, int]] = []
+    images: dict[int, str | None] = {}
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)  # type: ignore[attr-defined]
     def each(hwnd: int, _param: int) -> bool:
-        nonlocal hidden
+        if not user32.IsWindowVisible(hwnd):
+            return True
         owner = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
-        if owner.value == pid and user32.IsWindowVisible(hwnd):
-            user32.ShowWindow(hwnd, 0)  # SW_HIDE
-            hidden += 1
+        pid = int(owner.value)
+        if pid not in images:
+            images[pid] = image_of(pid)
+        if images[pid] == program:
+            found.append((hwnd, pid))
         return True
 
     user32.EnumWindows(each, 0)
-    return hidden
+    return found
+
+
+def hide_window(hwnd: int) -> None:
+    _, _, _, user32 = win32()
+    user32.ShowWindow(hwnd, SW_HIDE)
 
 
 # --- positions and orders ----------------------------------------------------------------------
@@ -196,7 +365,7 @@ class Session:
 
     def __init__(self, mt5: Any) -> None:
         self.mt5 = mt5
-        self.process: subprocess.Popen[bytes] | None = None
+        self.leash: Leash | None = None
         self.offset_min: int | None = None
         self.connected = False
         self.hide = True
@@ -204,8 +373,9 @@ class Session:
     def connect(self, request: dict[str, Any]) -> dict[str, Any]:
         terminal = str(request["terminal"])
         self.hide = bool(request.get("hide", True))
-        if self.hide and self.process is None:
-            self.process = start_hidden(terminal)
+        if self.hide and self.leash is None:
+            self.leash = Leash(terminal)
+            self.leash.start()
         ok = self.mt5.initialize(
             terminal,
             login=int(request["login"]),
@@ -224,8 +394,8 @@ class Session:
         return sync.account_info(self.mt5, self.offset_min)
 
     def hide_terminal(self) -> None:
-        if self.hide and self.process is not None:
-            hide_windows(self.process.pid)
+        if self.hide and self.leash is not None:
+            self.leash.tend()
 
     def poll(self, request: dict[str, Any]) -> dict[str, Any]:
         self.require_connected()
@@ -243,8 +413,18 @@ class Session:
         return {
             "account": sync.account_info(self.mt5, self.offset_min),
             "deals": [sync.deal_json(d, levels) for d in deals],
-            "positions": [position_json(p) for p in self.mt5.positions_get() or ()],
+            "positions": [position_json(p) for p in self.open_positions()],
         }
+
+    def open_positions(self) -> tuple[Any, ...]:
+        """The open positions; a failed read is an error, never "none open" (the app would take every
+        position for a new one at the next poll)."""
+        positions = self.mt5.positions_get()
+        if positions is None:
+            code, text = last_error(self.mt5)
+            msg = f"không đọc được lệnh đang mở: ({code}) {text}"
+            raise Failure(msg, code)
+        return tuple(positions)
 
     def require_connected(self) -> None:
         if not self.connected:
@@ -255,9 +435,8 @@ class Session:
         if self.connected:
             self.mt5.shutdown()
             self.connected = False
-        if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
-        self.process = None
+        # The leash's job ends the terminal once this process lets go of it.
+        self.leash = None
 
     def handle(self, request: dict[str, Any]) -> Any:
         op = request.get("op")
@@ -300,7 +479,7 @@ def serve(mt5: Any, lines: Any, out: Any) -> int:
                 reply(out, {"id": request.get("id"), "ok": True, "data": session.handle(request)})
             except Failure as err:
                 reply(out, {"id": request.get("id"), "ok": False, "code": err.code, "error": str(err)})
-            except (RuntimeError, KeyError, ValueError, TypeError) as err:
+            except Exception as err:  # noqa: BLE001 - one bad request must not stop the worker
                 reply(out, {"id": request.get("id"), "ok": False, "code": GENERIC, "error": str(err)})
     finally:
         session.quit()

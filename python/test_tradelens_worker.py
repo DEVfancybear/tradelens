@@ -39,6 +39,7 @@ class TradingMt5(FakeMt5):
         ]  # fmt: skip
         self.error = (1, "Success")
         self.logged_in = False
+        self.positions_fail = False
 
     def initialize(self, path: str, **kwargs: Any) -> bool:
         if kwargs.get("password") != self.password:
@@ -53,7 +54,10 @@ class TradingMt5(FakeMt5):
     def last_error(self) -> tuple[int, str]:
         return self.error
 
-    def positions_get(self, ticket: int | None = None) -> tuple[Any, ...]:
+    def positions_get(self, ticket: int | None = None) -> tuple[Any, ...] | None:
+        if self.positions_fail:
+            self.error = (-10004, "No IPC connection")
+            return None
         if ticket is None:
             return tuple(self.open_positions)
         return tuple(p for p in self.open_positions if p.ticket == ticket)
@@ -139,6 +143,25 @@ class WorkerTests(unittest.TestCase):
         request = self.mt5.sent[-1]
         self.assertEqual(request["action"], TradingMt5.TRADE_ACTION_SLTP)
         self.assertEqual((request["sl"], request["tp"]), (2645.0, 0.0))
+
+    def test_positions_that_cannot_be_read_fail_the_poll_instead_of_reading_as_none_open(self) -> None:
+        self.mt5.positions_fail = True
+        _, polled = run(self.mt5, CONNECT, {"id": 2, "op": "poll", "days": 30})
+        self.assertFalse(polled["ok"], polled)
+        self.assertEqual(polled["code"], -10004)
+
+    def test_an_unexpected_exception_is_answered_and_the_worker_goes_on(self) -> None:
+        def broken(_request: dict[str, Any]) -> Any:
+            msg = "no such attribute"
+            raise AttributeError(msg)
+
+        self.mt5.order_send = broken  # type: ignore[method-assign]
+        _, failed, polled = run(
+            self.mt5, CONNECT, {"id": 2, "op": "close", "ticket": 100, "volume": None}, {"id": 3, "op": "poll"}
+        )
+        self.assertFalse(failed["ok"])
+        self.assertIn("no such attribute", failed["error"])
+        self.assertTrue(polled["ok"], "the next request is still answered")
 
     def test_quit_answers_and_stops_reading(self) -> None:
         replies = run(self.mt5, CONNECT, {"id": 9, "op": "quit"}, {"id": 10, "op": "poll"})
