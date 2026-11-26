@@ -11,6 +11,7 @@ use tradelens_core::{
     playbook::{self, Playbook},
 };
 
+use super::catalog_tags::catalog_tags;
 use crate::{
     format::{self, Sign},
     nav::{self, Route},
@@ -20,8 +21,7 @@ use crate::{
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{
-            Variant, action, action_icon, action_icon_when, confirm_then, link, root_owner, tag_picker, text_field,
-            textarea,
+            Variant, action, action_icon, action_icon_when, confirm_then, link, root_owner, text_field, textarea,
         },
         forms::{NumberRange, number_field},
         gallery::gallery,
@@ -742,6 +742,25 @@ fn edit_form(base: Draft, editing: Signal<Option<Draft>>, timeframes: Reading<Ve
         )
 }
 
+/// The timeframes the setup is traded on, picked from the trader's list, which is kept here too.
+fn timeframe_field(frames: Signal<Vec<String>>, options: Memo<Vec<(String, String)>>) -> impl IntoElement {
+    catalog_tags(
+        CatalogKind::Timeframe,
+        "Khung thời gian",
+        "+ Thêm khung (vd. M30), rồi Enter",
+        move || options.get(),
+        move || frames.get(),
+        move |key, on| {
+            frames.update(|keys| {
+                keys.retain(|k| k != key);
+                if on {
+                    keys.push(key.to_owned());
+                }
+            });
+        },
+    )
+}
+
 /// The fields of the form: the setup's identity, then its rules and checklist.
 fn form_fields(fields: Fields, timeframes: Reading<Vec<CatalogItem>>) -> impl IntoElement {
     let Fields { name, description, symbols, frames, entry, exit, invalidation, risk, checklist } = fields;
@@ -800,22 +819,7 @@ fn form_fields(fields: Fields, timeframes: Reading<Vec<CatalogItem>>) -> impl In
                     ),
                 )),
         )
-        .child(labelled(
-            "Khung thời gian",
-            tag_picker(
-                "Khung thời gian",
-                move || options.get(),
-                move || frames.get(),
-                move |key, on| {
-                    frames.update(|keys| {
-                        keys.retain(|k| k != key);
-                        if on {
-                            keys.push(key.to_owned());
-                        }
-                    });
-                },
-            ),
-        ))
+        .child(labelled("Khung thời gian", timeframe_field(frames, options)))
         .child(labelled(
             "Điều kiện vào",
             line_list("Điều kiện vào", "Thêm điều kiện vào", move || entry.get(), move |next| entry.set(next)),

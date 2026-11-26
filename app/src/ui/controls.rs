@@ -601,39 +601,94 @@ pub(crate) fn tag_picker(
     let options = computed(options);
     view().flex_row().flex_wrap().gap_2().child(dynamic(move || {
         let options = options.get();
-        untracked(|| {
+        let group = group.clone();
+        untracked(move || {
+            options
+                .into_iter()
+                .map(|(key, label)| tag_toggle(format!("{group}: {label}"), key, label, selected, on_toggle))
+                .collect::<Vec<_>>()
+        })
+    }))
+}
+
+/// [`tag_picker`] over a list the trader keeps: a small ✕ after each option tells `on_remove` its key
+/// and label (the caller asks before removing).
+pub(crate) fn removable_tags(
+    group: impl Into<SharedString>,
+    options: impl Fn() -> Vec<(String, String)> + 'static,
+    selected: impl Fn() -> Vec<String> + Copy + 'static,
+    on_toggle: impl Fn(&str, bool) + Copy + 'static,
+    on_remove: impl Fn(&str, &str) + Clone + 'static,
+) -> impl IntoElement {
+    let group: SharedString = group.into();
+    // As in `tag_picker`: the toggles follow the options, not every read of the database.
+    let options = computed(options);
+    view().flex_row().flex_wrap().gap_2().child(dynamic(move || {
+        let options = options.get();
+        let (group, on_remove) = (group.clone(), on_remove.clone());
+        untracked(move || {
             options
                 .into_iter()
                 .map(|(key, label)| {
-                    let is_on = {
-                        let key = key.clone();
-                        move || selected().contains(&key)
-                    };
-                    let toggled = key;
-                    toggle()
-                        .cursor_pointer()
-                        .pressed(is_on.clone())
-                        .on_change(move |next: &bool| on_toggle(&toggled, *next))
-                        .accessibility_label(format!("{group}: {label}"))
-                        .h(px(26.0))
-                        .px_3()
+                    let (removed, named, on_remove) = (key.clone(), label.clone(), on_remove.clone());
+                    view()
+                        .flex_row()
                         .items_center()
-                        .justify_center()
-                        .rounded(px(6.0))
-                        .border_1()
-                        .border_color(move || theme().border)
-                        .hover(|s| s.opacity(0.85))
-                        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
-                        .style_when(is_on.clone(), |s| {
-                            s.bg(move || theme().accent).border_color(move || theme().primary)
-                        })
-                        .child(text(label).text_xs().font_weight(FontWeight::MEDIUM).text_color(move || {
-                            if is_on() { theme().accent_foreground } else { theme().muted_foreground }
-                        }))
+                        .gap_0p5()
+                        .child(tag_toggle(format!("{group}: {label}"), key, label.clone(), selected, on_toggle))
+                        .child(
+                            button()
+                                .cursor_pointer()
+                                .on_press(move || on_remove(&removed, &named))
+                                .accessibility_label(format!("Xoá {group} {label}"))
+                                .size(px(20.0))
+                                .items_center()
+                                .justify_center()
+                                .rounded(px(4.0))
+                                .hover(|s| s.bg(move || theme().accent))
+                                .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+                                .child(icon(Icon::Close, 12.0).text_color(move || theme().muted_foreground)),
+                        )
                 })
                 .collect::<Vec<_>>()
         })
     }))
+}
+
+/// One option of a [`tag_picker`], announced as `name`: a chip that is on while `selected` holds its key.
+fn tag_toggle(
+    name: String,
+    key: String,
+    label: String,
+    selected: impl Fn() -> Vec<String> + Copy + 'static,
+    on_toggle: impl Fn(&str, bool) + Copy + 'static,
+) -> impl IntoElement {
+    let is_on = {
+        let key = key.clone();
+        move || selected().contains(&key)
+    };
+    let toggled = key;
+    toggle()
+        .cursor_pointer()
+        .pressed(is_on.clone())
+        .on_change(move |next: &bool| on_toggle(&toggled, *next))
+        .accessibility_label(name)
+        .h(px(26.0))
+        .px_3()
+        .items_center()
+        .justify_center()
+        .rounded(px(6.0))
+        .border_1()
+        .border_color(move || theme().border)
+        .hover(|s| s.opacity(0.85))
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .style_when(is_on.clone(), |s| s.bg(move || theme().accent).border_color(move || theme().primary))
+        .child(
+            text(label)
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(move || if is_on() { theme().accent_foreground } else { theme().muted_foreground }),
+        )
 }
 
 /// Five stars to grade by; pressing the grade already given clears it. `0` is not graded.

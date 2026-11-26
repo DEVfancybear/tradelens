@@ -594,6 +594,60 @@ impl Db {
         Ok(id)
     }
 
+    /// Adds an option named `label` (trimmed) to `kind` and returns its key. An option of `kind`
+    /// already named so, in any case and archived ones included, is used instead: brought back when
+    /// archived, so typing a removed timeframe again does not make a second one.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Invalid`] when `label` is blank; [`DbError::Sqlite`] when the read or the write fails.
+    pub fn add_catalog_label(&mut self, kind: CatalogKind, label: &str) -> Result<String> {
+        let label = label.trim();
+        if label.is_empty() {
+            return Err(DbError::Invalid("Tên lựa chọn không được để trống.".to_owned()));
+        }
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let same = catalog_on(&tx, kind)?.into_iter().find(|item| item.label.to_lowercase() == label.to_lowercase());
+        let key = match same {
+            Some(item) if item.archived => {
+                save_catalog_item_on(&tx, &CatalogItem { archived: false, ..item.clone() })?;
+                item.key
+            }
+            Some(item) => item.key,
+            None => {
+                let key = format!("custom_{}", crate::sync::new_uid());
+                let item = CatalogItem {
+                    id: 0,
+                    kind,
+                    key: key.clone(),
+                    label: label.to_owned(),
+                    color: None,
+                    position: i32::MAX,
+                    archived: false,
+                };
+                save_catalog_item_on(&tx, &item)?;
+                key
+            }
+        };
+        tx.commit()?;
+        Ok(key)
+    }
+
+    /// Archives the option `key` of `kind`: no longer offered to pick, while what stored it still
+    /// reads its label. Nothing happens when there is no such option.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Sqlite`] when the read or the write fails.
+    pub fn archive_catalog_item(&mut self, kind: CatalogKind, key: &str) -> Result<()> {
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        if let Some(item) = catalog_on(&tx, kind)?.into_iter().find(|item| item.key == key && !item.archived) {
+            save_catalog_item_on(&tx, &CatalogItem { archived: true, ..item })?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     /// The fields the trader defined for `scope`, in their order.
     ///
     /// # Errors

@@ -20,8 +20,8 @@ use tradelens_core::form::{
 use super::{
     chips::{Tone, chip},
     controls::{
-        Choice, Variant, action_icon, add_field, commit_field, confirm_then, icon_action, rating_of, root_owner,
-        select_value, tag_picker, text_field, textarea,
+        Choice, Variant, action_icon, add_field, commit_field, confirm_then, icon_action, rating_of, removable_tags,
+        root_owner, select_value, text_field, textarea,
     },
     date_picker::{DatePick, date_pick, date_trigger},
     forms::{NumberRange, check_box, number_field, switch_row},
@@ -738,6 +738,55 @@ fn editor_of(list: Handle, property: &Property) -> AnyElement {
     }
 }
 
+/// The chips of a "Chọn nhiều" property, whose list is kept here too: a typed option is added to the
+/// property and picked, the ✕ after one removes it from the list after asking (values that hold it
+/// keep it).
+fn multi_select_editor(slot: Slot, label: String, options: Vec<String>) -> impl IntoElement {
+    let toggle = move |option: &str, on: bool| {
+        let next = if on { with_choice(slot.choices(), option) } else { without_choice(slot.choices(), option) };
+        slot.set((!next.is_empty()).then_some(FieldValue::Choices(next)));
+    };
+    let add = move |typed: String| {
+        let option = typed.trim().to_owned();
+        if option.is_empty() {
+            return;
+        }
+        slot.list.add_option(&slot.key(), &option);
+        if !slot.choices().contains(&option) {
+            toggle(&option, true);
+        }
+    };
+    // The question is the root's task: the property list is built again when its data is read again.
+    let asker = root_owner();
+    let named = label.to_lowercase();
+    let list = named.clone();
+    let remove = move |option: &str, _: &str| {
+        let option = option.to_owned();
+        confirm_then(
+            asker,
+            format!("Xoá «{option}» khỏi danh sách {list}?"),
+            "Không còn để chọn nữa; lệnh đã ghi vẫn giữ nó.",
+            "Xoá",
+            move || {
+                slot.list.remove_option(&slot.key(), &option);
+                if slot.choices().contains(&option) {
+                    toggle(&option, false);
+                }
+            },
+        );
+    };
+    view()
+        .gap_2()
+        .child(removable_tags(
+            label,
+            move || options.iter().map(|o| (o.clone(), o.clone())).collect(),
+            move || slot.choices(),
+            toggle,
+            remove,
+        ))
+        .child(add_field(format!("Thêm {named}"), "+ Thêm lựa chọn, rồi Enter", add))
+}
+
 /// The input of a property of the trader's, by its kind.
 fn custom_editor(slot: Slot, property: &Property, scale_max: u8) -> AnyElement {
     let label = property.label.clone();
@@ -772,20 +821,7 @@ fn custom_editor(slot: Slot, property: &Property, scale_max: u8) -> AnyElement {
             )
             .into_element()
         }
-        FieldKind::MultiSelect => {
-            let options = property.options.clone();
-            tag_picker(
-                label,
-                move || options.iter().map(|o| (o.clone(), o.clone())).collect(),
-                move || slot.choices(),
-                move |option, on| {
-                    let next =
-                        if on { with_choice(slot.choices(), option) } else { without_choice(slot.choices(), option) };
-                    slot.set((!next.is_empty()).then_some(FieldValue::Choices(next)));
-                },
-            )
-            .into_element()
-        }
+        FieldKind::MultiSelect => multi_select_editor(slot, label, property.options.clone()).into_element(),
         FieldKind::Checkbox => {
             check_box(label, move || slot.flag(), move |on| slot.set(Some(FieldValue::Flag(on)))).into_element()
         }

@@ -15,6 +15,7 @@ use tradelens_core::{
 };
 
 use super::{
+    catalog_tags::catalog_tags,
     entry_plan,
     share::{self, ShareTarget},
 };
@@ -28,7 +29,7 @@ use crate::{
         chips::{Tone, chip, figure_text, pnl_text},
         controls::{
             Choice, Variant, action, action_icon, action_icon_when, action_when, confirm_then, rating, root_owner,
-            select_value, tag_picker, text_field, textarea,
+            select_value, text_field, textarea,
         },
         forms::{NumberRange, check_box, checklist, number_field},
         gallery::gallery,
@@ -804,8 +805,10 @@ fn builtin_editor(ctx: &Context, field: BuiltinField) -> Option<AnyElement> {
         B::Market => catalog_select("Trạng thái thị trường", &ctx, |f| &f.markets, fields.market).into_element(),
         B::Tags => {
             let tags = fields.tags;
-            tag_picker(
+            catalog_tags(
+                CatalogKind::Tag,
                 "Tag",
+                "+ Thêm tag, rồi Enter",
                 move || options_of(&ctx.store.snapshot().catalogs.tags),
                 move || tags.get(),
                 move |key, on| tags.update(|t| *t = if on { added(t, key) } else { removed(t, key) }),
@@ -814,8 +817,10 @@ fn builtin_editor(ctx: &Context, field: BuiltinField) -> Option<AnyElement> {
         }
         B::Mistakes => {
             let mistakes = fields.mistakes;
-            tag_picker(
+            catalog_tags(
+                CatalogKind::Mistake,
                 "Lỗi",
+                "+ Thêm lỗi, rồi Enter",
                 move || options_of(&ctx.store.snapshot().catalogs.mistakes),
                 move || mistakes.get(),
                 move |key, on| mistakes.update(|m| *m = if on { added(m, key) } else { removed(m, key) }),
