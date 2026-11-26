@@ -9,3 +9,6 @@
 Thumbs.db
 __pycache__/
 *.ex5
+
+# Update-signing keys made by `nsh keygen keys/update`: the secret goes to the repo secret, never to git.
+/keys/

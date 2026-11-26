@@ -1,4 +1,4 @@
-//! Nguồn dữ liệu: import báo cáo MT5, file JSON của script Python và CSV Notion.
+//! Nguồn dữ liệu: kết nối MT5 trực tiếp, import báo cáo MT5, file JSON của script Python và CSV Notion.
 //! Design: `docs/design/screens/data-sources.html`. The import of MT5 reports and of a Notion
 //! export (automatic: no column mapping), how to export the history with the Python script, and
 //! the log of what was imported.
@@ -50,13 +50,21 @@ const DEFAULT_ACCOUNT: &str = "";
 pub(crate) fn data_sources() -> impl IntoElement {
     page(
         "Nguồn dữ liệu",
-        "Import báo cáo MT5, file JSON của script Python và CSV Notion.",
+        "Kết nối tài khoản MT5, import báo cáo MT5, file JSON của script Python và CSV Notion.",
         view()
             .flex_row()
             .flex_wrap()
             .items_start()
             .gap_6()
-            .child(view().flex_1().min_w(px(560.0)).gap_6().child(report_import_card()).child(notion_import_card()))
+            .child(
+                view()
+                    .flex_1()
+                    .min_w(px(560.0))
+                    .gap_6()
+                    .child(super::mt5_connect::mt5_card())
+                    .child(report_import_card())
+                    .child(notion_import_card()),
+            )
             .child(view().w(px(420.0)).gap_6().child(python_card()).child(import_log_card())),
     )
 }
@@ -755,6 +763,7 @@ fn summary_view(report: &notion::NotionImportReport) -> impl IntoElement {
 fn source_label(source: &str) -> String {
     match source {
         "ea" => "EA".to_owned(),
+        "mt5" => "Kết nối MT5".to_owned(),
         "python" => "Python".to_owned(),
         "html" => "Import HTML".to_owned(),
         "xlsx" => "Import Excel".to_owned(),

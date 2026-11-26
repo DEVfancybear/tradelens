@@ -135,8 +135,17 @@ The user is explicit: "kiểm tra = app thật" (check on the real app). Passing
    - The app package is `nsh-app-tradelens`.
 2. **Back up:** copy `%APPDATA%\vn.dat.tradelens` somewhere else before anything that writes data.
 3. **Launch:** start the exe from the shell (`(exe &)`). computer-use's `open_application` starts yet another instance. Maximise by double-clicking the title bar.
+   - **Never call `open_application` on the app**, even to bring it forward: it started a second instance on the user's real data folder while their own build was running on it. Bring the window forward with PowerShell `(New-Object -ComObject WScript.Shell).AppActivate(<pid>)`.
+   - To check without touching the real data at all, start the exe with `APPDATA` pointing to a scratch folder (NSH takes the data folder from it), plus `TRADELENS_CLOUD=memory` (no real sign-in, secrets in memory) and `TRADELENS_MT5=memory` (the broker in memory; any login opens a sample account).
 4. **Compare with the design:** compare each screen with `docs/design/screens/<screen>.html` and `screenshots/<screen>.png` at full resolution, zooming into each region. Check hover, the cursor, the date-picker popup, the enlarged image viewer, and both light and dark modes.
 5. **Restore:** close the app, rename the tested data folder to `.after-test-*`, and copy the backup back in place.
+
+## 5.1 The MT5 connection (`crates/mt5`, `app/src/mt5.rs`)
+
+- **An order the app gave up on is never sent later.** Each order carries a claim the link's thread and the asker race for (`Claim` in `link.rs`): not taken within `order_queue`, it is dropped and reported "chưa được gửi"; taken but unanswered, it is `Mt5Error::Uncertain` ("không rõ kết quả"), never a plain failure. Why: the thread reads orders only between polls, so an order sent while it logged in ran minutes later, and a second press closed twice the volume. Check: `an_order_given_up_while_the_link_logs_in_is_never_sent_later`.
+- **Events are tagged with the link they come from.** Each start gets a new link id; what an older link of the account still says is ignored, and a new link starts only after the old one has stopped (`Link::stop_and_wait`), so two workers never drive one portable terminal. Why: a late `Refused`/`Connected` of the old link dropped or saved the wrong password.
+- **A failed read is an error, never "nothing".** The worker raises when `positions_get()` returns `None`; read as "no positions", every open position came back as new at the next poll and put a plan prompt on screen.
+- **What moves every poll is not written every poll.** Equity is stored at most every 5 minutes and the risk measured at entry is kept (`keep_measured`); otherwise every poll wrote a sync change and bumped the revision, so every page read again every 2 s.
 
 ## 6. Git, PRs, parallel agents
 

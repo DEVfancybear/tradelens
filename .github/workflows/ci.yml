@@ -49,4 +49,7 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.14"
-      - run: python -m py_compile python/tradelens_sync.py
+      - run: python -m py_compile python/tradelens_sync.py python/tradelens_worker.py
+      - name: Unit tests (fake MetaTrader5)
+        working-directory: python
+        run: python -m unittest -v

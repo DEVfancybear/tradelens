@@ -144,6 +144,19 @@ fn deals_round_trip_and_a_report_keeps_what_the_ea_measured() {
 }
 
 #[test]
+fn the_risk_measured_first_stays_when_a_later_poll_measures_it_again() {
+    let mut db = Db::in_memory().unwrap();
+    let mut first = batch();
+    first.deals[1].risk = Some(25.0);
+    db.upsert_batch(&first, "mt5").unwrap();
+    let mut again = batch();
+    again.deals[1].risk = Some(25.4);
+    let outcome = db.upsert_batch(&again, "mt5").unwrap();
+    assert_eq!((outcome.inserted, outcome.updated), (0, 0), "a moving tick value is not a change");
+    assert_eq!(db.deals(None).unwrap()[1].1.risk, Some(25.0));
+}
+
+#[test]
 fn position_levels_fill_deals_without_a_stop() {
     let mut db = Db::in_memory().unwrap();
     let mut with_levels = batch();

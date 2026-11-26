@@ -449,6 +449,16 @@ pub(crate) fn text_field(
     framed(glyph, text_input(label.into(), placeholder, value).on_change(move |text: &str| on_change(text)))
 }
 
+/// A one-line field for a password: what is typed shows as bullets and screen readers do not read it.
+pub(crate) fn secret_field(
+    label: impl Into<SharedString>,
+    placeholder: &'static str,
+    value: impl Fn() -> String + 'static,
+    on_change: impl Fn(&str) + 'static,
+) -> impl IntoElement {
+    framed(None, text_input(label.into(), placeholder, value).masked(true).on_change(move |text: &str| on_change(text)))
+}
+
 /// A one-line field for a name or a short value that is kept when the trader presses Enter or
 /// leaves the field, not on every key: what is typed stays a draft until then.
 ///

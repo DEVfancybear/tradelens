@@ -1,4 +1,4 @@
-//! Cài đặt: appearance, the clock times are shown on, where the data lives and the keyboard shortcuts. Design: `docs/design/screens/settings.html`.
+//! Cài đặt: appearance, the clock times are shown on, where the data lives, the keyboard shortcuts and updates. Design: `docs/design/screens/settings.html`.
 //!
 //! Every choice is a setting of the database (`Db::set_setting`), so it survives restarts and
 //! travels with the data file.
@@ -11,10 +11,11 @@ use crate::{
     nav,
     store::{Reading, query, writer},
     ui::{
-        controls::{Variant, action, action_when, segmented},
-        forms::setting_row,
+        controls::{Variant, action, action_when, link, segmented},
+        forms::{setting_row, switch_row},
         parts::{card, error_line, page},
     },
+    update::{Auto, Install, Phase, VERSION, repository_url, updater},
     zone::TIME_DISPLAY_KEY,
 };
 
@@ -275,16 +276,64 @@ fn shortcuts_card() -> impl IntoElement {
     )
 }
 
+/// The version, where its update stands and the way to the project: the design's "Về TradeLens",
+/// with the buttons that check now and restart into a downloaded version.
 fn about_card() -> impl IntoElement {
+    let update = updater();
+    let state = update.state;
+    let busy = computed(move || state.get().busy());
+    let ready = computed(move || matches!(state.get().phase, Phase::Ready(_)));
+    let from_source = computed(move || state.get().install == Install::FromSource);
     card(
         "Về TradeLens",
         view()
-            .gap_1()
-            .child(text(format!("TradeLens {}", env!("CARGO_PKG_VERSION"))).text_sm().font_weight(FontWeight::MEDIUM))
+            .gap_3()
             .child(
-                text("Nhật ký giao dịch, dữ liệu nằm trên máy của bạn.")
-                    .text_xs()
-                    .text_color(move || theme().muted_foreground),
+                view()
+                    .gap_1()
+                    .child(text(format!("TradeLens {VERSION}")).text_sm().font_weight(FontWeight::SEMIBOLD))
+                    .child(text(move || state.get().status()).text_xs().text_color(move || theme().muted_foreground))
+                    .child(dynamic(move || {
+                        from_source.get().then(|| {
+                            text("Chỉ bản cài đặt tự tải và cài bản mới; bản chạy từ mã nguồn chỉ kiểm tra.")
+                                .text_xs()
+                                .text_color(move || theme().muted_foreground)
+                        })
+                    })),
+            )
+            .child(switch_row(
+                "Tự động cập nhật",
+                Some("Tải bản mới khi có, cài khi khởi động lại"),
+                move || state.get().settings.auto(),
+                move |on| update.set_auto(if on { Auto::On } else { Auto::Off }),
+            ))
+            .child(
+                view()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_2()
+                    .child(action_when(
+                        "Kiểm tra cập nhật",
+                        Variant::Secondary,
+                        move || !busy.get(),
+                        move || update.check(),
+                    ))
+                    .child(dynamic(move || {
+                        ready.get().then(|| {
+                            action("Khởi động lại để cập nhật", Variant::Primary, move || {
+                                update.restart();
+                            })
+                        })
+                    })),
+            )
+            .child(
+                view()
+                    .flex_row()
+                    .flex_wrap()
+                    .gap_3()
+                    .child(link("Mã nguồn", || drop(open_url(repository_url()))))
+                    .child(link("Ghi chú phát hành", move || drop(open_url(state.get_untracked().notes_page()))))
+                    .child(link("Báo lỗi", || drop(open_url(format!("{}/issues", repository_url()))))),
             ),
     )
 }
