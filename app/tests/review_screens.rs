@@ -251,6 +251,72 @@ fn a_name_stored_after_the_list_was_read_is_still_refused() {
     assert_eq!(fixture.db().playbooks().expect("setups read").len(), 1, "no second setup with the name");
 }
 
+/// How many times `text` is on screen as a text of its own (the list and the detail both name a setup).
+fn text_count(app: &Headless, text: &str) -> usize {
+    app.screen().texts().iter().filter(|t| **t == text).count()
+}
+
+#[test]
+fn an_edited_playbook_shows_its_new_data_at_once_and_opens_from_it() {
+    let fixture = Fixture::new();
+    fixture
+        .db()
+        .save_playbook(&Playbook { name: "Pullback".into(), description: "Mô tả cũ".into(), ..Playbook::default() }, 0)
+        .expect("the setup is stored");
+    let mut app = fixture.start();
+    open_page(&mut app, "Playbook", "Playbook của bạn");
+    app.wait_for_within("Mô tả cũ", WAIT).expect("the setup's detail shows");
+    app.wait_for_within("role:button[Sửa]", WAIT).expect("the edit button shows");
+
+    // First edit: both fields change, and the detail follows without the page being left.
+    common::press_until(&mut app, "role:button[Sửa]", |screen| screen.shows("Sửa playbook"));
+    app.type_text("label:Tên playbook", " H1").expect("the name is extended");
+    app.type_text("label:Mô tả", " mới").expect("the description is extended");
+    app.press("role:button[Lưu]").expect("the save button");
+    wait_until("the setup being stored", || {
+        fixture.db().playbooks().is_ok_and(|p| p.first().is_some_and(|p| p.name == "Pullback H1"))
+    });
+    app.wait_until("the detail showing the edit", WAIT, |screen| {
+        !screen.shows("Sửa playbook") && screen.shows("Mô tả cũ mới")
+    })
+    .unwrap_or_else(|error| panic!("the detail kept the old description: {error}"));
+    app.wait_until("the detail showing the new name", WAIT, |screen| {
+        screen.texts().iter().filter(|t| **t == "Pullback H1").count() >= 2
+    })
+    .unwrap_or_else(|error| panic!("the detail kept the old name: {error}"));
+    assert_eq!(text_count(&app, "Pullback"), 0, "the old name is gone: {:?}", app.screen().texts());
+
+    // The form opens from what is stored now, not from a copy made when the page was built.
+    common::press_until(&mut app, "role:button[Sửa]", |screen| screen.shows("Sửa playbook"));
+    app.wait_until("the form holding the edit", WAIT, |screen| {
+        screen.input_text("label:Tên playbook") == Ok(Some("Pullback H1"))
+            && screen.input_text("label:Mô tả") == Ok(Some("Mô tả cũ mới"))
+    })
+    .unwrap_or_else(|error| panic!("the form opened on an old copy: {error}"));
+
+    // A second edit goes the same way.
+    app.type_text("label:Tên playbook", " v2").expect("the name is extended again");
+    app.press("role:button[Lưu]").expect("the save button");
+    wait_until("the second edit being stored", || {
+        fixture.db().playbooks().is_ok_and(|p| p.first().is_some_and(|p| p.name == "Pullback H1 v2"))
+    });
+    app.wait_until("the detail showing the second edit", WAIT, |screen| {
+        !screen.shows("Sửa playbook") && screen.texts().iter().filter(|t| **t == "Pullback H1 v2").count() >= 2
+    })
+    .unwrap_or_else(|error| panic!("the detail kept the first edit: {error}"));
+    let stored = fixture.db().playbooks().expect("setups read").remove(0);
+    assert_eq!(stored.description, "Mô tả cũ mới", "the description kept the first edit");
+
+    // Archiving and restoring act on the stored setup, so the second press undoes the first.
+    app.press("role:button[Lưu trữ]").expect("the archive button");
+    app.wait_for_within("role:button[Bỏ lưu trữ]", WAIT).expect("the detail shows the setup as archived");
+    app.press("role:button[Bỏ lưu trữ]").expect("the restore button");
+    app.wait_for_within("role:button[Lưu trữ]", WAIT).expect("the detail shows the setup as active again");
+    let stored = fixture.db().playbooks().expect("setups read").remove(0);
+    assert!(!stored.archived, "restored");
+    assert_eq!(stored.name, "Pullback H1 v2", "archiving kept the edits");
+}
+
 // --- Lệnh bỏ lỡ -------------------------------------------------------------------------------------
 
 #[test]

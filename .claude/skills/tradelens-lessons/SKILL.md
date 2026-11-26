@@ -75,6 +75,13 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
 - **Why:** the form editor asked "what would be lost" through `writer().run`; the changing-a-type test failed twice under load in full runs (the stored values never followed the new type) and not once in 40 runs alone. The extra re-read is the suspect; the test now also chooses the kind again until it is stored.
 - **Check:** `rg -n "writer\(\)|write\.run" app/src` and look at each closure: does it store anything?
 
+### 2.3 A detail built from a stored row follows the row; a form opens from the row as it is stored when pressed
+- **Rule:**
+  - A `when(cond, || untracked(|| build(current.get())))` builds its branch again only when `cond` flips, not when what it read changes. For a detail of a stored row, use `dynamic` over a `computed` of the row (a memo is compared with `==`, so a re-read that changed nothing builds nothing), and leave out of that memo what a child follows on its own (a gallery's pictures), so adding a picture does not close its viewer.
+  - A button that opens a form or writes a change reads the row when it is pressed (`current.get_untracked()`), never a clone made when the row was built.
+- **Why:** on Playbook, Sửa then Lưu left the old name and description on screen, and the next Sửa opened the form with the previous data. The detail was built once inside `when(current.is_some, untracked(..))`; the save closed the form before the snapshot was read again, so it was built from the old row and never again, and "Sửa" held a clone of that old row.
+- **Check:** `an_edited_playbook_shows_its_new_data_at_once_and_opens_from_it` edits twice without leaving the page and asserts the detail, the form's fields and the database each time. Reverting `detail` to the `when` form makes it fail.
+
 ## 3. Headless tests
 
 - **Waiting:**
