@@ -5724,9 +5724,13 @@ dependencies = [
  "log",
  "serde",
  "serde_json",
+ "sha2 0.11.1",
  "tempfile",
  "thiserror",
+ "tiny_http",
  "tradelens-core",
+ "ureq",
+ "zip",
 ]
 
 [[package]]

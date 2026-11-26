@@ -17,6 +17,7 @@ mod link;
 pub mod memory;
 mod protocol;
 pub mod python;
+pub mod runtime;
 
 pub use link::{Event, Link, LinkSettings, LinkState, Listener, Opener};
 pub use protocol::{AccountRef, Direction, Levels, Login, Mt5Error, Password, Poll, Position, Terminal};

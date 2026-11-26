@@ -42,6 +42,12 @@ struct Form {
 
 pub(super) fn mt5_card() -> impl IntoElement {
     let mt5 = mt5();
+    // The machine is looked at (Python, terminals) once the card shows and the settings are read.
+    effect(move || {
+        if mt5.state.with(|state| state.loaded) {
+            untracked(|| mt5.look_once());
+        }
+    });
     let form = Form {
         login: signal(String::new()),
         password: signal(String::new()),
@@ -76,7 +82,6 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
     dynamic(move || {
         let (missing, busy, setup) = shown.get();
         untracked(|| {
-            let python_ready = setup.python.as_ref().is_some_and(|python| python.has_package);
             let line = match (&setup.python, setup.demo) {
                 (_, true) => Some("Chế độ thử: tài khoản và lệnh là dữ liệu mẫu trong bộ nhớ.".to_owned()),
                 (Some(python), false) if python.has_package => {
@@ -101,12 +106,17 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
                                 move || busy.is_none(),
                                 move || mt5.check_again(),
                             ))
-                            .when(setup.python.is_some() && !python_ready, |v| {
+                            .when(setup.needs_python(), |v| {
+                                let label = if setup.python.is_some() {
+                                    "Cài gói MetaTrader5"
+                                } else {
+                                    "Cài Python tự động"
+                                };
                                 v.child(action_when(
-                                    "Cài gói MetaTrader5",
+                                    label,
                                     Variant::Primary,
                                     move || busy.is_none(),
-                                    move || mt5.install_package(),
+                                    move || mt5.install_python(),
                                 ))
                             }),
                     )
