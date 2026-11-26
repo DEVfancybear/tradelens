@@ -86,7 +86,8 @@ jobs:
           if ($env:UPDATE_SIGNING_KEY) {
             $key = Join-Path $env:RUNNER_TEMP 'update.secret'
             [IO.File]::WriteAllText($key, $env:UPDATE_SIGNING_KEY)
-            nsh update-manifest @archives --notes notes.md --key $key
+            # `--entry`: the id, version and public key come from the app's nsh.json, not from dist.
+            nsh update-manifest @archives --entry ../app --notes notes.md --key $key
             Remove-Item $key
           } else {
             # An unsigned manifest is refused by every app whose nsh.json has a publicKey, and leaves
