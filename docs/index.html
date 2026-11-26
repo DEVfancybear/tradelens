@@ -427,7 +427,7 @@
       <h1><span data-i18n="hero.title1">Nhìn rõ từng lệnh.</span><br><span class="grad" data-i18n="hero.title2">Giao dịch có kỷ luật.</span></h1>
       <p class="lead" data-i18n="hero.lead">TradeLens là nhật ký giao dịch MetaTrader 5 chạy ngay trên máy tính của bạn: nhập lệnh, ghi kế hoạch và cảm xúc, xem lại theo setup, và biết chính xác mình đang thua ở đâu.</p>
       <div class="cta">
-        <a class="btn btn-primary btn-lg" data-download href="#tai-ve">
+        <a class="btn btn-primary btn-lg" data-download href="https://github.com/DEVfancybear/tradelens/releases/latest/download/TradeLens-setup.exe">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.6 10.4 4.6v7H3zM11.3 4.5 21 3v8.6h-9.7zM3 12.5h7.4v7L3 18.4zM11.3 12.5H21V21l-9.7-1.4z"/></svg>
           <span data-i18n="cta.windows">Tải cho Windows</span>
           <span class="soon" data-i18n="cta.soon">Sắp có</span>
@@ -596,8 +596,8 @@
       <div class="timeline">
         <div class="step done reveal"><span class="node"></span><div class="ver">v0.1 – v0.2</div><h3 data-i18n="r1.title">Nhật ký & phân tích</h3><p data-i18n="r1.body">Import MT5, chi tiết lệnh, lịch P/L, phân tích, kỷ luật, playbook.</p></div>
         <div class="step done reveal"><span class="node"></span><div class="ver">v0.3</div><h3 data-i18n="r2.title">Đám mây</h3><p data-i18n="r2.body">Google / Microsoft, sync nhiều máy, import Notion, thẻ chia sẻ, PDF.</p></div>
-        <div class="step now reveal"><span class="node"></span><div class="ver" data-i18n="r3.ver">v0.4 · đang làm</div><h3 data-i18n="r3.title">Kết nối MT5 & copier</h3><p data-i18n="r3.body">Đăng nhập MT5 trong app, lệnh tự vào nhật ký, copy lệnh nhiều tài khoản.</p></div>
-        <div class="step later reveal"><span class="node"></span><div class="ver">v1.0</div><h3 data-i18n="r4.title">Phát hành</h3><p data-i18n="r4.body">Bộ cài Windows, tự cập nhật, bản macOS.</p></div>
+        <div class="step now reveal"><span class="node"></span><div class="ver" data-i18n="r3.ver">v0.4 · đang làm</div><h3 data-i18n="r3.title">Kết nối MT5 & copier</h3><p data-i18n="r3.body">Đã có: đăng nhập MT5 trong app, lệnh tự vào nhật ký, quản lý lệnh. Đang làm: copy lệnh nhiều tài khoản.</p></div>
+        <div class="step later reveal"><span class="node"></span><div class="ver">v1.0</div><h3 data-i18n="r4.title">Phát hành</h3><p data-i18n="r4.body">Bản macOS, kiểm thử E2E, tài liệu người dùng (bộ cài Windows và tự cập nhật đã có từ 0.1.0).</p></div>
       </div>
     </div>
   </section>
@@ -610,7 +610,7 @@
         <h2 data-i18n="dl.title">Bắt đầu ghi nhật ký hôm nay</h2>
         <p class="sub" style="margin-inline:auto" data-i18n="dl.sub">Tải về, mở app, kéo báo cáo MT5 vào. Vài phút sau bạn đã thấy mình thắng ở setup nào và thua vì điều gì.</p>
         <div class="cta">
-          <a class="btn btn-primary btn-lg" data-download href="#tai-ve">
+          <a class="btn btn-primary btn-lg" data-download href="https://github.com/DEVfancybear/tradelens/releases/latest/download/TradeLens-setup.exe">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M5 20h14"/></svg>
             <span data-i18n="cta.windows">Tải cho Windows</span>
             <span class="soon" data-i18n="cta.soon">Sắp có</span>
@@ -690,8 +690,8 @@
     "roadmap.sub": "Journal, analytics and sync are done. Next up: a direct MT5 connection, a trade copier and the installer.",
     "r1.title": "Journal & analytics", "r1.body": "MT5 import, trade detail, P/L calendar, analytics, discipline, playbook.",
     "r2.title": "Cloud", "r2.body": "Google / Microsoft, multi-device sync, Notion import, share cards, PDF.",
-    "r3.ver": "v0.4 · in progress", "r3.title": "MT5 connection & copier", "r3.body": "Sign in to MT5 inside the app, trades flow into the journal, copy trades across accounts.",
-    "r4.title": "Release", "r4.body": "Windows installer, auto-update, macOS version.",
+    "r3.ver": "v0.4 · in progress", "r3.title": "MT5 connection & copier", "r3.body": "Done: sign in to MT5 inside the app, trades flow into the journal, manage positions. In progress: copy trades across accounts.",
+    "r4.title": "Release", "r4.body": "macOS version, E2E tests, user guide (the Windows installer and auto-update ship since 0.1.0).",
     "dl.title": "Start journaling today", "dl.sub": "Download, open the app, drop in your MT5 report. Minutes later you'll see which setups win and why you lose.",
     "dl.all": "All versions", "dl.follow": "Follow on GitHub",
     "dl.devHint": "<b>TradeLens is still in development</b> and there is no download yet. The first Windows build will appear here when it is released; <a href=\"https://github.com/DEVfancybear/tradelens\">follow the project on GitHub</a> to hear about it first.",
@@ -772,7 +772,9 @@
       if (!res.ok) { fallback(); return; }
       const rel = await res.json();
       const assets = rel.assets || [];
-      const pick = ["msi", "exe", "zip"].map((ext) => assets.find((a) => a.name.toLowerCase().endsWith("." + ext))).find(Boolean);
+      // The installer first; the zip beside it is the archive the app updates itself from.
+      const pick = assets.find((a) => /setup\.exe$/i.test(a.name))
+        || ["msi", "exe", "zip"].map((ext) => assets.find((a) => a.name.toLowerCase().endsWith("." + ext))).find(Boolean);
       if (!pick) { setState("dev"); return; }
       release = { version: rel.tag_name.replace(/^v/i, ""), url: pick.browser_download_url, name: pick.name, size: pick.size };
       document.querySelectorAll("[data-download]").forEach((el) => { el.href = release.url; });
@@ -781,7 +783,8 @@
     } catch (_) { fallback(); }
   })();
   function fallback() {
-    document.querySelectorAll("[data-download]").forEach((el) => { el.href = `https://github.com/${REPO}/releases/latest`; });
+    // The installer of the latest release keeps one name, so the link works without asking GitHub.
+    document.querySelectorAll("[data-download]").forEach((el) => { el.href = `https://github.com/${REPO}/releases/latest/download/TradeLens-setup.exe`; });
     setState("unknown");
   }
 

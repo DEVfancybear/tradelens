@@ -8,6 +8,7 @@
   "theme": "theme.json",
   "rust": ".",
   "root": "App",
+  "updater": { "github": "DEVfancybear/tradelens", "publicKey": "Gleuq43TmrgypmgG3GqisW3wwH5GGxRR4S5RqMV+s7U=" },
   "window": {
     "defaultSize": { "width": 1280, "height": 800 },
     "minSize": { "width": 1024, "height": 680 }

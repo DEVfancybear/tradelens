@@ -22,6 +22,8 @@ mod fields;
 pub use fields::{FieldApplied, KindImpact};
 mod manual;
 pub use manual::Deleted;
+mod news;
+pub use news::NewsFetch;
 mod notion;
 mod sync;
 pub use sync::{ApplyReport, PortableState, SyncState};
@@ -59,6 +61,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0012_deal_gaps.sql"),
     include_str!("../migrations/0013_removed.sql"),
     include_str!("../migrations/0014_sync_uploaded.sql"),
+    include_str!("../migrations/0015_news.sql"),
 ];
 
 /// One line of the import log: what an import or a sync stored, and when.
@@ -1369,10 +1372,12 @@ fn write_deal_raw(conn: &Connection, account_id: i64, deal: &Deal, source: &str)
     Ok(())
 }
 
-/// What the EA measured and a report cannot tell (risk, reason, stop, target) is not
-/// lost when a report is imported over the EA's deals.
+/// What the terminal measured and a report cannot tell (risk, reason, stop, target) is not
+/// lost when a report is imported over the terminal's deals. The risk is the one measured first,
+/// at the entry: a later poll measures it again with the tick value of that moment, which moves
+/// with price, and must not make an unchanged deal look updated.
 fn keep_measured(deal: &mut Deal, stored: &Deal) {
-    if deal.risk.is_none() {
+    if stored.risk.is_some() || deal.risk.is_none() {
         deal.risk = stored.risk;
     }
     if deal.reason.is_none() {

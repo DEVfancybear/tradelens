@@ -18,7 +18,10 @@ pub(crate) mod form_editor;
 mod journal;
 pub(crate) mod manual_entry;
 mod missed;
+mod mt5_connect;
+mod news;
 mod playbook;
+pub(crate) mod position;
 mod review;
 pub(crate) mod search;
 mod settings;
@@ -33,6 +36,7 @@ pub(crate) fn page(route: Route) -> AnyElement {
         Route::Dashboard => dashboard::dashboard().into_element(),
         Route::Trades => trades::trades().into_element(),
         Route::Calendar => calendar::calendar().into_element(),
+        Route::News => news::news_page().into_element(),
         Route::Analytics => analytics::analytics().into_element(),
         Route::Journal => journal::journal().into_element(),
         Route::Review => review::review().into_element(),

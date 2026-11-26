@@ -265,56 +265,50 @@ fn detail(
         let catalog = grades.value().map_or_default(|c| c.to_vec());
         current.get().map_or_else(Vec::new, |setup| grade_groups(&store.snapshot(), setup.id, &catalog))
     });
-    when(
-        move || current.with(Option::is_some),
-        move || {
-            untracked(|| {
-                let Some(setup) = current.get() else { return view().into_element() };
-                let id = setup.id;
-                let name = setup.name.clone();
-                view()
-                    .p_5()
-                    .gap_5()
-                    .rounded(move || theme().radius)
-                    .border_1()
-                    .border_color(move || theme().border)
-                    .bg(move || theme().card)
-                    .child(title_row(&setup, timeframes, editing, write, notice))
-                    .child(dynamic({
-                        let setup = setup.clone();
-                        move || {
-                            let line = description_line(&setup);
-                            untracked(|| text(line).text_sm().text_color(move || theme().muted_foreground))
-                        }
-                    }))
-                    .child(stat_row(id, groups))
-                    .child(rules_columns(&setup))
-                    .child(
-                        view()
-                            .gap_3()
-                            .child(
-                                text(format!("Ảnh mẫu · {}", setup.examples.len()))
-                                    .text_xs()
-                                    .text_color(move || theme().muted_foreground),
-                            )
-                            .child(gallery(
-                                "Ảnh mẫu",
-                                move || current.with(|p| p.as_ref().map_or_else(Vec::new, |p| p.examples.clone())),
-                                move |list| {
-                                    write.run(
-                                        move |db| set_examples(db, id, list),
-                                        move |result| notice.set(result.err()),
-                                    );
-                                },
-                            )),
-                    )
-                    .child(grade_table(grade_rows, &name, groups))
-                    .child(dynamic(move || notice.get().map(error_note)))
-                    .into_element()
-            })
-        },
-    )
-    .otherwise(|| view().into_element())
+    // The detail is built again whenever the stored setup changes (an edit, an archive, a read
+    // after a sync), so it never shows an old copy. The pictures are left out of what is compared:
+    // the gallery follows `current` on its own, and building it again would close its viewer and
+    // its undo notice each time a picture is added or removed.
+    let shown = computed(move || current.get().map(|setup| Playbook { examples: Vec::new(), ..setup }));
+    dynamic(move || {
+        let setup = shown.get();
+        untracked(|| {
+            let Some(setup) = setup else { return view().into_element() };
+            let id = setup.id;
+            view()
+                .p_5()
+                .gap_5()
+                .rounded(move || theme().radius)
+                .border_1()
+                .border_color(move || theme().border)
+                .bg(move || theme().card)
+                .child(title_row(&setup, current, timeframes, editing, write, notice))
+                .child(text(description_line(&setup)).text_sm().text_color(move || theme().muted_foreground))
+                .child(stat_row(id, groups))
+                .child(rules_columns(&setup))
+                .child(
+                    view()
+                        .gap_3()
+                        .child(
+                            text(move || {
+                                format!("Ảnh mẫu · {}", current.with(|p| p.as_ref().map_or(0, |p| p.examples.len())))
+                            })
+                            .text_xs()
+                            .text_color(move || theme().muted_foreground),
+                        )
+                        .child(gallery(
+                            "Ảnh mẫu",
+                            move || current.with(|p| p.as_ref().map_or_else(Vec::new, |p| p.examples.clone())),
+                            move |list| {
+                                write.run(move |db| set_examples(db, id, list), move |result| notice.set(result.err()));
+                            },
+                        )),
+                )
+                .child(grade_table(grade_rows, &setup.name, groups))
+                .child(dynamic(move || notice.get().map(error_note)))
+                .into_element()
+        })
+    })
 }
 
 /// Replaces the example pictures of setup `id`.
@@ -334,14 +328,13 @@ pub(super) fn save_indexed(db: &mut Db, setup: &Playbook, position: usize) -> Re
 
 fn title_row(
     setup: &Playbook,
+    current: Memo<Option<Playbook>>,
     timeframes: Reading<Vec<CatalogItem>>,
     editing: Signal<Option<Draft>>,
     write: crate::store::Writer,
     notice: Signal<Option<String>>,
 ) -> impl IntoElement {
-    let for_edit = setup.clone();
     let archived = setup.archived;
-    let archive_target = setup.clone();
     let frames = setup.timeframes.clone();
     view()
         .flex_row()
@@ -376,14 +369,18 @@ fn title_row(
                 .flex_row()
                 .gap_2()
                 .child(action_icon(Icon::Edit, "Sửa", Variant::Secondary, move || {
-                    editing.set(Some(for_edit.clone()));
+                    // The form opens from the setup as stored now, not from the copy this row was
+                    // built with.
+                    if let Some(stored) = current.get_untracked() {
+                        editing.set(Some(stored));
+                    }
                 }))
                 .child(action_icon(
                     Icon::Download,
                     if archived { "Bỏ lưu trữ" } else { "Lưu trữ" },
                     Variant::Ghost,
                     move || {
-                        let mut next = archive_target.clone();
+                        let Some(mut next) = current.get_untracked() else { return };
                         next.archived = !next.archived;
                         write.run(
                             move |db| {

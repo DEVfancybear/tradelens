@@ -22,6 +22,8 @@ pub enum Icon {
     DataSources,
     Cloud,
     Settings,
+    /// Not in the design's SVG: the sidebar mark of the red news.
+    Bell,
     // Actions and marks.
     Search,
     Plus,
@@ -59,7 +61,7 @@ pub enum Icon {
 
 impl Icon {
     /// Every glyph, in declaration order.
-    pub const ALL: [Self; 39] = [
+    pub const ALL: [Self; 40] = [
         Self::Dashboard,
         Self::Trades,
         Self::Calendar,
@@ -72,6 +74,7 @@ impl Icon {
         Self::DataSources,
         Self::Cloud,
         Self::Settings,
+        Self::Bell,
         Self::Search,
         Self::Plus,
         Self::Minus,
@@ -118,6 +121,7 @@ impl Icon {
             Self::Settings => {
                 "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zM12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"
             }
+            Self::Bell => "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0",
             Self::Search => "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4",
             Self::Plus => "M12 5v14M5 12h14",
             Self::Minus => "M5 12h14",

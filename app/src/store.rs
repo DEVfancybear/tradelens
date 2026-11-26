@@ -86,7 +86,7 @@ pub(crate) enum Load {
     Failed(String),
 }
 
-type SharedDb = Arc<Mutex<Db>>;
+pub(crate) type SharedDb = Arc<Mutex<Db>>;
 
 /// Work that waits for the database to open; it is given the database, or `None` when opening failed.
 type WhenOpen = Box<dyn FnOnce(Option<SharedDb>)>;
@@ -109,6 +109,9 @@ pub(crate) struct Store {
     load: Signal<Load>,
     /// The database is open: reads that wait for it (`query`) start.
     ready: Signal<bool>,
+    /// How many times the database was replaced by a restore: what keeps its own position in the
+    /// data (the MT5 connection) starts over when it moves.
+    replaced: Signal<u64>,
     db: Stored<Option<SharedDb>>,
     /// The newest read asked for: an older one finishing later is dropped.
     generation: Stored<u64>,
@@ -128,6 +131,7 @@ impl Store {
             snapshot: signal_with(Arc::new(Snapshot::default()), SignalEquals::Never),
             load: signal(Load::Loading),
             ready: signal(false),
+            replaced: signal(0),
             db: stored(None),
             generation: stored(0),
             waiting: stored(Vec::new()),
@@ -175,6 +179,17 @@ impl Store {
                 Err(error) => self.load.set(Load::Failed(format!("Luồng đọc dữ liệu bị dừng: {error}"))),
             }
         });
+    }
+
+    /// The open database, for a writer off the UI thread (the MT5 connection) that bumps the
+    /// revision itself ([`data_changed`]); `None` until it is open.
+    pub(crate) fn database(&self) -> Option<SharedDb> {
+        self.db.get()
+    }
+
+    /// How many times a restore replaced the database (tracked).
+    pub(crate) fn replaced(&self) -> u64 {
+        self.replaced.get()
     }
 
     /// Whether the database is open: what waits for it (`query`, [`Store::read`]) starts then (tracked).
@@ -284,6 +299,7 @@ impl Store {
             if outcome.is_ok() {
                 data_changed();
                 self.revision.set(revision().get());
+                self.replaced.update(|n| *n += 1);
             }
             done(outcome);
         });

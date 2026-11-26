@@ -307,6 +307,7 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
             .gap_2()
             .child(edit_button(&key, row, &editor))
             .child(delete_button(&key, row, editor.failure))
+            .child(manage_button(&key))
             .child(share_button(&key, row))
             .child(action_when("Lưu", Variant::Primary, move || dirty.get() && !busy.get(), editor.save())),
         view().gap_4().child(breadcrumb(row, editor.back())).child(
@@ -399,6 +400,23 @@ fn delete_button(key: &Rc<TradeKey>, row: Memo<Option<TradeRow>>, failure: Signa
                 }
             });
         });
+    })
+}
+
+/// "Quản lý lệnh": for a trade still open on an MT5 account that is connected, the dialog that moves
+/// its stop and target or closes it (`pages::position`). Nothing for any other trade.
+fn manage_button(key: &Rc<TradeKey>) -> impl IntoElement {
+    let mt5 = crate::mt5::mt5();
+    let (account_id, ticket) = (key.account_id, key.position_id);
+    let live = computed(move || {
+        mt5.state.with(|state| state.position(account_id, ticket).map(|(live, _)| live.account.clone()))
+    });
+    dynamic(move || {
+        live.get().map(|account| {
+            untracked(|| {
+                action("Quản lý lệnh", Variant::Primary, move || super::position::open(account.clone(), ticket))
+            })
+        })
     })
 }
 
