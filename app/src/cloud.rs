@@ -788,6 +788,8 @@ fn local_settings(database: &Path) -> Vec<(String, String)> {
     let Ok(db) = Db::open(database) else { return Vec::new() };
     let mut keys = Env::keys();
     keys.push("appearance".to_owned());
+    // The MT5 accounts run in terminals of this machine: they stay with it, not with the restored data.
+    keys.extend(crate::mt5::LOCAL_SETTINGS.iter().map(|key| (*key).to_owned()));
     keys.into_iter().filter_map(|key| db.setting(&key).ok().flatten().map(|value| (key, value))).collect()
 }
 
@@ -824,6 +826,20 @@ mod tests {
         let demo = env(&[(MODE_SETTING, "memory"), (DEMO_DRIVE_SETTING, "một")]);
         assert_eq!(demo.demo_drive().as_deref(), Some("một"));
         assert_eq!(demo.missing_client(Provider::Google), None, "the demo needs no registration");
+    }
+
+    #[test]
+    fn the_mt5_accounts_of_this_machine_are_kept_through_a_restore() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let path = dir.path().join("tradelens.db");
+        let mut db = Db::open(&path).expect("the database opens");
+        db.set_setting(crate::mt5::ACCOUNTS_SETTING, r#"[{"login":"1","server":"S"}]"#).expect("stored");
+        db.set_setting("mt5.plan_prompt", "0").expect("stored");
+        drop(db);
+        let kept = local_settings(&path);
+        for key in [crate::mt5::ACCOUNTS_SETTING, "mt5.plan_prompt"] {
+            assert!(kept.iter().any(|(k, _)| k == key), "{key} stays with this machine: {kept:?}");
+        }
     }
 
     #[test]

@@ -45,6 +45,9 @@ pub(crate) const PYTHON_SETTING: &str = "mt5.python";
 /// `0`: a position that opens does not put the plan prompt on screen.
 pub(crate) const PROMPT_SETTING: &str = "mt5.plan_prompt";
 
+/// The connection's settings that belong to this machine: a restore from another one keeps them.
+pub(crate) const LOCAL_SETTINGS: [&str; 4] = [ACCOUNTS_SETTING, MODE_SETTING, PYTHON_SETTING, PROMPT_SETTING];
+
 /// What the deals a link writes are stored as (`deals.source`): an MT5 feed, so they are not editable.
 const SOURCE: &str = "mt5";
 
@@ -308,6 +311,16 @@ pub(crate) fn provide() {
         if mt5.store.is_ready() && !started.get() {
             started.replace(true);
             untracked(|| mt5.load());
+        }
+    });
+    // A restore replaces the database: each link read only from its newest deal, which the restored
+    // data may not have yet, so every kept account logs in again and reads its whole history.
+    let restores = stored(mt5.store.replaced());
+    effect(move || {
+        let now = mt5.store.replaced();
+        if now != restores.get() {
+            restores.replace(now);
+            untracked(|| mt5.read_everything_again());
         }
     });
 }
@@ -691,6 +704,27 @@ impl Mt5 {
 
     fn link(self, account: &AccountRef) -> Option<Arc<Link>> {
         self.links.with(|links| links.lock().expect("lock poisoned").get(account).cloned())
+    }
+
+    /// Logs in again every kept account that is not being started, so that each new link reads the
+    /// account's whole history into the database (after a restore replaced it).
+    fn read_everything_again(self) {
+        let kept: Vec<Saved> = self.state.with_untracked(|state| {
+            state
+                .accounts
+                .iter()
+                .filter(|live| live.saved && !live.starting && !live.removing)
+                .map(|live| Saved {
+                    login: live.account.login.clone(),
+                    server: live.account.server.clone(),
+                    terminal: live.terminal.clone(),
+                })
+                .collect()
+        });
+        if !kept.is_empty() {
+            log::info!("mt5: the database was replaced, {} account(s) read again", kept.len());
+            self.connect_saved(kept);
+        }
     }
 
     /// Logs in to `account` again with the password kept for it.
