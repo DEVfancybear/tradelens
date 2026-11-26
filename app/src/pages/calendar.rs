@@ -14,8 +14,8 @@ use crate::{
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{Variant, action_icon, icon_action, segmented},
-        date_picker::{DatePick, date_pick},
-        icons::{Icon, icon},
+        date_picker::{DatePick, date_pick, heading_trigger},
+        icons::Icon,
         layout::{columns, titled_card},
         month_grid::{Figure, month_grid},
         parts::{empty_state, page_with, property_row},
@@ -56,7 +56,7 @@ pub(super) fn show_day(day: NaiveDate) {
 pub(crate) fn calendar() -> impl IntoElement {
     let store = store();
     let picked = global::<Picked>().get_untracked().0;
-    untracked(|| global::<Picked>().set(Picked(None)));
+    global::<Picked>().set(Picked(None));
     let opened_on = picked.unwrap_or_else(|| insight::today_now(&store.snapshot_now()));
     let today = computed(move || insight::today_now(&store.snapshot()));
     let month = signal(month_of(opened_on));
@@ -115,24 +115,7 @@ fn month_pick(
         },
     )
     .marking(move |day| days.with_untracked(|d| d.contains_key(&day)));
-    let trigger = view()
-        .role(AccessibilityRole::Button)
-        .label("Chọn tháng")
-        .focusable(true)
-        .cursor_pointer()
-        .flex_row()
-        .items_center()
-        .justify_center()
-        .gap_2()
-        .min_w(px(150.0))
-        .h(px(36.0))
-        .px_2()
-        .rounded(move || theme().radius)
-        .hover(|s| s.bg(move || theme().accent))
-        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
-        .child(text(move || month_name(month.get())).text_xl().font_weight(FontWeight::SEMIBOLD))
-        .child(icon(Icon::ChevronDown, 16.0).text_color(move || theme().muted_foreground));
-    date_pick(pick, trigger)
+    date_pick(pick, heading_trigger(move || month_name(month.get())))
 }
 
 fn month_card(
