@@ -86,6 +86,31 @@ pub async fn pick_files(accept: Accept, pick: Pick) -> Result<Vec<PathBuf>, Stri
     }
 }
 
+/// Puts the PNG `png` on the clipboard so that any app pastes it. On Windows NSH writes only the
+/// registered "PNG" format, which Paint, Zalo, Telegram and Office's older paths do not read, so the
+/// picture goes there as a bitmap (with its PNG too) through `arboard`. Blocking: call it in
+/// [`blocking`] there.
+///
+/// # Errors
+///
+/// The message to show when the picture cannot be decoded or the clipboard cannot be written.
+#[cfg(target_os = "windows")]
+pub fn copy_png(png: &[u8]) -> Result<(), String> {
+    let picture = image::load_from_memory_with_format(png, image::ImageFormat::Png)
+        .map_err(|error| format!("Không đọc được ảnh để sao chép: {error}"))?
+        .to_rgba8();
+    let (width, height) = picture.dimensions();
+    let size = |side: u32| usize::try_from(side).map_err(|_| "Ảnh quá lớn để sao chép.".to_owned());
+    let data = arboard::ImageData {
+        width: size(width)?,
+        height: size(height)?,
+        bytes: std::borrow::Cow::Owned(picture.into_raw()),
+    };
+    arboard::Clipboard::new()
+        .and_then(|mut clipboard| clipboard.set_image(data))
+        .map_err(|error| format!("Không ghi được ảnh vào clipboard: {error}"))
+}
+
 /// The pictures on the clipboard: files copied in the file manager, else an image copied from
 /// a screenshot tool or a browser, written to a temporary file. Empty when there is none.
 pub async fn pasted_images() -> Vec<PathBuf> {
