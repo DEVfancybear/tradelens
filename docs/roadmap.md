@@ -11,6 +11,16 @@ Ngày là ước lượng cho một người làm toàn thời gian; mỗi mốc
 | **v0.4 Kết nối MT5 & copier** | Đăng nhập tài khoản MT5 ngay trong app (mật khẩu trong Windows Credential Manager), app tự chạy terminal MT5 portable ẩn cho từng tài khoản và điều khiển qua gói Python `MetaTrader5` (không EA); lệnh tự vào nhật ký, popup ghi kế hoạch khi có lệnh mới; xem và quản lý lệnh trong app; copier nhiều tài khoản (cách tính lot, đổi symbol, copy ngược, lệnh chờ, sửa SL/TP, đóng một phần). Đặc tả đang chốt | — | Đăng nhập xong, lệnh đóng hiện trong app ≤ 5 giây không cần mở MT5 |
 | **v1.0 Phát hành** | Bộ cài Windows (`nsh package`), tự cập nhật, macOS, kiểm thử E2E, tài liệu người dùng | 23/01/2027 | Cài mới đến lệnh đầu tiên trong app dưới 10 phút |
 
+## Bản phát hành
+
+| Bản | Ngày | Có gì | Tải |
+|---|---|---|---|
+| **0.1.0** | 26/11/2026 | Bản Windows đầu tiên: nhật ký và phân tích (v0.1–v0.2), đám mây (v0.3), kết nối MT5 trực tiếp và quản lý lệnh (v0.4, chưa có copier), tự cập nhật | [Release v0.1.0](https://github.com/DEVfancybear/tradelens/releases/tag/v0.1.0): `TradeLens-setup.exe` (bộ cài), `TradeLens-0.1.0-windows-x86_64.zip` (gói app tự cập nhật dùng), `latest.json` + `.sig` |
+
+Bộ cài chưa ký số nên Windows SmartScreen có thể cảnh báo (Thông tin thêm → Vẫn chạy). Trang giới thiệu
+(`docs/index.html`, GitHub Pages) lấy bản mới nhất qua GitHub API; khi API lỗi, nút tải trỏ thẳng
+`releases/latest/download/TradeLens-setup.exe`, nên bộ cài phải giữ tên đó.
+
 ## Tự cập nhật (làm sớm cho v1.0)
 
 - Bản cài bằng `nsh package` tự kiểm tra bản mới 10 giây sau khi mở và mỗi 6 giờ (tắt ở Cài đặt › Về TradeLens ›
@@ -22,11 +32,12 @@ Ngày là ước lượng cho một người làm toàn thời gian; mỗi mốc
   `v<version>` (vd. `v0.4.1`, không có tiền tố khác). `.github/workflows/release.yml` từ chối tag lệch phiên bản, chạy
   `nsh package --target windows` (ra `TradeLens-<version>-windows-x86_64.zip`), `nsh update-manifest` (ra `latest.json`,
   `latest.json.sig`) và `gh release create`. Draft và prerelease không được app đề nghị.
-- Còn phải làm tay một lần: chạy `nsh keygen keys/update`, chép nội dung `keys/update.pub` vào `"updater": { "publicKey" }`
-  của `app/nsh.json`, nội dung `keys/update.secret` vào secret `TRADELENS_UPDATE_SIGNING_KEY` của repo (không commit file
-  secret). **Phải làm trước bản phát hành công khai đầu tiên** (app đã phát hành mà không có khoá thì không bắt buộc ký về sau được): khi chưa có `publicKey` app nhận manifest không ký từ GitHub; có rồi thì manifest không ký bị từ chối. Workflow từ chối phát hành khi thiếu secret ký. Các
-  bước `nsh package` / `nsh update-manifest` trong workflow chưa chạy thử trên CI (máy dev chưa cài `nsh` CLI): lần tag
-  đầu cần xem log và sửa tên file nếu NSH đặt khác.
+- Khoá ký (đã làm 26/11/2026): `nsh keygen keys/update` tạo cặp khoá; `keys/update.pub` nằm ở `"updater": { "publicKey" }`
+  của `app/nsh.json`, `keys/update.secret` ở secret `TRADELENS_UPDATE_SIGNING_KEY` của repo (thư mục `keys/` không vào
+  git; giữ bản sao file secret ở nơi an toàn, mất nó thì các bản sau không ký được). App nhận chỉ `latest.json` có chữ ký
+  của khoá này; workflow từ chối phát hành khi thiếu secret ký.
+- Workflow đã chạy thật cho v0.1.0: trên runner Windows có Inno Setup nên `nsh package` ra cả `TradeLens-setup.exe`.
+  Secret OAuth hiện có Google; chưa có `TRADELENS_MICROSOFT_CLIENT_ID` nên bản phát hành chưa đăng nhập OneDrive được.
 
 ## Đã làm trong v0.4: kết nối MT5 (copier chưa làm)
 
