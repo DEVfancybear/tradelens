@@ -87,9 +87,10 @@ fn signing_in_brings_the_deals_prompts_a_plan_for_a_new_position_and_closes_one_
     app.wait_for_within("Lệnh đang mở (1)", WAIT).expect("the open position is listed");
     let db = fixture.db();
     wait_until("the entry deal being stored", || deals_of(&db) == 1);
-    let saved = db.setting("mt5.accounts").expect("the setting reads").unwrap_or_default();
-    assert!(saved.contains(LOGIN), "the account is kept once it logged in: {saved}");
-    assert!(!saved.contains(PASSWORD), "the password is never in the settings");
+    // The account is kept by a write that follows the login, on a thread of its own.
+    let saved = || db.setting("mt5.accounts").ok().flatten().unwrap_or_default();
+    wait_until("the account being kept once it logged in", || saved().contains(LOGIN));
+    assert!(!saved().contains(PASSWORD), "the password is never in the settings");
 
     // A position that opens while connected puts the plan prompt on screen, seeded from its levels.
     broker.open(LOGIN, position(78, "EURUSD"));
