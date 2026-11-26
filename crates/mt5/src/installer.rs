@@ -61,8 +61,10 @@ struct Watch {
 impl Watch {
     const INSTALL: Self =
         Self { every: Duration::from_secs(2), limit: Duration::from_mins(15), settle: Duration::from_secs(10) };
+    /// Uninstallers often hand over to a copy of themselves under another name and exit: the
+    /// terminal's file disappearing is what counts, and the wait for it is long.
     const REMOVE: Self =
-        Self { every: Duration::from_secs(2), limit: Duration::from_mins(5), settle: Duration::from_secs(10) };
+        Self { every: Duration::from_secs(2), limit: Duration::from_mins(5), settle: Duration::from_mins(1) };
 }
 
 /// What installing left.
@@ -123,7 +125,17 @@ pub fn download(folder: &Path) -> Result<PathBuf, Mt5Error> {
 /// folder cannot be copied. A copy in `Program Files` that cannot be removed is not an error: it is
 /// said in [`Installed::left_behind`].
 pub fn run(installer: &Path, mt5: &Path) -> Result<Installed, Mt5Error> {
-    let outcome = install_with(&mut Windows, installer, &mt5.join(OWN_FOLDER));
+    // The installer runs with administrator rights from a folder the user can write to: it is held
+    // so that nothing can replace it from its signature check until it has done its work, and the
+    // signature is checked again once it is held.
+    let outcome = hold(installer)
+        .map_err(|error| Mt5Error::Setup(format!("Không mở được trình cài MetaTrader 5 đã tải: {error}")))
+        .and_then(|held| {
+            check_signature(installer)?;
+            let outcome = install_with(&mut Windows, installer, &mt5.join(OWN_FOLDER));
+            drop(held);
+            outcome
+        });
     // The installer that started a second copy of itself with administrator rights may hold its
     // file for a moment after that copy is gone.
     for _ in 0..10 {
@@ -298,6 +310,22 @@ fn copy_all(from: &Path, to: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// `file` opened so that others may read and run it but not write, rename or delete it while the
+/// handle lives.
+#[cfg(windows)]
+fn hold(file: &Path) -> io::Result<fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    /// `FILE_SHARE_READ` (winnt.h): reading and running only.
+    const SHARE_READ: u32 = 0x1;
+    fs::OpenOptions::new().read(true).share_mode(SHARE_READ).open(file)
+}
+
+/// `file` opened; other systems have no share modes (and no installer to run).
+#[cfg(not(windows))]
+fn hold(file: &Path) -> io::Result<fs::File> {
+    fs::File::open(file)
+}
+
 /// The machine as it is.
 #[derive(Debug)]
 struct Windows;
@@ -306,9 +334,9 @@ impl Machine for Windows {
     fn launch(&mut self, program: &Path) -> io::Result<()> {
         let mut run = std::process::Command::new(program);
         run.arg("/auto").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
-        if let Some(folder) = program.parent() {
-            run.current_dir(folder);
-        }
+        // Never the program's own folder: the uninstaller could not remove the folder it works in,
+        // and the installer would look there first for what it loads.
+        run.current_dir(std::env::temp_dir());
         // The first program only starts a second one with administrator rights and exits: it is
         // not waited for here, the watch looks for the program by name.
         run.spawn().map(drop)
@@ -328,15 +356,25 @@ impl Machine for Windows {
     }
 
     fn close_opened(&mut self, terminal: &Path) {
-        // Waits a little for the window to open, asks it to close, and ends it if it does not.
+        // Waits a little for the window to open, asks it to close, and ends it if it does not. The
+        // process is found by `Win32_Process.ExecutablePath`, which is read for a process of any
+        // rights (`Get-Process`'s `Path` is empty for one running as administrator); what cannot be
+        // closed is said on stdout and logged.
         const SCRIPT: &str = "$deadline = (Get-Date).AddSeconds(15)\n\
-            do { $p = @(Get-Process terminal64 -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:TRADELENS_TERMINAL })\n\
-                 if ($p.Count -gt 0) { break }; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline)\n\
-            foreach ($x in $p) { [void]$x.CloseMainWindow(); if (-not $x.WaitForExit(10000)) { $x.Kill() } }";
+            do { $ids = @(Get-CimInstance Win32_Process -Filter \"Name='terminal64.exe'\" | Where-Object { $_.ExecutablePath -eq $env:TRADELENS_TERMINAL } | ForEach-Object { $_.ProcessId })\n\
+                 if ($ids.Count -gt 0) { break }; Start-Sleep -Milliseconds 500 } while ((Get-Date) -lt $deadline)\n\
+            foreach ($id in $ids) { try { $x = Get-Process -Id $id -ErrorAction Stop; [void]$x.CloseMainWindow(); if (-not $x.WaitForExit(10000)) { $x.Kill() } } catch { Write-Output \"not closed: $id $_\" } }";
         let mut close = powershell(SCRIPT);
         close.env("TRADELENS_TERMINAL", terminal);
-        if let Err(error) = python::output_within(close, Duration::from_secs(40)) {
-            log::warn!("mt5: the terminal the installer opened could not be closed: {error}");
+        match python::output_within(close, Duration::from_secs(40)) {
+            Ok(output) if !output.stdout.is_empty() => {
+                log::warn!(
+                    "mt5: the terminal the installer opened: {}",
+                    String::from_utf8_lossy(&output.stdout).trim()
+                );
+            }
+            Ok(_) => {}
+            Err(error) => log::warn!("mt5: the terminal the installer opened could not be closed: {error}"),
         }
     }
 
@@ -541,7 +579,7 @@ mod tests {
         let installed = install(&mut machine, "mt5setup.exe").expect("the app's copy is there");
         let left = installed.left_behind.expect("the copy in Program Files is said");
         assert!(left.contains(INSTALLED) && left.contains("Cài đặt Windows"), "{left}");
-        assert_eq!(machine.looks, 7, "two looks while the uninstaller ran, then five without it");
+        assert_eq!(machine.looks, 32, "two looks while the uninstaller ran, then a minute (thirty) without it");
     }
 
     #[test]
@@ -601,6 +639,21 @@ mod tests {
         copy_installed(&installed, &own_folder).expect_err("a folder without the terminal is not copied");
         assert!(own_folder.join(TERMINAL_EXE).is_file(), "the copy made before is kept");
         assert!(!mt5.join(format!("{OWN_FOLDER}.copying")).exists(), "the cut-short copy is removed");
+    }
+
+    #[test]
+    fn a_held_installer_can_be_read_but_not_replaced() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let installer = dir.path().join(INSTALLER_FILE);
+        fs::write(&installer, b"MZ signed").expect("the installer is written");
+        let held = hold(&installer).expect("held");
+        assert_eq!(fs::read(&installer).expect("still readable"), b"MZ signed");
+        if cfg!(windows) {
+            assert!(fs::write(&installer, b"MZ other").is_err(), "nothing writes over a held installer");
+            assert!(fs::rename(&installer, dir.path().join("moved.exe")).is_err(), "nor moves it away");
+        }
+        drop(held);
+        fs::remove_file(&installer).expect("free again once let go");
     }
 
     #[test]
