@@ -607,10 +607,12 @@ impl Db {
             return Err(DbError::Invalid("Tên lựa chọn không được để trống.".to_owned()));
         }
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let same = catalog_on(&tx, kind)?.into_iter().find(|item| item.label.to_lowercase() == label.to_lowercase());
+        let lowered = label.to_lowercase();
+        let same = catalog_on(&tx, kind)?.into_iter().find(|item| item.label.to_lowercase() == lowered);
         let key = match same {
-            Some(item) if item.archived => {
-                save_catalog_item_on(&tx, &CatalogItem { archived: false, ..item.clone() })?;
+            Some(mut item) if item.archived => {
+                item.archived = false;
+                save_catalog_item_on(&tx, &item)?;
                 item.key
             }
             Some(item) => item.key,

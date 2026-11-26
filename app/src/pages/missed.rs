@@ -560,26 +560,15 @@ fn trade_fields(fields: Fields, symbol_field: ElementRef) -> impl IntoElement {
         ))
 }
 
-/// The options of a catalog that are in use, as `(key, label)`. A memo: it changes only when the
-/// options do, so a picker over it is not made again every time the catalog is read.
-pub(super) fn catalog_options(items: Reading<Vec<CatalogItem>>) -> Memo<Vec<(String, String)>> {
-    computed(move || {
-        items.value().map_or_default(|all| {
-            all.iter().filter(|item| !item.archived).map(|item| (item.key.clone(), item.label.clone())).collect()
-        })
-    })
-}
-
 /// The reason for not entering: one of the trader's reasons, or a new one typed here.
 fn reason_field(reason: Signal<Option<String>>, reasons: Reading<Vec<CatalogItem>>) -> impl IntoElement {
-    let options = catalog_options(reasons);
     labelled(
         "Lý do không vào",
         catalog_tags(
             CatalogKind::MissedReason,
             "Lý do",
             "+ Thêm lý do mới, rồi Enter",
-            move || options.get(),
+            move || reasons.value().map_or_default(|all| all.to_vec()),
             move || reason.get().into_iter().collect(),
             move |key, on| reason.set(on.then(|| key.to_owned())),
         ),

@@ -743,12 +743,12 @@ fn edit_form(base: Draft, editing: Signal<Option<Draft>>, timeframes: Reading<Ve
 }
 
 /// The timeframes the setup is traded on, picked from the trader's list, which is kept here too.
-fn timeframe_field(frames: Signal<Vec<String>>, options: Memo<Vec<(String, String)>>) -> impl IntoElement {
+fn timeframe_field(frames: Signal<Vec<String>>, timeframes: Reading<Vec<CatalogItem>>) -> impl IntoElement {
     catalog_tags(
         CatalogKind::Timeframe,
         "Khung thời gian",
         "+ Thêm khung (vd. M30), rồi Enter",
-        move || options.get(),
+        move || timeframes.value().map_or_default(|all| all.to_vec()),
         move || frames.get(),
         move |key, on| {
             frames.update(|keys| {
@@ -764,7 +764,6 @@ fn timeframe_field(frames: Signal<Vec<String>>, options: Memo<Vec<(String, Strin
 /// The fields of the form: the setup's identity, then its rules and checklist.
 fn form_fields(fields: Fields, timeframes: Reading<Vec<CatalogItem>>) -> impl IntoElement {
     let Fields { name, description, symbols, frames, entry, exit, invalidation, risk, checklist } = fields;
-    let options = super::missed::catalog_options(timeframes);
     view()
         .gap_4()
         .child(labelled(
@@ -819,7 +818,7 @@ fn form_fields(fields: Fields, timeframes: Reading<Vec<CatalogItem>>) -> impl In
                     ),
                 )),
         )
-        .child(labelled("Khung thời gian", timeframe_field(frames, options)))
+        .child(labelled("Khung thời gian", timeframe_field(frames, timeframes)))
         .child(labelled(
             "Điều kiện vào",
             line_list("Điều kiện vào", "Thêm điều kiện vào", move || entry.get(), move |next| entry.set(next)),

@@ -752,11 +752,6 @@ fn choices_of(items: &[CatalogItem]) -> Vec<Choice> {
     choices
 }
 
-/// The catalog options still in use, as `(key, label)`.
-fn options_of(items: &[CatalogItem]) -> Vec<(String, String)> {
-    items.iter().filter(|i| !i.archived).map(|i| (i.key.clone(), i.label.clone())).collect()
-}
-
 /// The label of the option `key` in `items`.
 fn label_of(items: &[CatalogItem], key: &str) -> Option<String> {
     items.iter().find(|i| i.key == key).map(|i| i.label.clone())
@@ -809,7 +804,7 @@ fn builtin_editor(ctx: &Context, field: BuiltinField) -> Option<AnyElement> {
                 CatalogKind::Tag,
                 "Tag",
                 "+ Thêm tag, rồi Enter",
-                move || options_of(&ctx.store.snapshot().catalogs.tags),
+                move || ctx.store.snapshot().catalogs.tags.clone(),
                 move || tags.get(),
                 move |key, on| tags.update(|t| *t = if on { added(t, key) } else { removed(t, key) }),
             )
@@ -821,7 +816,7 @@ fn builtin_editor(ctx: &Context, field: BuiltinField) -> Option<AnyElement> {
                 CatalogKind::Mistake,
                 "Lỗi",
                 "+ Thêm lỗi, rồi Enter",
-                move || options_of(&ctx.store.snapshot().catalogs.mistakes),
+                move || ctx.store.snapshot().catalogs.mistakes.clone(),
                 move || mistakes.get(),
                 move |key, on| mistakes.update(|m| *m = if on { added(m, key) } else { removed(m, key) }),
             )

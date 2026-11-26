@@ -626,11 +626,33 @@ pub(crate) fn tag_picker(
     }))
 }
 
-/// [`tag_picker`] over a list the trader keeps: a small ✕ after each option tells `on_remove` its key
-/// and label (the caller asks before removing).
+/// One chip of a [`removable_tags`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TagOption {
+    pub(crate) key: String,
+    pub(crate) label: String,
+    /// Whether the chip has its ✕: an option already removed from the list but still picked on the
+    /// record shown stays as a chip, without one, until it is unpicked.
+    pub(crate) removable: bool,
+}
+
+impl TagOption {
+    /// An option of the list, which can be removed from it.
+    pub(crate) fn listed(key: impl Into<String>, label: impl Into<String>) -> Self {
+        Self { key: key.into(), label: label.into(), removable: true }
+    }
+
+    /// An option no longer in the list that the record shown still holds.
+    pub(crate) fn kept(key: impl Into<String>, label: impl Into<String>) -> Self {
+        Self { key: key.into(), label: label.into(), removable: false }
+    }
+}
+
+/// [`tag_picker`] over a list the trader keeps: a small ✕ after each removable option tells `on_remove`
+/// its key and label (the caller asks before removing).
 pub(crate) fn removable_tags(
     group: impl Into<SharedString>,
-    options: impl Fn() -> Vec<(String, String)> + 'static,
+    options: impl Fn() -> Vec<TagOption> + 'static,
     selected: impl Fn() -> Vec<String> + Copy + 'static,
     on_toggle: impl Fn(&str, bool) + Copy + 'static,
     on_remove: impl Fn(&str, &str) + Clone + 'static,
@@ -644,26 +666,28 @@ pub(crate) fn removable_tags(
         untracked(move || {
             options
                 .into_iter()
-                .map(|(key, label)| {
+                .map(|TagOption { key, label, removable }| {
                     let (removed, named, on_remove) = (key.clone(), label.clone(), on_remove.clone());
                     view()
                         .flex_row()
                         .items_center()
                         .gap_0p5()
                         .child(tag_toggle(format!("{group}: {label}"), key, label.clone(), selected, on_toggle))
-                        .child(
-                            button()
-                                .cursor_pointer()
-                                .on_press(move || on_remove(&removed, &named))
-                                .accessibility_label(format!("Xoá {group} {label}"))
-                                .size(px(20.0))
-                                .items_center()
-                                .justify_center()
-                                .rounded(px(4.0))
-                                .hover(|s| s.bg(move || theme().accent))
-                                .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
-                                .child(icon(Icon::Close, 12.0).text_color(move || theme().muted_foreground)),
-                        )
+                        .when(removable, |chip| {
+                            chip.child(
+                                button()
+                                    .cursor_pointer()
+                                    .on_press(move || on_remove(&removed, &named))
+                                    .accessibility_label(format!("Xoá {group} {label}"))
+                                    .size(px(20.0))
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded(px(4.0))
+                                    .hover(|s| s.bg(move || theme().accent))
+                                    .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+                                    .child(icon(Icon::Close, 12.0).text_color(move || theme().muted_foreground)),
+                            )
+                        })
                 })
                 .collect::<Vec<_>>()
         })
