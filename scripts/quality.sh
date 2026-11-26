@@ -4,6 +4,10 @@
 # the agents' Stop hook (.claude/settings.json). Exit 2 tells Claude Code to keep working.
 set -u
 cd "$(dirname "$0")/.." || exit 2
+# Twelve rustc jobs linking test binaries at once ran Windows out of memory (os error 1453/1455,
+# STATUS_STACK_BUFFER_OVERRUN) and left invalid metadata behind (E0786); a caller can still set more.
+: "${CARGO_BUILD_JOBS:=4}"
+export CARGO_BUILD_JOBS
 
 fail() {
     echo "quality gate: $1 — fix it before handing back (see CLAUDE.md)" >&2
