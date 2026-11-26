@@ -7,7 +7,7 @@ use chrono::{DateTime, Datelike, Duration, FixedOffset, Local, Utc};
 use nsh_testing::Headless;
 
 mod support;
-use support::{Fixture, WAIT};
+use support::{Fixture, WAIT, wait_until};
 
 /// The sidebar row of the page.
 const ROW: &str = "role:button[Tin quan trọng]";
@@ -120,6 +120,7 @@ fn a_failed_fetch_says_so_and_keeps_the_last_week() {
     let refused = Feed::serve(403, "Request Denied".to_owned());
     fixture.db().set_setting(nsh_app_tradelens::NEWS_URL_SETTING, &refused.url()).expect("the setting is stored");
     app.press("role:button[Tải lại]").expect("the page can fetch again");
+    wait_until("the failure is recorded", || fixture.db().news_fetch().is_ok_and(|fetch| fetch.failure.is_some()));
     app.wait_for_within("text:/^Không tải được lịch tin/", WAIT).expect("the failure is shown");
     assert!(shows_part(&app, "Đang hiện bản tải"), "the page says which fetch it shows");
     assert!(app.screen().shows("CPI y/y"), "the last week stays");
