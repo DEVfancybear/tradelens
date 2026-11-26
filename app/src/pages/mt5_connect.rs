@@ -42,6 +42,13 @@ struct Form {
 
 pub(super) fn mt5_card() -> impl IntoElement {
     let mt5 = mt5();
+    // The machine is looked at (Python, terminals) once the card shows and the settings are read.
+    let loaded = computed(move || mt5.state.with(|state| state.loaded));
+    effect(move || {
+        if loaded.get() {
+            untracked(|| mt5.look_once());
+        }
+    });
     let form = Form {
         login: signal(String::new()),
         password: signal(String::new()),
@@ -72,11 +79,12 @@ pub(super) fn mt5_card() -> impl IntoElement {
 
 /// Why the connection cannot be used yet, with what fixes it; nothing when it can.
 fn setup_view(mt5: Mt5) -> impl IntoElement {
-    let shown = computed(move || mt5.state.with(|state| (state.setup.missing(), state.busy, state.setup.clone())));
+    let shown =
+        computed(move || mt5.state.with(|state| (state.setup.missing(), state.busy.clone(), state.setup.clone())));
     dynamic(move || {
         let (missing, busy, setup) = shown.get();
         untracked(|| {
-            let python_ready = setup.python.as_ref().is_some_and(|python| python.has_package);
+            let idle = busy.is_none();
             let line = match (&setup.python, setup.demo) {
                 (_, true) => Some("Chế độ thử: tài khoản và lệnh là dữ liệu mẫu trong bộ nhớ.".to_owned()),
                 (Some(python), false) if python.has_package => {
@@ -87,7 +95,7 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
             view()
                 .gap_2()
                 .when_some(busy, |v, busy| v.child(text(busy).text_xs().text_color(move || theme().muted_foreground)))
-                .when_some(missing.filter(|_| busy.is_none()), |v, missing| v.child(warning_banner(missing)))
+                .when_some(missing.filter(|_| idle), |v, missing| v.child(warning_banner(missing)))
                 .when_some(line, |v, line| v.child(text(line).text_xs().text_color(move || theme().muted_foreground)))
                 .when(!setup.demo && setup.checked, |v| {
                     v.child(
@@ -98,15 +106,20 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
                             .child(action_when(
                                 "Kiểm tra lại",
                                 Variant::Secondary,
-                                move || busy.is_none(),
+                                move || idle,
                                 move || mt5.check_again(),
                             ))
-                            .when(setup.python.is_some() && !python_ready, |v| {
+                            .when(setup.needs_python(), |v| {
+                                let label = if setup.python.is_some() {
+                                    "Cài gói MetaTrader5"
+                                } else {
+                                    "Cài Python tự động"
+                                };
                                 v.child(action_when(
-                                    "Cài gói MetaTrader5",
+                                    label,
                                     Variant::Primary,
-                                    move || busy.is_none(),
-                                    move || mt5.install_package(),
+                                    move || idle,
+                                    move || mt5.install_python(),
                                 ))
                             }),
                     )
@@ -140,8 +153,40 @@ fn chosen_terminal(state: &State, form: Form) -> Option<PathBuf> {
         .map(|choice| PathBuf::from(choice.value.as_ref()))
 }
 
+/// Why the sign-in button is off, `None` when it is on: in the demo it always is; otherwise the
+/// machine must have been looked at, Python must have the `MetaTrader5` package (the card's
+/// "Cài Python tự động" installs both) and an MT5 terminal must be found or picked, and nothing
+/// may be installing.
+fn sign_in_blocked(state: &State, picked: Option<&PathBuf>) -> Option<&'static str> {
+    if state.setup.demo {
+        return state.busy.is_some().then_some("Đang chuẩn bị, chờ một chút…");
+    }
+    if !cfg!(windows) {
+        return Some("Kết nối MT5 chỉ chạy trên Windows.");
+    }
+    if state.busy.is_some() {
+        return Some("Đang cài đặt hoặc kiểm tra máy, chờ xong rồi đăng nhập.");
+    }
+    if !state.setup.checked {
+        return Some("Đang kiểm tra Python và MetaTrader 5 trên máy…");
+    }
+    if state.setup.python.as_ref().is_none_or(|python| !python.has_package) {
+        return Some("Cần Python trước khi đăng nhập: bấm \"Cài Python tự động\" ở trên.");
+    }
+    if terminal_choices(state, picked).is_empty() {
+        return Some("Cần MetaTrader 5 trên máy: cài MT5 của broker hoặc chọn terminal64.exe.");
+    }
+    None
+}
+
 fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
     let demo = computed(move || mt5.state.with(|state| state.setup.demo));
+    // What stops a sign-in, said beside the button: nothing in the demo; otherwise Python with its
+    // package and an MT5 terminal must be there first, and nothing may be installing.
+    let blocked = computed(move || {
+        let picked = form.picked.get();
+        mt5.state.with(|state| sign_in_blocked(state, picked.as_ref()))
+    });
     let sign_in = move || {
         let terminal = mt5.state.with_untracked(|state| {
             if state.setup.demo { Some(PathBuf::from("terminal64.exe")) } else { chosen_terminal(state, form) }
@@ -166,11 +211,20 @@ fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
         .child(fields_row(form))
         .child(dynamic(move || (!demo.get()).then(|| untracked(|| terminal_row(mt5, form)))))
         .child(
-            view().flex_row().gap_3().items_center().child(action("Đăng nhập", Variant::Primary, sign_in)).child(
-                text("Lần đầu app chép terminal MT5 cho tài khoản này (vài trăm MB), mất khoảng một phút.")
+            view()
+                .flex_row()
+                .gap_3()
+                .items_center()
+                .child(action_when("Đăng nhập", Variant::Primary, move || blocked.get().is_none(), sign_in))
+                .child(
+                    text(move || {
+                        blocked.get().unwrap_or(
+                            "Lần đầu app chép terminal MT5 cho tài khoản này (vài trăm MB), mất khoảng một phút.",
+                        )
+                    })
                     .text_xs()
                     .text_color(move || theme().muted_foreground),
-            ),
+                ),
         )
         .child({
             let error = computed(move || mt5.state.with(|state| state.error.clone()));
@@ -467,4 +521,37 @@ fn position_row(live: Memo<Option<Live>>, account: AccountRef, ticket: i64) -> i
             .text_sm(),
         )
         .child(action("Quản lý", Variant::Secondary, move || position::open(account.clone(), ticket)))
+}
+
+#[cfg(test)]
+mod tests {
+    use tradelens_mt5::{install::Install, python::Python};
+
+    use super::*;
+
+    #[test]
+    fn sign_in_waits_for_python_and_a_terminal_except_in_the_demo() {
+        let mut state = State::default();
+        state.setup.demo = true;
+        assert_eq!(sign_in_blocked(&state, None), None, "the demo needs nothing");
+        state.setup.demo = false;
+        assert!(sign_in_blocked(&state, None).is_some(), "before the machine is looked at");
+        state.setup.checked = true;
+        if !cfg!(windows) {
+            assert!(sign_in_blocked(&state, None).is_some_and(|why| why.contains("Windows")));
+            return;
+        }
+        assert!(sign_in_blocked(&state, None).is_some_and(|why| why.contains("Cài Python tự động")));
+        let python = Python { program: "python".into(), args: Vec::new(), version: "3.14".into(), has_package: false };
+        state.setup.python = Some(python);
+        assert!(sign_in_blocked(&state, None).is_some_and(|why| why.contains("Python")), "the package is missing");
+        state.setup.python.as_mut().expect("set above").has_package = true;
+        assert!(sign_in_blocked(&state, None).is_some_and(|why| why.contains("MetaTrader 5")), "no terminal");
+        let picked = PathBuf::from("D:/MT5/terminal64.exe");
+        assert_eq!(sign_in_blocked(&state, Some(&picked)), None, "a picked terminal is enough");
+        state.setup.installs = vec![Install::at(PathBuf::from("C:/MT5/terminal64.exe"))];
+        assert_eq!(sign_in_blocked(&state, None), None, "a terminal found is enough");
+        state.busy = Some("Đang cài".to_owned());
+        assert!(sign_in_blocked(&state, None).is_some(), "not while installing");
+    }
 }

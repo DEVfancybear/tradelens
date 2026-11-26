@@ -25,7 +25,11 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import tradelens_sync as sync
+# The app's own Python (python.org's embeddable package) runs isolated: its ._pth leaves the
+# script's folder out of sys.path, where tradelens_sync is.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import tradelens_sync as sync  # noqa: E402 - after the path above
 
 # MetaTrader5's error code for a refused login (`RES_E_AUTH_FAILED`): the app stops retrying.
 AUTH_FAILED = -6
@@ -487,6 +491,11 @@ def serve(mt5: Any, lines: Any, out: Any) -> int:
 
 
 def main() -> int:
+    # The app reads and writes UTF-8; an isolated Python ignores PYTHONIOENCODING and would use the
+    # console's code page on a pipe.
+    for stream in (sys.stdin, sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     try:
         import MetaTrader5 as mt5  # noqa: PLC0415 - Windows-only
     except ImportError as err:

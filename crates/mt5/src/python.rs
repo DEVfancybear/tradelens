@@ -47,7 +47,7 @@ const PACKAGE: &str = "MetaTrader5";
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 /// A command for `program`; on Windows it runs without a console window.
-fn command(program: impl AsRef<OsStr>) -> Command {
+pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt as _;
@@ -93,12 +93,15 @@ impl Python {
     }
 }
 
-/// Where Python may be, in order: `chosen` (a setting) first, then the launcher, `python` on the
-/// path and the usual install folders of python.org.
-fn candidates(chosen: Option<&Path>) -> Vec<(PathBuf, Vec<String>)> {
+/// Where Python may be, in order: `chosen` (a setting) first, then the app's own (`private`,
+/// [`crate::runtime`]), the launcher, `python` on the path and the usual install folders of python.org.
+fn candidates(chosen: Option<&Path>, private: Option<&Path>) -> Vec<(PathBuf, Vec<String>)> {
     let mut found: Vec<(PathBuf, Vec<String>)> = Vec::new();
     if let Some(chosen) = chosen {
         found.push((chosen.to_path_buf(), Vec::new()));
+    }
+    if let Some(private) = private.filter(|program| program.is_file()) {
+        found.push((private.to_path_buf(), Vec::new()));
     }
     found.push((PathBuf::from("py"), vec!["-3".to_owned()]));
     found.push((PathBuf::from("python"), Vec::new()));
@@ -156,11 +159,17 @@ fn probe(program: &Path, args: &[String]) -> Option<Python> {
     Some(Python { program: program.to_path_buf(), args: args.to_vec(), version, has_package })
 }
 
+/// Python 3 at `program`, `None` when it does not run there.
+pub(crate) fn probe_program(program: &Path) -> Option<Python> {
+    probe(program, &[])
+}
+
 /// The Python to run the worker with: the first one found that has the package, else the first
-/// one found at all. `chosen` is the trader's own choice (a setting), tried first.
-pub fn find(chosen: Option<&Path>) -> Option<Python> {
+/// one found at all. `chosen` is the trader's own choice (a setting), tried first, then `private`,
+/// the one the app installed for itself ([`crate::runtime::executable`]).
+pub fn find(chosen: Option<&Path>, private: Option<&Path>) -> Option<Python> {
     let mut first = None;
-    for (program, args) in candidates(chosen) {
+    for (program, args) in candidates(chosen, private) {
         if let Some(python) = probe(&program, &args) {
             if python.has_package {
                 return Some(python);
@@ -188,10 +197,14 @@ pub fn install_package(python: &Python) -> Result<(), Mt5Error> {
     if output.status.success() {
         return Ok(());
     }
-    let text = String::from_utf8_lossy(&output.stderr);
-    let tail: Vec<&str> = text.lines().rev().take(4).collect();
-    let tail: Vec<&str> = tail.into_iter().rev().collect();
-    Err(Mt5Error::Setup(format!("pip không cài được {PACKAGE}: {}", tail.join(" "))))
+    Err(Mt5Error::Setup(format!("pip không cài được {PACKAGE}: {}", tail(&output.stderr))))
+}
+
+/// The last lines of what a program printed, on one line: what pip says when it fails.
+pub(crate) fn tail(printed: &[u8]) -> String {
+    let text = String::from_utf8_lossy(printed);
+    let last: Vec<&str> = text.lines().rev().take(4).collect();
+    last.into_iter().rev().collect::<Vec<_>>().join(" ")
 }
 
 /// Reads all of `pipe` on a thread of its own, so that a full pipe never stalls the process.
@@ -206,7 +219,7 @@ fn read_all<R: io::Read + Send + 'static>(pipe: Option<R>) -> thread::JoinHandle
 }
 
 /// Runs `command` to the end, killing it when it takes longer than `limit`.
-fn output_within(mut command: Command, limit: Duration) -> io::Result<std::process::Output> {
+pub(crate) fn output_within(mut command: Command, limit: Duration) -> io::Result<std::process::Output> {
     let mut child = command.spawn()?;
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -263,10 +276,12 @@ impl Worker {
     /// [`Mt5Error::Setup`] when the process does not start.
     pub fn spawn(python: &Python, script: &Path) -> Result<Self, Mt5Error> {
         let mut run = python.command();
-        // Not `-I`: isolated mode leaves the script's folder (where `tradelens_sync` is) and the
-        // user's site-packages (where `pip install --user` puts MetaTrader5) out of `sys.path`, and
-        // ignores `PYTHONIOENCODING`. `-u` makes every reply line reach the app at once.
-        run.arg("-u")
+        // Not `-I`: isolated mode leaves the user's site-packages (where `pip install --user` puts
+        // MetaTrader5) out of `sys.path`. The app's own Python is isolated anyway by its `._pth`
+        // (no script folder on `sys.path`, `PYTHONIOENCODING` ignored), which the worker handles
+        // itself; `-X utf8` makes its text UTF-8 in either case, and `-u` makes every reply line
+        // reach the app at once.
+        run.args(["-X", "utf8", "-u"])
             .arg(script)
             .env("PYTHONIOENCODING", "utf-8")
             .stdin(Stdio::piped())

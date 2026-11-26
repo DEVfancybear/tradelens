@@ -51,6 +51,15 @@ Bộ cài chưa ký số nên Windows SmartScreen có thể cảnh báo (Thông 
   chọn `terminal64.exe`; đăng nhập số tài khoản / mật khẩu / server; tài khoản chỉ được lưu (setting `mt5.accounts`,
   mật khẩu trong Windows Credential Manager) sau lần đăng nhập đầu thành công và tự kết nối khi mở app; danh sách lệnh
   đang mở; "Kết nối lại", "Xoá" (xoá cả bản terminal riêng).
+- **Tự cài Python** (`crates/mt5/src/runtime.rs`, sau 0.1.0): nút "Đăng nhập" chỉ bật khi đã có Python kèm gói và một
+  terminal MT5 (dòng chữ cạnh nút nói còn thiếu gì); máy chưa có Python thì nút "Cài Python tự động" (tài khoản đã lưu: tự
+  động khi mở app) tải gói embeddable Python 3.14.10 của python.org (12,6 MB) vào `%APPDATA%\vn.dat.tradelens\mt5\runtime\python`,
+  bật `site`, giải nén wheel pip 26.3, rồi `pip install --require-hashes --only-binary=:all: --no-deps` MetaTrader5 5.0.6231
+  và numpy 2.5.5. Mọi file đều ghim kích thước hoặc SHA-256 trong `runtime::Source::official` (lấy từ API của python.org và
+  PyPI); tải bằng kho chứng chỉ của Windows (chạy được sau proxy công ty hay antivirus kiểm HTTPS). Không cần quyền admin,
+  không đổi `PATH`. Python riêng hỏng hoặc khác phiên bản (file `.tradelens-python`) thì được cài lại; máy có Python thiếu
+  gói thì chỉ cài gói (`--user`). App chỉ dò Python khi có tài khoản đã lưu hoặc khi mở thẻ Kết nối MT5.
+  Đổi phiên bản: sửa `Source::official` và `VERSION`.
 - **Lệnh mới → popup kế hoạch** (tắt bằng công tắc "Hỏi kế hoạch khi có lệnh mới", setting `mt5.plan_prompt = 0`).
 - **Quản lý lệnh** (`pages/position.rs`): sửa SL/TP, đóng toàn bộ hoặc một phần (hỏi trước), mở từ thẻ kết nối và từ nút
   "Quản lý lệnh" ở chi tiết lệnh đang mở.

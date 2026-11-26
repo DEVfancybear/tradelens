@@ -15,8 +15,10 @@ Windows, macOS và Linux, không có JavaScript VM.
 
 - Bộ cài chưa ký số: nếu Windows SmartScreen cảnh báo, chọn **Thông tin thêm** → **Vẫn chạy**.
 - App tự kiểm tra và tải bản mới, cài khi khởi động lại (tắt ở Cài đặt › Về TradeLens › Tự động cập nhật).
-- Kết nối MT5 trực tiếp cần Python 3 và terminal MetaTrader 5 trên máy; thẻ **Nguồn dữ liệu › Kết nối MT5**
-  kiểm tra và cài gói `MetaTrader5` giúp bạn.
+- Kết nối MT5 trực tiếp cần terminal MetaTrader 5 trên máy. Nếu máy chưa có Python, bấm **Cài Python tự động** ở
+  **Nguồn dữ liệu › Kết nối MT5**: app tự cài một bản Python riêng (khoảng 40 MB, trong thư mục dữ liệu của app, không
+  cần quyền admin); máy đã có Python thì app chỉ cài thêm gói `MetaTrader5`. Nút **Đăng nhập** chỉ bật khi đã có cả
+  Python và MetaTrader 5.
 
 Lộ trình và nội dung từng bản: [docs/roadmap.md](docs/roadmap.md).
 
