@@ -80,7 +80,9 @@ jobs:
           # which apps refuse once nsh.json has a key.
           UPDATE_SIGNING_KEY: ${{ secrets.TRADELENS_UPDATE_SIGNING_KEY }}
         run: |
-          $archives = Get-ChildItem -Filter 'TradeLens-*-windows-*.zip' | ForEach-Object { $_.Name }
+          # @(...): with one archive Get-ChildItem gives a string, and @archives would then pass it
+          # character by character.
+          $archives = @(Get-ChildItem -Filter 'TradeLens-*-windows-*.zip' | ForEach-Object { $_.Name })
           if (-not $archives) { Write-Error "nsh package wrote no update archive: is `"updater`" in app/nsh.json?"; exit 1 }
           "TradeLens ${{ github.ref_name }}" | Out-File -FilePath notes.md -Encoding utf8
           if ($env:UPDATE_SIGNING_KEY) {
