@@ -65,8 +65,18 @@ pub(crate) fn news_page() -> impl IntoElement {
             .child(dynamic(move || shown.error().map(error_line)))
             .child(dynamic(move || {
                 let read = shown.value()?;
+                read.fetch.fetched_ms?;
                 let at = now.get();
-                read.events.iter().find(|e| e.at_ms > at).map(|next| next_card(next, at))
+                Some(match read.events.iter().find(|e| e.at_ms > at) {
+                    Some(next) => next_card(next, at).into_element(),
+                    None => card(
+                        "Sắp tới",
+                        text("Tuần này không còn tin đỏ nào. Lịch tuần sau có từ Chủ nhật.")
+                            .text_sm()
+                            .text_color(move || theme().muted_foreground),
+                    )
+                    .into_element(),
+                })
             }))
             .child(dynamic(move || {
                 let (start_ms, end_ms) = week.get();

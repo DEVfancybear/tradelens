@@ -10,7 +10,10 @@ use std::time::Duration;
 
 use chrono::Utc;
 use nsh_core::prelude::*;
-use tradelens_cloud::news::{FOREX_FACTORY_WEEK, fetch_week};
+use tradelens_cloud::{
+    CloudError,
+    news::{FOREX_FACTORY_WEEK, fetch_week},
+};
 use tradelens_core::{Db, DbError};
 
 use crate::store::{Store, Writer, store, writer};
@@ -103,12 +106,14 @@ impl News {
 
     fn download(self, url: String) {
         spawn(async move {
-            let fetched = blocking(move || fetch_week(&url).map_err(|error| error.to_string()))
-                .await
-                .unwrap_or_else(|error| Err(format!("luồng tải lịch tin bị dừng: {error}")));
-            if let Err(message) = &fetched {
-                log::warn!("news: {message}");
-            }
+            let fetched = blocking(move || {
+                fetch_week(&url).map_err(|error| {
+                    log::warn!("news: {error}");
+                    explain(&error)
+                })
+            })
+            .await
+            .unwrap_or_else(|error| Err(format!("luồng tải lịch tin bị dừng: {error}")));
             let at_ms = Utc::now().timestamp_millis();
             self.write.run(
                 move |db| match &fetched {
@@ -123,6 +128,15 @@ impl News {
                 },
             );
         });
+    }
+}
+
+/// Why a fetch failed, for the trader: what to do about it rather than the operating system's words.
+fn explain(error: &CloudError) -> String {
+    match error {
+        CloudError::Network(_) => "không kết nối được máy chủ lịch tin, hãy kiểm tra mạng".to_owned(),
+        CloudError::Service { status, .. } => format!("máy chủ lịch tin trả lỗi {status}"),
+        other => other.to_string(),
     }
 }
 
@@ -165,6 +179,14 @@ mod tests {
         assert_eq!(address(&db, Due::Now, 0).expect("reads").as_deref(), Some("http://127.0.0.1:9/feed.json"));
         db.set_setting(URL_SETTING, "OFF").expect("stored");
         assert_eq!(address(&db, Due::Now, 0).expect("reads"), None);
+    }
+
+    #[test]
+    fn a_failure_is_told_in_the_traders_words() {
+        let refused = CloudError::Network("io: No connection could be made (os error 10061)".into());
+        assert_eq!(explain(&refused), "không kết nối được máy chủ lịch tin, hãy kiểm tra mạng");
+        let denied = CloudError::Service { status: 403, message: "Request Denied".into() };
+        assert_eq!(explain(&denied), "máy chủ lịch tin trả lỗi 403");
     }
 
     #[test]
