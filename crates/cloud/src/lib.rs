@@ -10,6 +10,7 @@
 //! - [`sync`]        push / pull of the change log, snapshots, restore (the merge rules are the core's)
 //! - [`memory`]      a drive in memory, for tests and the demo
 //! - [`notion`]      the Notion API, to import a trading journal database
+//! - [`news`]        the week's economic calendar, fetched from Forex Factory's public feed
 //!
 //! Everything here blocks on the network: call it from a background thread, never from
 //! the UI thread. Nothing here opens a window; the caller passes a function that opens the
@@ -24,6 +25,7 @@ pub mod drive;
 pub mod google;
 mod http;
 pub mod memory;
+pub mod news;
 pub mod notion;
 pub mod onedrive;
 pub mod sync;
@@ -54,6 +56,8 @@ pub enum CloudError {
     Db(#[from] tradelens_core::DbError),
     #[error(transparent)]
     Import(#[from] tradelens_core::import::ImportError),
+    #[error(transparent)]
+    News(tradelens_core::news::FeedError),
     /// The user unticked Google's Drive permission on the consent screen (or took it back later);
     /// the message is the one for Google Drive because only Google reports it this way.
     #[error("Bạn chưa cho phép TradeLens dùng Google Drive. Hãy đăng nhập lại và tick ô quyền Google Drive.")]

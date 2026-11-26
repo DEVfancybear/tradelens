@@ -139,6 +139,14 @@ The user is explicit: "kiểm tra = app thật" (check on the real app). Passing
    - To check without touching the real data at all, start the exe with `APPDATA` pointing to a scratch folder (NSH takes the data folder from it), plus `TRADELENS_CLOUD=memory` (no real sign-in, secrets in memory) and `TRADELENS_MT5=memory` (the broker in memory; any login opens a sample account).
 4. **Compare with the design:** compare each screen with `docs/design/screens/<screen>.html` and `screenshots/<screen>.png` at full resolution, zooming into each region. Check hover, the cursor, the date-picker popup, the enlarged image viewer, and both light and dark modes.
 5. **Restore:** close the app, rename the tested data folder to `.after-test-*`, and copy the backup back in place.
+   - **Rule:** wait until `tasklist` no longer lists `nsh-app-tradelens.exe`, rename, then check that
+     `vn.dat.tradelens` is gone before copying. Copy only to a path that does not exist (`[ ! -e dst ] && cp -rp backup dst`),
+     then `diff -rq backup vn.dat.tradelens` must print nothing.
+   - **Why:** right after `taskkill /F`, Windows still held the database files. Git Bash's `mv` fell back to copy and
+     delete, and left the test session's `tradelens.db-wal` in `vn.dat.tradelens`. `cp -r backup vn.dat.tradelens`
+     then copied the backup *into* that folder as a subfolder. The app opened on the test data (a fake feed, dark mode)
+     while the report said the data was restored.
+   - **Check:** after restoring, `ls -la vn.dat.tradelens` shows no subfolder named after the backup, and the diff is empty.
 
 ## 5.1 The MT5 connection (`crates/mt5`, `app/src/mt5.rs`)
 

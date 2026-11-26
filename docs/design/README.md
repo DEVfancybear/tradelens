@@ -18,6 +18,7 @@ bằng NSH theo `app/DESIGN.md` và component trong `app/src/ui/`.
 | Chi tiết lệnh & nhật ký | `trade-detail` | đẩy từ Lệnh (stack) | `trade_detail.rs` (mới) | v0.1 |
 | Nhập lệnh & nhật ký thủ công | `manual-entry` | đẩy từ Lệnh / phím Ctrl+N | `manual_entry.rs` (mới) | v0.1 |
 | Lịch P/L | `calendar` | `Route::Calendar` | `calendar.rs` | v0.2 |
+| Tin quan trọng (tin đỏ tuần này của Forex Factory, đếm ngược tin kế tiếp) | `news` | `Route::News` | `news.rs` | v0.4 |
 | Phân tích | `analytics` | `Route::Analytics` | `analytics.rs` | v0.2 |
 | Nhật ký ngày | `daily-journal` | `Route::Journal` | `journal.rs` | v0.2 |
 | Tổng kết & xem lại (tuần/tháng, hàng chờ, tóm tắt AI, mẫu ghi chú) | `review` | `Route::Review` | `review.rs` | v0.2 |
@@ -34,7 +35,7 @@ bằng NSH theo `app/DESIGN.md` và component trong `app/src/ui/`.
 
 ## Khung chung (mọi màn)
 
-- **Sidebar 236 pt**: logo; ô tìm kiếm (Ctrl K); nhóm *Giao dịch* (Tổng quan, Lệnh, Lịch P/L, Phân tích,
+- **Sidebar 236 pt**: logo; ô tìm kiếm (Ctrl K); nhóm *Giao dịch* (Tổng quan, Lệnh, Lịch P/L, Tin quan trọng, Phân tích,
   Nhật ký ngày, Tổng kết & xem lại, Lệnh bỏ lỡ), *Chiến lược* (Playbook), *Quản lý* (Tài khoản & kỷ luật, Nguồn dữ liệu, Đăng nhập & sync), *Hệ thống* (Cài đặt); mục đang chọn
   có nền `sidebar-accent` + thanh nhấn 3 pt bên trái; chân sidebar là thẻ trạng thái kết nối MT5 và sync.
 - **Header trang**: tiêu đề 24/600, một dòng mô tả `muted-foreground`, hành động bên phải

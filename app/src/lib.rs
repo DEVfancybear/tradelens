@@ -11,6 +11,7 @@
 //! - `month_report` the week or month a share card or the monthly PDF is made from
 //! - `insight`   the calendar, analytics and discipline figures read out of a snapshot
 //! - `mt5`        the direct MT5 connection: a hidden terminal per account the trader signed in to
+//! - `news`       the red news of the week, fetched from Forex Factory every half hour
 //! - `ui`         the app's styled components and tokens; pages use only these
 //! - `pages`      one module per screen
 
@@ -21,6 +22,7 @@ mod journal_draft;
 mod month_report;
 mod mt5;
 mod nav;
+mod news;
 mod pages;
 mod shell;
 mod snapshot;
@@ -34,6 +36,7 @@ use nsh_base::theme;
 use nsh_core::{element::desktop::window, prelude::*};
 
 pub use cloud::CREDENTIALS_SETTING;
+pub use news::{OFF as NEWS_OFF, URL_SETTING as NEWS_URL_SETTING};
 pub use store::{Reading, Writer, data_changed, query, query_with, writer};
 
 /// The app's UI set (`nsh.json` `"rust"`).
@@ -115,6 +118,7 @@ pub fn Workspace() -> impl IntoElement {
     cloud::provide();
     update::provide();
     mt5::provide();
+    news::provide();
     pages::follow_appearance();
     view().flex_1().bg(move || theme().background).text_color(move || theme().foreground).child(shell::shell())
 }

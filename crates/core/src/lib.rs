@@ -3,6 +3,7 @@
 //! - [`attachments`] chart images, many per entry
 //! - [`catalog`] the trader's own option lists and fields
 //! - [`missed`]  setups seen and not taken, and what they would have made
+//! - [`news`]    the high-impact economic news of Forex Factory's weekly calendar
 //! - [`model`]   MT5 accounts, deals, trades, journal entries, rules
 //! - [`legacy`]  moving the data of an earlier version into the app's own folder
 //! - [`journal`] the plan written at entry and how the trade compares with it
@@ -29,6 +30,7 @@ pub mod legacy;
 pub mod metrics;
 pub mod missed;
 pub mod model;
+pub mod news;
 pub mod playbook;
 pub mod report;
 pub mod review;

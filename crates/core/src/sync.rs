@@ -215,7 +215,7 @@ pub fn split_key(key: &str) -> Vec<String> {
 /// anything under `cloud.`.
 pub fn is_device_local(key: &str) -> bool {
     const KEYS: [&str; 3] = ["appearance", "data_dir", "data_folder"];
-    const PREFIXES: [&str; 5] = ["sync.", "device.", "window.", "bridge.", "cloud."];
+    const PREFIXES: [&str; 6] = ["sync.", "device.", "window.", "bridge.", "cloud.", "news."];
     KEYS.contains(&key) || PREFIXES.iter().any(|prefix| key.starts_with(prefix))
 }
 
@@ -531,7 +531,7 @@ mod tests {
 
     #[test]
     fn device_local_settings_do_not_sync() {
-        for key in ["sync.device_id", "appearance", "window.size", "data_dir", "bridge.port"] {
+        for key in ["sync.device_id", "appearance", "window.size", "data_dir", "bridge.port", "news.url"] {
             assert!(is_device_local(key), "{key}");
         }
         for key in ["time_display", "review.template.week"] {

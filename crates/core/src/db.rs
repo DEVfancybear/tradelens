@@ -22,6 +22,8 @@ mod fields;
 pub use fields::{FieldApplied, KindImpact};
 mod manual;
 pub use manual::Deleted;
+mod news;
+pub use news::NewsFetch;
 mod notion;
 mod sync;
 pub use sync::{ApplyReport, PortableState, SyncState};
@@ -59,6 +61,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0012_deal_gaps.sql"),
     include_str!("../migrations/0013_removed.sql"),
     include_str!("../migrations/0014_sync_uploaded.sql"),
+    include_str!("../migrations/0015_news.sql"),
 ];
 
 /// One line of the import log: what an import or a sync stored, and when.
