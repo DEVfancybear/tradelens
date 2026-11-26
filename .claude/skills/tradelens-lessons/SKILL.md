@@ -57,6 +57,19 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
   - One agent removed `Variant::Destructive` while another was using it.
 - **Check:** before removing or changing a `pub(crate)` item in `ui/`, `rg` its uses on the integration branch.
 
+### 1.7 A copied image goes through `files::copy_png` on Windows
+- **Rule:** to put a picture on the clipboard, call `ui::files::copy_png` (in `blocking`) on Windows; `set_clipboard_image` is for the other platforms only.
+- **Why:** NSH 0.7 on Windows writes only the registered `PNG` clipboard format. "Sao chép ảnh" said it had copied, yet pasting into Paint, Zalo or Telegram gave nothing: they read the bitmap (`CF_DIB`/`CF_DIBV5`). `arboard` writes the bitmap and the PNG together.
+- **Check:** after pressing the button in the real app, `[System.Windows.Forms.Clipboard]::GetDataObject().GetFormats()` in PowerShell lists `Bitmap` and `DeviceIndependentBitmap`, and Ctrl+V in Paint shows the card.
+
+### 1.8 A wrapping row centres its lines with `content_center`
+- **Rule:** a row with `flex_wrap()` and a fixed or minimum height also gets `.content_center()`; `items_center` alone centres items inside a line, not the lines inside the row.
+- **Why:** the Phân tích tables (`ui/breakdown.rs`) packed each symbol and its figures against the rule above, with the empty part of the 40 pt row below them; the user read it as a broken symbol column.
+
+### 1.9 Focus a field the press rebuilt through an `ElementRef`, a frame later
+- **Rule:** to give the keyboard to a field of a form that a button rebuilds (a blank form for "Ghi lệnh bỏ lỡ"), point an `element_ref()` taken at the page root at the input (`controls::text_field_ref`), and in the press `spawn` a task that awaits `next_frame()` and calls `focus()`.
+- **Why:** pressing "Ghi lệnh bỏ lỡ" on a form that was already blank rebuilt an identical form, so nothing seemed to happen. `auto_focus(true)` on the rebuilt input did not take the focus from the button that was pressed.
+
 ## 2. Typing lost when data is read again
 
 - **Rule:**
