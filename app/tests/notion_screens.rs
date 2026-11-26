@@ -29,7 +29,7 @@ fn core_fixture(name: &str) -> PathBuf {
 fn start(fixture: &Fixture) -> Headless {
     let mut app = fixture.start(1400.0, 1300.0, |_| {});
     app.press("role:button[Nguồn dữ liệu]").expect("the data sources row is a button");
-    app.wait_for("Nhật ký import").expect("the page opens");
+    app.wait_for_within("Nhật ký import", WAIT).expect("the page opens");
     app
 }
 
@@ -47,20 +47,22 @@ fn a_zip_is_previewed_with_what_each_column_was_taken_for_and_imported_with_its_
     app.press(DROPZONE).expect("the drop zone opens the dialog");
 
     shows_containing(&mut app, "the preview", "5 lệnh đọc được");
-    app.wait_for("Cột tự nhận ra (từ nội dung, không cần ghép tay)").expect("the detected roles are listed");
-    app.wait_for("Cột «Risk/Reward» → Kết quả (R)").expect("the result column is named");
-    app.wait_for("Cột «Cặp tiền» → Symbol").expect("the symbol column is named");
-    app.wait_for("Cột «Loại lệnh» → Buy/Sell").expect("the side column is named");
-    app.wait_for("Cột «Ngày giao dịch» → Thời gian vào").expect("the date column is named");
-    app.wait_for("Cột «Ảnh» → Ảnh").expect("the files column is named");
+    app.wait_for_within("Cột tự nhận ra (từ nội dung, không cần ghép tay)", WAIT)
+        .expect("the detected roles are listed");
+    app.wait_for_within("Cột «Risk/Reward» → Kết quả (R)", WAIT).expect("the result column is named");
+    app.wait_for_within("Cột «Cặp tiền» → Symbol", WAIT).expect("the symbol column is named");
+    app.wait_for_within("Cột «Loại lệnh» → Buy/Sell", WAIT).expect("the side column is named");
+    app.wait_for_within("Cột «Ngày giao dịch» → Thời gian vào", WAIT).expect("the date column is named");
+    app.wait_for_within("Cột «Ảnh» → Ảnh", WAIT).expect("the files column is named");
     shows_containing(&mut app, "the status column", "Cột «Trạng thái» → thắng/thua (");
     shows_containing(&mut app, "the total in R", "tổng kết quả trong file +1.4R · 2 thắng, 2 thua, 1 hòa vốn");
-    app.wait_for("Ảnh: 4 tìm thấy trong file zip, 1 không có trong zip").expect("the images are counted");
+    app.wait_for_within("Ảnh: 4 tìm thấy trong file zip, 1 không có trong zip", WAIT).expect("the images are counted");
     assert!(fixture.db().deals(None).expect("deals read").is_empty(), "nothing is stored before the button");
 
     app.press("role:button[Nhập 5 lệnh]").expect("the one import button");
-    app.wait_for("Đã nhập 5 lệnh mới · 0 cập nhật · 0 không đổi").expect("the summary shows");
-    app.wait_for("Ảnh gắn vào lệnh: 4 · không có trong file zip: 1").expect("the summary counts the images");
+    app.wait_for_within("Đã nhập 5 lệnh mới · 0 cập nhật · 0 không đổi", WAIT).expect("the summary shows");
+    app.wait_for_within("Ảnh gắn vào lệnh: 4 · không có trong file zip: 1", WAIT)
+        .expect("the summary counts the images");
 
     let db = fixture.db();
     let account = db.accounts().expect("accounts").pop().expect("the Notion account");
@@ -76,7 +78,7 @@ fn a_zip_is_previewed_with_what_each_column_was_taken_for_and_imported_with_its_
 
     // The pages show R, never "$0.00": the trades list has a dash for the money.
     app.press("role:button[Lệnh]").expect("the trades row");
-    app.wait_for("Hiển thị 5 / 5 lệnh").expect("the trades are listed");
+    app.wait_for_within("Hiển thị 5 / 5 lệnh", WAIT).expect("the trades are listed");
     assert!(!app.screen().shows("$0.00") && !app.screen().shows("+$0.00"), "no zero dollars on screen");
     shows_containing(&mut app, "the R of a trade", "+2.0R");
 }
@@ -91,7 +93,7 @@ fn importing_the_same_zip_twice_stores_nothing_new() {
         app.press(DROPZONE).expect("the drop zone opens the dialog");
         shows_containing(&mut app, "the preview", "5 lệnh đọc được");
         app.press("role:button[Nhập 5 lệnh]").expect("the import button");
-        app.wait_for(expected).expect("the summary shows");
+        app.wait_for_within(expected, WAIT).expect("the summary shows");
     }
     assert_eq!(fixture.db().deals(None).expect("deals").len(), 10);
 }
@@ -201,21 +203,21 @@ fn a_notion_database_is_listed_picked_previewed_and_imported_like_a_file() {
     let server = NotionServer::start();
     let fixture = fixture_with_notion(&server, "notion một");
     let mut app = start(&fixture);
-    app.wait_for("Kết nối Notion (API)").expect("the API section is next to the file drop zone");
+    app.wait_for_within("Kết nối Notion (API)", WAIT).expect("the API section is next to the file drop zone");
     assert_eq!(app.screen().enabled("role:button[Lưu token & tải danh sách]"), Ok(false), "no token yet");
 
     app.type_text("label:Token tích hợp Notion", "ntn_test_token").expect("the token is pasted");
     app.press("role:button[Lưu token & tải danh sách]").expect("keeps the token and lists the databases");
-    app.wait_for("label:Database Notion").expect("the databases are offered");
-    app.wait_for("text:Nhật ký lệnh Notion").expect("the database is listed by its title");
+    app.wait_for_within("label:Database Notion", WAIT).expect("the databases are offered");
+    app.wait_for_within("text:Nhật ký lệnh Notion", WAIT).expect("the database is listed by its title");
     app.press("role:button[Xem trước database]").expect("reads the chosen database");
     shows_containing(&mut app, "the preview", "Nhật ký lệnh Notion (Notion API) · 3 dòng: 3 lệnh đọc được");
-    app.wait_for("Cột tự nhận ra (từ nội dung, không cần ghép tay)").expect("the same preview as a file");
+    app.wait_for_within("Cột tự nhận ra (từ nội dung, không cần ghép tay)", WAIT).expect("the same preview as a file");
     shows_containing(&mut app, "the money total", "tổng lãi/lỗ trong file +$1,250.00");
     assert!(fixture.db().deals(None).expect("deals").is_empty(), "nothing is stored before the button");
 
     app.press("role:button[Nhập 3 lệnh]").expect("the same import button");
-    app.wait_for("Đã nhập 3 lệnh mới · 0 cập nhật · 0 không đổi").expect("the same summary");
+    app.wait_for_within("Đã nhập 3 lệnh mới · 0 cập nhật · 0 không đổi", WAIT).expect("the same summary");
     let db: Db = fixture.db();
     let account = db.accounts().expect("accounts").pop().expect("the Notion account");
     assert_eq!(db.deals(Some(account.id)).expect("deals").len(), 6);
