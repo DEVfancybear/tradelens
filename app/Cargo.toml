@@ -15,6 +15,7 @@ tradelens-core.workspace = true
 tradelens-cloud.workspace = true
 tradelens-mt5.workspace = true
 serde.workspace = true
+tradelens-update.workspace = true
 nsh-core.workspace = true
 nsh-base.workspace = true
 chrono.workspace = true

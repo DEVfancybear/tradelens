@@ -27,6 +27,7 @@ mod snapshot;
 mod store;
 mod trade_list;
 pub mod ui;
+mod update;
 mod zone;
 
 use nsh_base::theme;
@@ -112,6 +113,7 @@ pub fn Workspace() -> impl IntoElement {
     store::provide();
     ui::controls::provide_root_owner();
     cloud::provide();
+    update::provide();
     mt5::provide();
     pages::follow_appearance();
     view().flex_1().bg(move || theme().background).text_color(move || theme().foreground).child(shell::shell())

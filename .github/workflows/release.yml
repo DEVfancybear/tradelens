@@ -1,0 +1,92 @@
+name: Release
+
+# A tag `vX.Y.Z` publishes TradeLens X.Y.Z: the Windows package `nsh package` makes, the archive the
+# app updates itself from, and the signed manifest `latest.json` the installed apps check
+# (`releases/latest/download/latest.json`, see the "Tự cập nhật" note in docs/roadmap.md).
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # The NSH CLI matching the pinned crates (`=0.7.1` in Cargo.toml).
+  NSH_VERSION: v0.7.1
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.100.0"
+      - uses: Swatinem/rust-cache@v2
+
+      - name: The tag is the version in Cargo.toml and nsh.json
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $nsh = (Get-Content app/nsh.json -Raw | ConvertFrom-Json).version
+          Write-Host "tag $tag, Cargo.toml $cargo, nsh.json $nsh"
+          if ($tag -ne "v$cargo" -or $nsh -ne $cargo) {
+            Write-Error "The tag must be v<version> and Cargo.toml ([workspace.package] version) and app/nsh.json (version) must agree."
+            exit 1
+          }
+
+      - name: Install the NSH CLI
+        shell: pwsh
+        run: |
+          irm https://nsh.dev/install.ps1 | iex
+          "$env:LOCALAPPDATA\nsh\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Package (nsh package)
+        shell: pwsh
+        working-directory: app
+        env:
+          # Embedded at compile time (option_env!): the sign-in of the released app.
+          TRADELENS_GOOGLE_CLIENT_ID: ${{ secrets.TRADELENS_GOOGLE_CLIENT_ID }}
+          TRADELENS_GOOGLE_CLIENT_SECRET: ${{ secrets.TRADELENS_GOOGLE_CLIENT_SECRET }}
+          TRADELENS_MICROSOFT_CLIENT_ID: ${{ secrets.TRADELENS_MICROSOFT_CLIENT_ID }}
+        run: |
+          nsh --version
+          nsh package --target windows --out ../dist
+          Get-ChildItem ../dist
+
+      - name: Write the update manifest (nsh update-manifest)
+        shell: pwsh
+        working-directory: dist
+        env:
+          # The secret half of `nsh keygen keys/update` (the file's contents). Its public half is
+          # `"updater": { "publicKey" }` in app/nsh.json; without the secret the manifest is unsigned,
+          # which apps refuse once nsh.json has a key.
+          UPDATE_SIGNING_KEY: ${{ secrets.TRADELENS_UPDATE_SIGNING_KEY }}
+        run: |
+          $archives = Get-ChildItem -Filter 'TradeLens-*-windows-*.zip' | ForEach-Object { $_.Name }
+          if (-not $archives) { Write-Error "nsh package wrote no update archive: is `"updater`" in app/nsh.json?"; exit 1 }
+          "TradeLens ${{ github.ref_name }}" | Out-File -FilePath notes.md -Encoding utf8
+          if ($env:UPDATE_SIGNING_KEY) {
+            $key = Join-Path $env:RUNNER_TEMP 'update.secret'
+            [IO.File]::WriteAllText($key, $env:UPDATE_SIGNING_KEY)
+            nsh update-manifest @archives --notes notes.md --key $key
+            Remove-Item $key
+          } else {
+            Write-Warning "TRADELENS_UPDATE_SIGNING_KEY is not set: latest.json is not signed."
+            nsh update-manifest @archives --notes notes.md
+          }
+          Get-ChildItem
+
+      - name: Publish the GitHub release
+        shell: pwsh
+        working-directory: dist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $files = @(Get-ChildItem -Filter 'TradeLens-*-windows-*.zip' | ForEach-Object { $_.Name })
+          $files += 'latest.json'
+          if (Test-Path latest.json.sig) { $files += 'latest.json.sig' }
+          if (Test-Path TradeLens-setup.exe) { $files += 'TradeLens-setup.exe' }
+          gh release create "${{ github.ref_name }}" @files --title "TradeLens ${{ github.ref_name }}" --generate-notes
