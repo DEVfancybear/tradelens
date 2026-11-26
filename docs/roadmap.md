@@ -24,7 +24,7 @@ Ngày là ước lượng cho một người làm toàn thời gian; mỗi mốc
   `latest.json.sig`) và `gh release create`. Draft và prerelease không được app đề nghị.
 - Còn phải làm tay một lần: chạy `nsh keygen keys/update`, chép nội dung `keys/update.pub` vào `"updater": { "publicKey" }`
   của `app/nsh.json`, nội dung `keys/update.secret` vào secret `TRADELENS_UPDATE_SIGNING_KEY` của repo (không commit file
-  secret). Khi chưa có `publicKey` app nhận manifest không ký từ GitHub; có rồi thì manifest không ký bị từ chối. Các
+  secret). **Phải làm trước bản phát hành công khai đầu tiên** (app đã phát hành mà không có khoá thì không bắt buộc ký về sau được): khi chưa có `publicKey` app nhận manifest không ký từ GitHub; có rồi thì manifest không ký bị từ chối. Workflow từ chối phát hành khi thiếu secret ký. Các
   bước `nsh package` / `nsh update-manifest` trong workflow chưa chạy thử trên CI (máy dev chưa cài `nsh` CLI): lần tag
   đầu cần xem log và sửa tên file nếu NSH đặt khác.
 
