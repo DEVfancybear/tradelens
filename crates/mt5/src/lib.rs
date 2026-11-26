@@ -8,11 +8,13 @@
 //!   the open positions every few seconds and tells the app through [`Event`]s, and it carries the
 //!   trader's orders (close, move the stop or the target).
 //! - [`install`] finds the MT5 terminals installed on the machine and makes an account's portable
-//!   copy; [`python`] finds a Python that has the package.
+//!   copy; [`python`] finds a Python that has the package. [`installer`] installs MetaTrader 5
+//!   itself with MetaQuotes' installer when the machine has none.
 //!
 //! Nothing here touches the database or the UI: the app writes what a poll brings.
 
 pub mod install;
+pub mod installer;
 mod link;
 pub mod memory;
 mod protocol;

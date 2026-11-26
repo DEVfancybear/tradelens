@@ -233,7 +233,7 @@ fn remove_dir(dir: &Path) -> io::Result<()> {
 
 /// Renames `from` to `to`, trying again for a few seconds: on Windows an antivirus scanning a file
 /// just written holds it, and the rename is refused meanwhile.
-fn rename_patiently(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename_patiently(from: &Path, to: &Path) -> io::Result<()> {
     const TRIES: u32 = 20;
     let mut tries = 1;
     loop {
@@ -258,7 +258,21 @@ fn fetch(asset: &Asset, path: &Path) -> Result<(), Mt5Error> {
 }
 
 fn fetch_unchecked(asset: &Asset, path: &Path) -> Result<(), Mt5Error> {
-    let network = |error: &dyn std::fmt::Display| Mt5Error::Setup(format!("Không tải được {}: {error}", asset.url));
+    let (size, sha256) = download(&asset.url, path, asset.size.saturating_add(1))?;
+    if size != asset.size || sha256 != asset.sha256 {
+        return Err(Mt5Error::Setup(format!(
+            "File tải về không đúng ({}): {size} byte, SHA-256 {sha256}; cần {} byte, {}.",
+            asset.url, asset.size, asset.sha256
+        )));
+    }
+    Ok(())
+}
+
+/// Downloads `url` to `path`, refusing a body of more than `limit` bytes, and tells the size and
+/// the SHA-256 (lowercase hex) of what arrived. What was written stays at `path` when this fails:
+/// the caller removes it.
+pub(crate) fn download(url: &str, path: &Path, limit: u64) -> Result<(u64, String), Mt5Error> {
+    let network = |error: &dyn std::fmt::Display| Mt5Error::Setup(format!("Không tải được {url}: {error}"));
     // The machine's own certificate store: an antivirus or a company proxy that inspects HTTPS adds
     // its certificate there, and the download must work where the browser does.
     let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
@@ -270,8 +284,8 @@ fn fetch_unchecked(asset: &Asset, path: &Path) -> Result<(), Mt5Error> {
         .timeout_global(Some(DOWNLOAD_LIMIT))
         .build()
         .into();
-    let mut response = agent.get(&asset.url).call().map_err(|e| network(&e))?;
-    let mut body = response.body_mut().with_config().limit(asset.size.saturating_add(1)).reader();
+    let mut response = agent.get(url).call().map_err(|e| network(&e))?;
+    let mut body = response.body_mut().with_config().limit(limit).reader();
     let mut file = io::BufWriter::new(fs::File::create(path).map_err(|e| write_error(path, &e))?);
     let mut digest = Sha256::new();
     let mut size = 0_u64;
@@ -288,13 +302,7 @@ fn fetch_unchecked(asset: &Asset, path: &Path) -> Result<(), Mt5Error> {
         write!(hex, "{byte:02x}").expect("writing to a String does not fail");
         hex
     });
-    if size != asset.size || sha256 != asset.sha256 {
-        return Err(Mt5Error::Setup(format!(
-            "File tải về không đúng ({}): {size} byte, SHA-256 {sha256}; cần {} byte, {}.",
-            asset.url, asset.size, asset.sha256
-        )));
-    }
-    Ok(())
+    Ok((size, sha256))
 }
 
 /// Unpacks the zip `archive` into `into`; an entry whose path would leave `into` is refused.

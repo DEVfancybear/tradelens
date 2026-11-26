@@ -25,7 +25,7 @@ use tradelens_core::{AccountInfo, Db, DbError, DealBatch, TradeKey, journal::Ent
 use tradelens_mt5::{
     AccountRef, Event, Levels, Link, LinkSettings, LinkState, Login, Mt5Error, Opener, Password, Position,
     install::{self, Install},
-    memory,
+    installer, memory,
     python::{self, Python},
     runtime,
 };
@@ -96,6 +96,12 @@ impl Setup {
     /// Whether only Python (or its `MetaTrader5` package) is missing, which the app installs itself.
     pub(crate) fn needs_python(&self) -> bool {
         !self.demo && cfg!(windows) && self.checked && self.python.as_ref().is_none_or(|python| !python.has_package)
+    }
+
+    /// Whether no MetaTrader 5 terminal was found, which the app installs with MetaQuotes'
+    /// installer ([`installer`]).
+    pub(crate) fn needs_terminal(&self) -> bool {
+        !self.demo && cfg!(windows) && self.checked && self.installs.is_empty()
     }
 
     /// Why an account cannot be connected yet, in Vietnamese; `None` when it can.
@@ -279,6 +285,21 @@ fn megabytes(bytes: u64) -> String {
     format!("{},{} MB", tenths / 10, tenths % 10)
 }
 
+/// Takes what installing MetaTrader 5 found into `setup`; why it did not work, in Vietnamese.
+fn take_installed(setup: &mut Setup, installed: Result<Vec<Install>, Mt5Error>) -> Result<(), String> {
+    match installed {
+        Ok(found) if found.is_empty() => {
+            Err("Trình cài đã chạy xong nhưng chưa thấy MetaTrader 5: bấm \"Kiểm tra lại\", hoặc chọn terminal64.exe."
+                .to_owned())
+        }
+        Ok(found) => {
+            setup.installs = found;
+            Ok(())
+        }
+        Err(error) => Err(describe(&error)),
+    }
+}
+
 /// Whether a position that opens puts the plan prompt on screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PlanPrompt {
@@ -288,13 +309,38 @@ pub(crate) enum PlanPrompt {
 
 type Links = Arc<Mutex<BTreeMap<AccountRef, Arc<Link>>>>;
 
+/// Downloads an installer into a folder: [`installer::download`].
+type Download = Arc<dyn Fn(&Path) -> Result<PathBuf, Mt5Error> + Send + Sync>;
+/// Runs a downloaded installer and tells the terminals installed: [`installer::run`].
+type RunInstaller = Arc<dyn Fn(&Path) -> Result<Vec<Install>, Mt5Error> + Send + Sync>;
+
+/// How MetaTrader 5 is put on a machine without it: MetaQuotes' installer, downloaded then run.
+/// The tests give steps that touch neither the network nor the machine.
+#[derive(Clone)]
+pub(crate) struct TerminalSetup {
+    download: Download,
+    run: RunInstaller,
+}
+
+impl TerminalSetup {
+    fn official() -> Self {
+        Self { download: Arc::new(installer::download), run: Arc::new(installer::run) }
+    }
+}
+
+impl std::fmt::Debug for TerminalSetup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TerminalSetup").finish_non_exhaustive()
+    }
+}
+
 /// The connection's handle; `Copy`, provided once by the root.
 #[derive(Clone, Copy)]
 pub(crate) struct Mt5 {
     pub(crate) state: Signal<State>,
     links: Stored<Links>,
-    sender: Stored<Sender<Heard>>,
-    receiver: Stored<Receiver<Heard>>,
+    /// What the links' threads tell the UI thread: the sending half is given to each link.
+    heard: Stored<(Sender<Heard>, Receiver<Heard>)>,
     /// The password of a sign-in that has not logged in yet, by link: kept once that link has.
     pending: Stored<BTreeMap<u64, Password>>,
     /// The id the next link gets.
@@ -302,6 +348,7 @@ pub(crate) struct Mt5 {
     store: Store,
     write: Writer,
     owner: Owner,
+    terminal_setup: Stored<TerminalSetup>,
 }
 
 impl std::fmt::Debug for Mt5 {
@@ -313,17 +360,22 @@ impl std::fmt::Debug for Mt5 {
 /// Provides the connection to what the root makes after it, and connects the saved accounts once
 /// the database is open. Call after the store and the root owner.
 pub(crate) fn provide() {
+    provide_with(TerminalSetup::official());
+}
+
+/// [`provide`], with `terminal_setup` installing MetaTrader 5.
+fn provide_with(terminal_setup: TerminalSetup) {
     let (sender, receiver) = mpsc::channel();
     let mt5 = Mt5 {
         state: signal(State { prompt_plans: true, ..State::default() }),
         links: stored(Links::default()),
-        sender: stored(sender),
-        receiver: stored(receiver),
+        heard: stored((sender, receiver)),
         pending: stored(BTreeMap::new()),
         next_link: stored(1),
         store: store(),
         write: writer(),
         owner: root_owner(),
+        terminal_setup: stored(terminal_setup),
     };
     provide_context(mt5);
     set_interval(DRAIN_EVERY, move || mt5.drain());
@@ -729,7 +781,7 @@ impl Mt5 {
             self.pending.with(|pending| pending.insert(id, keep));
         }
         let setup = self.state.with_untracked(|state| state.setup.clone());
-        let sender = self.sender.with(|sender| sender.clone());
+        let sender = self.heard.with(|(sender, _)| sender.clone());
         let files = folder();
         self.owner.run(move || {
             spawn(async move {
@@ -883,7 +935,7 @@ impl Mt5 {
 
     /// Takes what the links' threads said and shows it.
     fn drain(self) {
-        let heard: Vec<Heard> = self.receiver.with(|receiver| receiver.try_iter().collect());
+        let heard: Vec<Heard> = self.heard.with(|(_, receiver)| receiver.try_iter().collect());
         for heard in heard {
             match heard {
                 Heard::State(id, state) => self.on_state(id, state),
@@ -1008,6 +1060,55 @@ impl Mt5 {
     pub(crate) fn install_python(self) {
         self.state.update(|state| state.error = None);
         self.ensure_python(|| {}, move |why| self.state.update(|state| state.error = Some(why)));
+    }
+
+    /// Installs MetaTrader 5 with MetaQuotes' installer: the button "Cài MetaTrader 5 tự động".
+    /// Downloads the installer into the connection's folder, runs it (Windows asks the trader to
+    /// allow it), then takes the terminals found, so that the form can sign in at once. Nothing is
+    /// done in the demo, when a terminal was found already, or while something else installs. The
+    /// connection is marked busy before this returns, so a second press while it runs is refused.
+    pub(crate) fn install_terminal(self) {
+        if !self.state.with_untracked(|state| state.setup.needs_terminal()) {
+            return;
+        }
+        if self.state.with_untracked(|state| state.busy.is_some()) {
+            return self.state.update(|state| {
+                state.error = Some("TradeLens đang cài đặt hoặc kiểm tra máy, hãy chờ xong rồi thử lại.".to_owned());
+            });
+        }
+        let Some(downloads) = folder().map(|folder| folder.join("installer")) else {
+            return self.state.update(|state| {
+                state.error = Some("Ứng dụng không có thư mục dữ liệu để tải trình cài MetaTrader 5.".to_owned());
+            });
+        };
+        let TerminalSetup { download, run } = self.terminal_setup.with(|setup| setup.clone());
+        let state = self.state;
+        let busy = move |text: String| state.update(|s| s.busy = Some(text));
+        state.update(|s| s.error = None);
+        busy(format!(
+            "Đang tải trình cài MetaTrader 5 của MetaQuotes (khoảng {})…",
+            megabytes(installer::INSTALLER_SIZE)
+        ));
+        self.owner.run(move || {
+            spawn(async move {
+                fn stopped<T>(error: &dyn std::fmt::Display) -> Result<T, Mt5Error> {
+                    Err(Mt5Error::Setup(format!("Luồng cài đặt bị dừng: {error}")))
+                }
+                let downloaded = blocking(move || download(&downloads)).await.unwrap_or_else(|e| stopped(&e));
+                let installed = match downloaded {
+                    Ok(installer) => {
+                        busy("Đang cài MetaTrader 5: nếu Windows hỏi có cho phép MetaQuotes cài đặt không, hãy bấm \"Có\". Thường mất một đến hai phút…".to_owned());
+                        blocking(move || run(&installer)).await.unwrap_or_else(|e| stopped(&e))
+                    }
+                    Err(error) => Err(error),
+                };
+                state.update(|s| {
+                    s.busy = None;
+                    // A press refused while installing said so meanwhile: the outcome replaces it.
+                    s.error = take_installed(&mut s.setup, installed).err();
+                });
+            });
+        });
     }
 
     /// Makes Python ready for the connection, then runs `then`: on a machine without Python the app
@@ -1155,6 +1256,164 @@ mod tests {
             assert!(setup.missing().is_some_and(|why| why.contains("Windows")));
         }
         assert_eq!(Setup { demo: true, ..Setup::default() }.missing(), None, "the demo needs nothing");
+    }
+
+    #[test]
+    fn metatrader_is_offered_only_when_no_terminal_was_found() {
+        let mut setup = Setup { checked: true, ..Setup::default() };
+        assert_eq!(setup.needs_terminal(), cfg!(windows), "a machine looked at without a terminal, on Windows");
+        setup.installs = vec![Install::at(PathBuf::from("C:/MT5/terminal64.exe"))];
+        assert!(!setup.needs_terminal(), "a terminal found is enough");
+        assert!(!Setup { checked: true, demo: true, ..Setup::default() }.needs_terminal(), "the demo needs none");
+        assert!(!Setup::default().needs_terminal(), "not before the machine is looked at");
+    }
+
+    #[test]
+    fn what_the_installer_left_is_taken_or_said() {
+        let mut setup = Setup { checked: true, ..Setup::default() };
+        let terminal = Install::at(PathBuf::from("C:/Program Files/MetaTrader 5/terminal64.exe"));
+        assert_eq!(take_installed(&mut setup, Ok(vec![terminal.clone()])), Ok(()));
+        assert_eq!(setup.installs, vec![terminal.clone()]);
+        let refused = take_installed(&mut setup, Err(Mt5Error::Setup("Trình cài đã dừng".to_owned())));
+        assert_eq!(refused, Err("Trình cài đã dừng".to_owned()));
+        let empty = take_installed(&mut setup, Ok(Vec::new())).expect_err("nothing installed");
+        assert!(empty.contains("Kiểm tra lại"), "{empty}");
+        assert_eq!(setup.installs, vec![terminal], "a failure keeps what was found");
+    }
+
+    /// `install_terminal` on the real engine, with steps that touch neither the network nor the
+    /// machine: each waits until the test lets it go, so the busy lines can be read in turn.
+    #[cfg(windows)]
+    mod installing_metatrader {
+        use std::{
+            sync::atomic::{AtomicU8, Ordering},
+            time::Duration,
+        };
+
+        use nsh_core::Size;
+        use nsh_engine::{EngineConfig, Root};
+        use nsh_testing::Headless;
+
+        use super::*;
+        use crate::ui::controls::{Variant, action, provide_root_owner};
+
+        const WAIT: Duration = Duration::from_secs(30);
+
+        /// How far the gated steps may go: 1 lets the download end, 2 the install.
+        static ALLOWED: AtomicU8 = AtomicU8::new(0);
+
+        fn wait_for_step(step: u8) {
+            for _ in 0..6000 {
+                if ALLOWED.load(Ordering::SeqCst) >= step {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+
+        fn terminal() -> Install {
+            Install::at(PathBuf::from(r"C:\Program Files\MetaTrader 5\terminal64.exe"))
+        }
+
+        /// The connection's state in words, and the button.
+        fn shown(mt5: Mt5) -> impl IntoElement {
+            mt5.state.update(|state| {
+                state.setup = Setup {
+                    checked: true,
+                    python: Some(Python {
+                        program: "python".into(),
+                        args: Vec::new(),
+                        version: "3.14".into(),
+                        has_package: true,
+                    }),
+                    ..Setup::default()
+                };
+            });
+            view()
+                .gap_2()
+                .child(text(move || {
+                    mt5.state.with(|state| {
+                        let installs: Vec<&str> = state.setup.installs.iter().map(|i| i.name.as_str()).collect();
+                        format!(
+                            "busy: {} | error: {} | installs: {}",
+                            state.busy.as_deref().unwrap_or("-"),
+                            state.error.as_deref().unwrap_or("-"),
+                            installs.join(",")
+                        )
+                    })
+                }))
+                .child(action("Cài MT5", Variant::Primary, move || mt5.install_terminal()))
+        }
+
+        #[component]
+        fn Installs() -> impl IntoElement {
+            crate::ui::theme::install();
+            store::provide();
+            provide_root_owner();
+            provide_with(TerminalSetup {
+                download: Arc::new(|folder| {
+                    wait_for_step(1);
+                    Ok(folder.join("mt5setup.exe"))
+                }),
+                run: Arc::new(|installer| {
+                    assert!(installer.ends_with("mt5\\installer\\mt5setup.exe"), "{}", installer.display());
+                    wait_for_step(2);
+                    Ok(vec![terminal()])
+                }),
+            });
+            shown(mt5())
+        }
+
+        #[component]
+        fn Refused() -> impl IntoElement {
+            crate::ui::theme::install();
+            store::provide();
+            provide_root_owner();
+            provide_with(TerminalSetup {
+                download: Arc::new(|folder| Ok(folder.join("mt5setup.exe"))),
+                run: Arc::new(|_| Err(Mt5Error::Setup("Trình cài MetaTrader 5 đã dừng mà chưa cài xong".to_owned()))),
+            });
+            shown(mt5())
+        }
+
+        fn start(root: Root) -> (tempfile::TempDir, Headless) {
+            let dir = tempfile::tempdir().expect("a temp dir");
+            let config = EngineConfig {
+                viewport: Size::new(px(900.0), px(400.0)),
+                data_dir: Some(dir.path().to_path_buf()),
+                ..EngineConfig::new(root)
+            };
+            (dir, Headless::start(config).expect("the engine starts"))
+        }
+
+        #[test]
+        fn the_card_says_each_step_then_takes_the_terminal_installed() {
+            let (_dir, mut app) = start(Root::of::<Installs>());
+            app.wait_for_within("text:/installs: $/", WAIT).expect("no terminal at first");
+            app.press("role:button[Cài MT5]").expect("the install button");
+            app.wait_for_within("text:/busy: Đang tải trình cài MetaTrader 5/", WAIT).expect("the download is said");
+            app.press("role:button[Cài MT5]").expect("the button is pressed again");
+            app.wait_for_within("text:/error: TradeLens đang cài đặt/", WAIT).expect("a second press is refused");
+            ALLOWED.store(1, Ordering::SeqCst);
+            app.wait_for_within("text:/busy: Đang cài MetaTrader 5: nếu Windows hỏi/", WAIT)
+                .expect("the install is said, with what Windows will ask");
+            ALLOWED.store(2, Ordering::SeqCst);
+            app.wait_for_within("text:busy: - | error: - | installs: MetaTrader 5", WAIT)
+                .expect("the terminal installed is taken, nothing is busy and the refusal is gone");
+            app.press("role:button[Cài MT5]").expect("the button once installed");
+            app.wait_for_within("text:/installs: MetaTrader 5$/", WAIT).expect("nothing more is done");
+            assert!(!app.screen().shows("busy: Đang"), "a terminal found is not installed again");
+        }
+
+        #[test]
+        fn an_install_that_failed_says_why_and_leaves_the_button() {
+            let (_dir, mut app) = start(Root::of::<Refused>());
+            app.wait_for_within("text:/installs: $/", WAIT).expect("no terminal at first");
+            app.press("role:button[Cài MT5]").expect("the install button");
+            app.wait_for_within("text:/busy: - \\| error: Trình cài MetaTrader 5 đã dừng/", WAIT)
+                .expect("the failure is said once nothing is busy");
+            assert!(!app.screen().shows("installs: MetaTrader"), "nothing was taken");
+        }
     }
 
     #[test]

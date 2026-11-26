@@ -121,6 +121,14 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
                                     move || idle,
                                     move || mt5.install_python(),
                                 ))
+                            })
+                            .when(setup.needs_terminal(), |v| {
+                                v.child(action_when(
+                                    "Cài MetaTrader 5 tự động",
+                                    Variant::Primary,
+                                    move || idle,
+                                    move || mt5.install_terminal(),
+                                ))
                             }),
                     )
                 })
@@ -174,7 +182,7 @@ fn sign_in_blocked(state: &State, picked: Option<&PathBuf>) -> Option<&'static s
         return Some("Cần Python trước khi đăng nhập: bấm \"Cài Python tự động\" ở trên.");
     }
     if terminal_choices(state, picked).is_empty() {
-        return Some("Cần MetaTrader 5 trên máy: cài MT5 của broker hoặc chọn terminal64.exe.");
+        return Some("Cần MetaTrader 5 trên máy: bấm \"Cài MetaTrader 5 tự động\" ở trên hoặc chọn terminal64.exe.");
     }
     None
 }
@@ -302,7 +310,7 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
                 let none = mt5.state.with(|state| terminal_choices(state, form.picked.get().as_ref()).is_empty());
                 untracked(|| {
                     if none {
-                        return text("Chưa thấy MetaTrader 5 trên máy: cài MT5 của broker rồi bấm \"Kiểm tra lại\", hoặc chọn terminal64.exe.")
+                        return text("Chưa thấy MetaTrader 5 trên máy: bấm \"Cài MetaTrader 5 tự động\" ở trên (bản của MetaQuotes, đăng nhập được mọi broker), hoặc chọn terminal64.exe nếu đã cài ở chỗ khác.")
                             .text_sm()
                             .text_color(tokens::warning)
                             .into_element();
