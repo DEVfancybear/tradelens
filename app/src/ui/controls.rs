@@ -449,6 +449,21 @@ pub(crate) fn text_field(
     framed(glyph, text_input(label.into(), placeholder, value).on_change(move |text: &str| on_change(text)))
 }
 
+/// [`text_field`] whose input `handle` points at, so that the page can give it the keyboard focus
+/// (the first field of a form the trader just asked for).
+pub(crate) fn text_field_ref(
+    label: impl Into<SharedString>,
+    placeholder: &'static str,
+    value: impl Fn() -> String + 'static,
+    on_change: impl Fn(&str) + 'static,
+    handle: &ElementRef,
+) -> impl IntoElement {
+    framed(
+        None,
+        text_input(label.into(), placeholder, value).element_ref(handle).on_change(move |text: &str| on_change(text)),
+    )
+}
+
 /// A one-line field for a name or a short value that is kept when the trader presses Enter or
 /// leaves the field, not on every key: what is typed stays a draft until then.
 ///
