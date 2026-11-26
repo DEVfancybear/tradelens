@@ -111,11 +111,11 @@ impl Setup {
         }
         match &self.python {
             None => Some(format!(
-                "Máy chưa có Python: khi bạn đăng nhập, TradeLens tự cài một bản Python {} riêng cho app (khoảng 40 MB, không ảnh hưởng phần còn lại của máy), hoặc bấm \"Cài Python tự động\" ngay bây giờ.",
+                "Máy chưa có Python: bấm \"Cài Python tự động\" để TradeLens cài một bản Python {} riêng cho app (khoảng 40 MB, không ảnh hưởng phần còn lại của máy), rồi đăng nhập.",
                 runtime::VERSION
             )),
             Some(python) if !python.has_package => Some(format!(
-                "Python {} chưa có gói MetaTrader5: TradeLens tự cài khi bạn đăng nhập, hoặc bấm \"Cài gói MetaTrader5\".",
+                "Python {} chưa có gói MetaTrader5: bấm \"Cài gói MetaTrader5\" rồi đăng nhập.",
                 python.version
             )),
             Some(_) => None,
@@ -401,7 +401,8 @@ fn change_saved(db: &mut Db, change: impl FnOnce(&mut Vec<Saved>)) -> Result<Res
 }
 
 /// The folder the connection keeps its files in (the worker's scripts, the portable terminals),
-/// next to the database; `None` when the app keeps its data in memory.
+/// next to the database; `None` when the app keeps its data in memory. Call it on the UI thread:
+/// NSH tells the data folder only there (on a blocking thread it panics: no reactive runtime).
 fn folder() -> Option<PathBuf> {
     Store::database_path().and_then(|path| path.parent().map(|dir| dir.join("mt5")))
 }
@@ -411,21 +412,17 @@ fn runtime_root() -> Option<PathBuf> {
     folder().map(|folder| folder.join("runtime"))
 }
 
-/// Looks at the machine: the Python to use and the terminals installed. Blocks for seconds.
-fn look(mode: Mode, python: Option<&Path>) -> Setup {
+/// Looks at the machine: the Python to use and the terminals installed. `private` is the app's own
+/// Python ([`runtime_root`]), found on the UI thread: the data folder is the engine's to tell. Blocks
+/// for seconds.
+fn look(mode: Mode, python: Option<&Path>, private: Option<&Path>) -> Setup {
     if mode == Mode::Demo {
         return Setup { checked: true, demo: true, python: None, installs: Vec::new() };
     }
     if !cfg!(windows) {
         return Setup { checked: true, ..Setup::default() };
     }
-    let private = runtime_root().map(|root| runtime::executable(&root));
-    Setup {
-        checked: true,
-        demo: false,
-        python: python::find(python, private.as_deref()),
-        installs: install::find_installs(),
-    }
+    Setup { checked: true, demo: false, python: python::find(python, private), installs: install::find_installs() }
 }
 
 /// What it takes to start a link: the terminals to open and the login.
@@ -435,8 +432,15 @@ struct Prepared {
 }
 
 /// Makes the account's portable terminal and the worker's scripts (or nothing, in the demo).
-/// Blocks: the first copy of a terminal takes a while.
-fn prepare(setup: &Setup, account: &AccountRef, terminal: &Path, password: Password) -> Result<Prepared, String> {
+/// `folder` is the connection's ([`folder`]), found on the UI thread. Blocks: the first copy of a
+/// terminal takes a while.
+fn prepare(
+    setup: &Setup,
+    folder: Option<&Path>,
+    account: &AccountRef,
+    terminal: &Path,
+    password: Password,
+) -> Result<Prepared, String> {
     if setup.demo {
         // Any login works in the demo: the first sign-in opens a sample account with that password.
         memory::Broker::named(&account.server).open_demo_account(
@@ -451,7 +455,7 @@ fn prepare(setup: &Setup, account: &AccountRef, terminal: &Path, password: Passw
         return Err(why);
     }
     let python = setup.python.clone().ok_or_else(|| "Chưa thấy Python 3 trên máy.".to_owned())?;
-    let folder = folder().ok_or_else(|| "Ứng dụng không có thư mục dữ liệu để chạy MT5.".to_owned())?;
+    let folder = folder.ok_or_else(|| "Ứng dụng không có thư mục dữ liệu để chạy MT5.".to_owned())?;
     let script = python::install_scripts(&folder.join("scripts"))
         .map_err(|error| format!("Không ghi được script kết nối MT5: {error}"))?;
     let copy = install::portable_copy(terminal, &folder.join("terminals"), account)
@@ -595,12 +599,18 @@ impl Mt5 {
         let (mode, python) = self.state.with_untracked(|state| {
             (if state.setup.demo { Mode::Demo } else { Mode::Terminal }, state.python_choice.clone())
         });
+        let private = runtime_root().map(|root| runtime::executable(&root));
         self.state.update(|state| state.busy = Some("Đang kiểm tra Python và MetaTrader 5…".to_owned()));
         self.owner.run(move || {
             spawn(async move {
-                let setup = blocking(move || look(mode, python.as_deref())).await.unwrap_or_default();
+                let looked = blocking(move || look(mode, python.as_deref(), private.as_deref())).await;
                 self.state.update(|state| {
-                    state.setup = setup;
+                    match looked {
+                        Ok(setup) => state.setup = setup,
+                        Err(error) => {
+                            state.error = Some(format!("Không kiểm tra được Python và MetaTrader 5: {error}"));
+                        }
+                    }
                     state.busy = None;
                 });
                 then();
@@ -720,6 +730,7 @@ impl Mt5 {
         }
         let setup = self.state.with_untracked(|state| state.setup.clone());
         let sender = self.sender.with(|sender| sender.clone());
+        let files = folder();
         self.owner.run(move || {
             spawn(async move {
                 let wanted = account.clone();
@@ -727,7 +738,7 @@ impl Mt5 {
                     if let Some(old) = old {
                         old.stop_and_wait();
                     }
-                    prepare(&setup, &wanted, &terminal, password)
+                    prepare(&setup, files.as_deref(), &wanted, &terminal, password)
                 })
                 .await
                 .unwrap_or_else(|error| Err(format!("Luồng chuẩn bị MT5 bị dừng: {error}")));
@@ -1015,6 +1026,7 @@ impl Mt5 {
         let Some(root) = runtime_root() else {
             return failed("Ứng dụng không có thư mục dữ liệu để cài Python.".to_owned());
         };
+        let private_root = root.clone();
         let plan = match setup.python {
             Some(python) if !runtime::is_private(&python, &root) => Plan::Package(python),
             _ => Plan::Private,
@@ -1056,7 +1068,8 @@ impl Mt5 {
                 };
                 busy("Đang kiểm tra lại Python…".to_owned());
                 // A look that could not run is not taken for a machine ready to connect.
-                let looked = blocking(move || look(Mode::Terminal, choice.as_deref())).await.ok();
+                let private = runtime::executable(&private_root);
+                let looked = blocking(move || look(Mode::Terminal, choice.as_deref(), Some(&private))).await.ok();
                 let ready = looked.as_ref().is_some_and(|setup| setup.checked && !setup.needs_python());
                 self.state.update(|state| {
                     if let Some(setup) = looked {
