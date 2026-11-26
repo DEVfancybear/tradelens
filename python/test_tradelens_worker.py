@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+import tempfile
 import unittest
 from types import SimpleNamespace as NS
 from typing import Any
@@ -40,6 +42,10 @@ class TradingMt5(FakeMt5):
         self.error = (1, "Success")
         self.logged_in = False
         self.positions_fail = False
+        self.trade_allowed = True
+
+    def terminal_info(self) -> Any:
+        return NS(trade_allowed=self.trade_allowed, connected=self.logged_in)
 
     def initialize(self, path: str, **kwargs: Any) -> bool:
         if kwargs.get("password") != self.password:
@@ -136,6 +142,32 @@ class WorkerTests(unittest.TestCase):
         _, refused = run(self.mt5, CONNECT, {"id": 2, "op": "close", "ticket": 100, "volume": None})
         self.assertFalse(refused["ok"])
         self.assertEqual(refused["code"], 10018)
+
+    def test_algo_trading_off_is_said_before_any_order_is_sent(self) -> None:
+        self.mt5.trade_allowed = False
+        _, closed, moved = run(
+            self.mt5,
+            CONNECT,
+            {"id": 2, "op": "close", "ticket": 100, "volume": None},
+            {"id": 3, "op": "modify", "ticket": 100, "sl": 2645.0, "tp": 0},
+        )
+        for refused in (closed, moved):
+            self.assertFalse(refused["ok"], refused)
+            self.assertEqual(refused["code"], worker.ALGO_TRADING_OFF)
+            self.assertIn("Algo Trading", refused["error"])
+        self.assertEqual(self.mt5.sent, [], "nothing reaches the broker")
+
+    def test_the_terminal_starts_portable_with_algo_trading_on(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            terminal = os.path.join(folder, "terminal64.exe")
+            config = worker.write_start_config(terminal)
+            self.assertEqual(os.path.dirname(config), folder, "the config sits beside the account's terminal")
+            with open(config, encoding="ascii") as file:
+                lines = [line.strip() for line in file]
+            self.assertEqual(lines[0], "[Experts]")
+            for setting in ("AllowLiveTrading=1", "Enabled=1", "Account=0"):
+                self.assertIn(setting, lines)
+            self.assertEqual(worker.start_command(terminal, config), [terminal, "/portable", f"/config:{config}"])
 
     def test_moving_the_levels_sends_an_sltp_request(self) -> None:
         _, moved = run(self.mt5, CONNECT, {"id": 2, "op": "modify", "ticket": 100, "sl": 2645.0, "tp": 0})

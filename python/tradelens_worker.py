@@ -44,6 +44,20 @@ FILLING_FOK, FILLING_IOC = 1, 2
 # How far back a poll after the first one looks again: MT5 times are server times passed through
 # as if they were UTC, so a day either side covers any broker's offset.
 SLACK_MS = 24 * 3600 * 1000
+# `TRADE_RETCODE_CLIENT_DISABLES_AT`: the terminal's Algo Trading is off, so it refuses every order
+# the package sends.
+ALGO_TRADING_OFF = 10027
+# The start configuration (`terminal64.exe /config:<file>`) written beside the account's portable
+# terminal: Algo Trading on, and kept on when the login changes the account (`Account=0`), which
+# the terminal otherwise turns it off for. Without it closing or moving a level is refused 10027.
+START_CONFIG_NAME = "tradelens-start.ini"
+START_CONFIG = """[Experts]
+AllowLiveTrading=1
+AllowDllImport=0
+Enabled=1
+Account=0
+Profile=0
+"""
 
 
 class Failure(Exception):
@@ -84,15 +98,16 @@ class Leash:
                 print(f"tradelens worker: no job object: {err}", file=sys.stderr)
 
     def start(self) -> None:
-        """Starts the terminal in portable mode with its window hidden, so that `initialize`
-        attaches to it instead of showing a new one."""
+        """Starts the terminal in portable mode with its window hidden and Algo Trading on, so that
+        `initialize` attaches to it instead of showing a new one."""
         if sys.platform != "win32":
             return
         info = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
         info.dwFlags |= subprocess.STARTF_USESHOWWINDOW  # type: ignore[attr-defined]
         info.wShowWindow = SW_HIDE
         try:
-            process = subprocess.Popen([self.terminal, "/portable"], startupinfo=info)  # noqa: S603 - the app's own copy
+            command = start_command(self.terminal, write_start_config(self.terminal))
+            process = subprocess.Popen(command, startupinfo=info)  # noqa: S603 - the app's own copy
         except OSError as err:
             msg = f"không chạy được terminal MT5 ({self.terminal}): {err}"
             raise Failure(msg) from err
@@ -122,6 +137,24 @@ class Leash:
             print(f"tradelens worker: windows not hidden: {err}", file=sys.stderr)
             return 0
         return hidden
+
+
+def write_start_config(terminal: str) -> str:
+    """Writes `START_CONFIG` into the folder of the account's portable `terminal` (the app's own
+    copy) and returns its path."""
+    path = os.path.join(os.path.dirname(os.path.abspath(terminal)), START_CONFIG_NAME)
+    try:
+        with open(path, "w", encoding="ascii", newline="\r\n") as file:
+            file.write(START_CONFIG)
+    except OSError as err:
+        msg = f"không ghi được cấu hình khởi động MT5 ({path}): {err}"
+        raise Failure(msg) from err
+    return path
+
+
+def start_command(terminal: str, config: str) -> list[str]:
+    """The command line of the account's terminal: portable, with the start configuration."""
+    return [terminal, "/portable", f"/config:{config}"]
 
 
 # Win32 constants (winnt.h, winbase.h, winuser.h).
@@ -301,8 +334,21 @@ def filling(mt5: Any, symbol: str) -> int:
     return int(mt5.ORDER_FILLING_RETURN)
 
 
+def require_algo_trading(mt5: Any) -> None:
+    """Refuses before sending when the terminal's Algo Trading is off: the order would only come
+    back as 10027, a code the trader cannot act on."""
+    info = mt5.terminal_info()
+    if info is not None and not bool(getattr(info, "trade_allowed", True)):
+        msg = (
+            "Terminal MT5 của tài khoản đang tắt Algo Trading nên không đóng hay sửa lệnh được. "
+            "Đóng TradeLens rồi mở lại để terminal khởi động lại với Algo Trading bật."
+        )
+        raise Failure(msg, ALGO_TRADING_OFF)
+
+
 def sent(mt5: Any, request: dict[str, Any]) -> dict[str, Any]:
     """Sends `request`; the result's order and deal, or the refusal as a `Failure`."""
+    require_algo_trading(mt5)
     result = mt5.order_send(request)
     if result is None:
         code, text = last_error(mt5)
