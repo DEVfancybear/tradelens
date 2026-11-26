@@ -406,11 +406,11 @@ fn account_row(mt5: Mt5, account: AccountRef) -> impl IntoElement {
             let title = live.with_untracked(|live| live.as_ref().map_or_default(Live::title));
             confirm_then(
                 owner,
-                "Xoá tài khoản MT5?",
+                "Đăng xuất tài khoản MT5?",
                 format!(
                     "Ngắt kết nối {title}, xoá mật khẩu đã lưu và bản terminal riêng của tài khoản. Lệnh đã vào nhật ký vẫn giữ nguyên."
                 ),
-                "Xoá",
+                "Đăng xuất",
                 move || mt5.forget(&account),
             );
         }
@@ -480,12 +480,23 @@ fn account_row(mt5: Mt5, account: AccountRef) -> impl IntoElement {
             })
         }))
         .child(
-            view().flex_row().gap_2().pt_1().child(action("Kết nối lại", Variant::Secondary, reconnect)).child(action(
-                "Xoá",
-                Variant::Destructive,
-                forget,
-            )),
+            view()
+                .flex_row()
+                .gap_2()
+                .pt_1()
+                .child(dynamic(move || {
+                    let stuck = status.with(|status| status.as_ref().is_some_and(offers_reconnect));
+                    let reconnect = reconnect.clone();
+                    stuck.then(|| untracked(|| action("Kết nối lại", Variant::Secondary, reconnect)))
+                }))
+                .child(action("Đăng xuất", Variant::Destructive, forget)),
         )
+}
+
+/// Whether an account in `status` shows "Kết nối lại": only when its link gave up or keeps failing,
+/// never while it is connected or still on its way.
+fn offers_reconnect(status: &Status) -> bool {
+    matches!(status, Status::Retrying(_) | Status::Refused(_) | Status::Stopped)
 }
 
 /// One open position: its figures follow each poll in place.
