@@ -76,6 +76,11 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
 - **Rule:** a `dynamic` that builds a value editor from a row (`properties.rs`, the property list) keys on what the editor *is* (the field, its kind, its name) through a `computed`, not on the whole row. Data the editor shows that its own handlers change (a select's options) is read live inside it (`Slot::options`). A handler that changes the row reads what it needs first and writes through the list, not through state of the editor it may replace.
 - **Why:** adding an option in a "Chọn nhiều" property changed its definition, the whole row was read again, and the editor (with its add field) was made again under its own Enter handler: the field lost the focus and the handler went on with the old, disposed slot.
 
+### 1.11 A file path handed to the OS is built with `Attachment::file_in`, never `join(&a.path)`
+- **Rule:** the stored `Attachment.path` is `images/<hash>.png` with `/`. Turn it into a file path with `attachment.file_in(store)`, which joins segment by segment. In tests, compare paths sent to the platform with `as_os_str()`, not `==`.
+- **Why:** "Hiện trong thư mục" in the image viewer failed with "An attempt was made to reference a token that does not exist". `dir.join("images/x.png")` gave `…\attachments\images/x.png`; NSH's Windows `reveal` calls `ILCreateFromPathW`, which returns null on a mixed path, and the error read was a stale `GetLastError` (1008). `ShellExecuteW` (open) accepts it, so only reveal broke. The test passed because `Path`'s `==` reads `\` and `/` alike on Windows.
+- **Check:** `rg -n 'join\(&?\w+\.path\)' app/src crates` prints nothing; `a_picture_can_be_opened_with_another_program_and_shown_in_its_folder` fails on Windows if a `join(&item.path)` comes back.
+
 ## 2. Typing lost when data is read again
 
 - **Rule:**

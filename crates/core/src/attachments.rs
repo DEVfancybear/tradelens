@@ -47,6 +47,16 @@ pub struct Attachment {
     pub added_at: i64,
 }
 
+impl Attachment {
+    /// The image's file inside `store` (the data folder's `attachments/`), built one segment of
+    /// [`path`](Self::path) at a time so it uses the platform's separator throughout. Windows
+    /// shell calls (show in File Explorer) refuse a path that mixes `\` and `/`.
+    #[must_use]
+    pub fn file_in(&self, store: &Path) -> PathBuf {
+        self.path.split('/').filter(|part| !part.is_empty()).fold(store.to_path_buf(), |dir, part| dir.join(part))
+    }
+}
+
 /// Why one file of a batch was not added; the others still are.
 #[derive(Debug, thiserror::Error)]
 pub enum AttachError {
@@ -181,6 +191,20 @@ mod tests {
         assert_eq!(gone, 1);
         assert!(!store.join("images/a.png").exists());
         assert!(dir.path().join("secret.txt").exists(), "a path out of the folder is never followed");
+    }
+
+    #[test]
+    fn an_image_file_uses_the_platform_separator_only() {
+        let store = Path::new("data").join("attachments");
+        let image = Attachment {
+            path: "images/00ab.png".to_owned(),
+            caption: String::new(),
+            timeframe: None,
+            source: Source::Upload,
+            added_at: 0,
+        };
+        let file = image.file_in(&store);
+        assert_eq!(file.as_os_str(), store.join("images").join("00ab.png").as_os_str(), "got {}", file.display());
     }
 
     #[test]

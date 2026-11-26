@@ -109,7 +109,7 @@ fn period_title(period: Period, start: NaiveDate) -> String {
 fn chart_file(snapshot: &Snapshot, key: &TradeKey, folder: &Path) -> Option<String> {
     let shots = &snapshot.journals.get(key)?.screenshots;
     let shot = shots.iter().find(|s| s.source == Source::EaExit).or_else(|| shots.first())?;
-    Some(folder.join(&shot.path).display().to_string())
+    Some(shot.file_in(folder).display().to_string())
 }
 
 /// The card of `target`; `None` when the target is not a closed trade of the snapshot.
