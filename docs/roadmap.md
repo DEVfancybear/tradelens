@@ -44,6 +44,10 @@ Ngày là ước lượng cho một người làm toàn thời gian; mỗi mốc
 - **Quản lý lệnh** (`pages/position.rs`): sửa SL/TP, đóng toàn bộ hoặc một phần (hỏi trước), mở từ thẻ kết nối và từ nút
   "Quản lý lệnh" ở chi tiết lệnh đang mở.
 - Chế độ thử: `TRADELENS_MT5=memory` hoặc setting `mt5.mode = memory` dùng broker giả trong bộ nhớ (test màn hình).
+- **Tin quan trọng** (`pages/news.rs`, `app/src/news.rs`): tin đỏ (impact High) trong lịch tuần của Forex Factory, lấy từ
+  feed công khai `ff_calendar_thisweek.json` khi mở app (nếu lần tải cuối đã quá 30 phút), mỗi 30 phút và khi bấm
+  "Tải lại"; lưu theo tuần ở `news_events` (không sync), tải lỗi thì giữ bản cũ và báo lỗi. Feed không có số Actual
+  và chỉ có tuần hiện tại. Setting `news.url` (hoặc `TRADELENS_NEWS_URL`) đổi địa chỉ, `off` để tắt.
 - **Còn lại của v0.4:** copier nhiều tài khoản (cách tính lot, đổi symbol, copy ngược, lệnh chờ, chốt an toàn) — chờ chốt
   đặc tả với người dùng; kiểm tra trên MT5 thật (máy dev chưa có Python và MT5).
 

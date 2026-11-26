@@ -19,7 +19,7 @@ EA và bridge HTTP của v0.1 đã bỏ.
 | Crate | Trách nhiệm | Không làm |
 |---|---|---|
 | `tradelens-core` | Model, deal → lệnh, thống kê, quy tắc, SQLite, đọc file | Mạng, UI |
-| `tradelens-cloud` | OAuth, Drive API, Notion API, gộp thay đổi | Đọc báo cáo MT5 |
+| `tradelens-cloud` | OAuth, Drive API, Notion API, gộp thay đổi, tải lịch tin Forex Factory | Đọc báo cáo MT5 |
 | `tradelens-mt5` | Terminal portable, worker Python, luồng kết nối từng tài khoản, lệnh đóng / sửa SL-TP | Ghi DB, UI |
 | `nsh-app-tradelens` | Giao diện, store, điều phối luồng nền | Tính toán nghiệp vụ |
 
