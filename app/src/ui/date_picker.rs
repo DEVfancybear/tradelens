@@ -212,6 +212,27 @@ pub fn date_trigger(shown: impl Fn() -> String + 'static) -> impl IntoElement {
         .child(text(shown).text_sm().font_weight(FontWeight::SEMIBOLD).number_of_lines(1))
 }
 
+/// The trigger of a date picker as a heading (the month of Lịch P/L): the text large, a ⌄ after it,
+/// a fill under the pointer. `shown` is followed.
+pub fn heading_trigger(shown: impl Fn() -> String + 'static) -> impl IntoElement {
+    view()
+        .role(AccessibilityRole::Button)
+        .focusable(true)
+        .cursor_pointer()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .gap_2()
+        .min_w(px(150.0))
+        .h(px(36.0))
+        .px_2()
+        .rounded(move || theme().radius)
+        .hover(|s| s.bg(move || theme().accent))
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .child(text(shown).text_xl().font_weight(FontWeight::SEMIBOLD).number_of_lines(1))
+        .child(icon(Icon::ChevronDown, 16.0).text_color(move || theme().muted_foreground))
+}
+
 /// What a trade's open or close is while it is typed: a day, and the time of day when it is known.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct MomentValue {

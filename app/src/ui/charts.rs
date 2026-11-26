@@ -6,6 +6,7 @@
 //! because each of their cells and rows carries text the trader reads and tests find.
 
 use nsh_base::{
+    button,
     plot::{BandScale, BarCornerRadii, Scale, bar, grid, plot},
     progress, theme,
 };
@@ -299,8 +300,11 @@ fn share_of(value: f64, peak: f64) -> (f32, f32) {
 }
 
 /// Rows of a name, a bar that grows left from a centre line for a loss and right for a gain,
-/// and the value; the longest bar fills its half.
-pub(crate) fn diverging_bars(items: impl Fn() -> Vec<DivergingItem> + 'static) -> impl IntoElement {
+/// and the value; the longest bar fills its half. Pressing a row tells `on_pick` its name.
+pub(crate) fn diverging_bars(
+    items: impl Fn() -> Vec<DivergingItem> + 'static,
+    on_pick: impl Fn(&str) + Copy + 'static,
+) -> impl IntoElement {
     dynamic(move || {
         let items = items();
         untracked(|| {
@@ -340,10 +344,18 @@ pub(crate) fn diverging_bars(items: impl Fn() -> Vec<DivergingItem> + 'static) -
                                 .bg(fill),
                         )
                         .child(view().flex_grow(if gain { rest } else { 1.0 }));
-                    view()
+                    let picked = item.label.clone();
+                    button()
+                        .cursor_pointer()
+                        .on_press(move || on_pick(&picked))
+                        .accessibility_label(format!("Xem lệnh {} {}", item.label, item.shown))
                         .flex_row()
                         .items_center()
                         .gap_3()
+                        .p_1()
+                        .rounded(move || theme().radius)
+                        .hover(|s| s.bg(move || theme().accent))
+                        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
                         .child(
                             text(item.label.clone())
                                 .w(px(DIVERGING_LABEL_WIDTH))

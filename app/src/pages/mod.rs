@@ -9,6 +9,7 @@ mod account_trades;
 mod accounts;
 mod analytics;
 mod calendar;
+mod catalog_tags;
 mod cloud;
 mod dashboard;
 mod data_sources;

@@ -93,7 +93,7 @@ fn figures_are_drawn_in_the_monospaced_family_everywhere_they_show() {
     assert_mono(&mut app, "+2.0R", "a figure of the trades table");
     assert_mono(&mut app, "−1.0R", "a loss of the trades table");
     // A day of the small calendar.
-    assert!(app.screen().matches("label:16/04 +1.0R").expect("a selector"), "the small month shows 16 April");
+    assert!(app.screen().matches("label:Xem ngày 16/04 +1.0R").expect("a selector"), "the small month shows 16 April");
 
     open(&mut app, "Lịch P/L");
     app.wait_for("Tháng 4, 2026").expect("the calendar opens on April");
@@ -172,8 +172,8 @@ fn the_months_are_named_by_what_they_show_and_the_overview_shows_a_month_with_tr
     // Today's month has no trade (the journal is from April 2026): the overview shows April, as the
     // calendar opens on it, and each day carries its figure.
     app.wait_for("Tháng 4/2026").expect("the small month is titled by the month it shows");
-    assert!(app.screen().matches("label:16/04 +1.0R").expect("a selector"), "16 April: two trades, +1.0R");
-    assert!(app.screen().matches("label:13/04 −0.2R").expect("a selector"), "13 April: one loss");
+    assert!(app.screen().matches("label:Xem ngày 16/04 +1.0R").expect("a selector"), "16 April: two trades, +1.0R");
+    assert!(app.screen().matches("label:Xem ngày 13/04 −0.2R").expect("a selector"), "13 April: one loss");
     shows_nothing_like(&app, "Tháng này");
 
     open(&mut app, "Lịch P/L");

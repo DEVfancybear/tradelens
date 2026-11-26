@@ -20,8 +20,8 @@ use tradelens_core::form::{
 use super::{
     chips::{Tone, chip},
     controls::{
-        Choice, Variant, action_icon, add_field, commit_field, confirm_then, icon_action, rating_of, root_owner,
-        select_value, tag_picker, text_field, textarea,
+        Choice, TagOption, Variant, action_icon, add_field, commit_field, confirm_then, icon_action, rating_of,
+        removable_tags, root_owner, select_value, text_field, textarea,
     },
     date_picker::{DatePick, date_pick, date_trigger},
     forms::{NumberRange, check_box, number_field, switch_row},
@@ -527,16 +527,20 @@ impl Handle {
         }
     }
 
-    fn add_option(self, key: &str, option: &str) {
+    /// Adds `option` (trimmed) to the property `key` and returns the option as the list holds it: an
+    /// option already there in another case ("asia" for "Asia") is that one, and no second is added.
+    fn add_option(self, key: &str, option: &str) -> Option<String> {
         let option = option.trim();
         if option.is_empty() {
-            return;
+            return None;
         }
-        self.edit_def(key, |def| {
-            if !def.options.iter().any(|o| o == option) {
-                def.options.push(option.to_owned());
-            }
-        });
+        let def = self.def(key)?;
+        let lowered = option.to_lowercase();
+        if let Some(found) = def.options.iter().find(|o| o.to_lowercase() == lowered) {
+            return Some(found.clone());
+        }
+        self.edit_def(key, |def| def.options.push(option.to_owned()));
+        Some(option.to_owned())
     }
 
     fn remove_option(self, key: &str, option: &str) {
@@ -600,6 +604,11 @@ impl Slot {
             Some(FieldValue::Choice(c)) => c.into(),
             _ => SharedString::default(),
         }
+    }
+
+    /// The options of the property as its definition holds them now (tracked where it is read).
+    fn options(self) -> Vec<String> {
+        self.list.def(&self.key()).map_or_default(|d| d.options)
     }
 
     fn choices(self) -> Vec<String> {
@@ -709,10 +718,16 @@ fn property_row(
                 // instead of running into the editor beside.
                 .child(view().flex_1().min_w(px(0.0)).child(property_popover(list, row))),
         )
-        .child(view().flex_1().min_w(px(0.0)).child(dynamic(move || {
-            let property = row.get();
-            untracked(|| editor_of(list, &property))
-        })))
+        // The editor is made again only when what it is changes (the field, its kind, its name): a
+        // change of its options alone reaches the editor through `Handle::def`, so the field being typed
+        // in (the "Chọn nhiều" add field) is not made again under its own handler.
+        .child(view().flex_1().min_w(px(0.0)).child({
+            let shape = computed(move || row.with(|p| (p.field.clone(), p.kind, p.label.clone())));
+            dynamic(move || {
+                let _shape = shape.get();
+                untracked(|| editor_of(list, &row.get()))
+            })
+        }))
 }
 
 /// The glyph before a property's name.
@@ -738,6 +753,53 @@ fn editor_of(list: Handle, property: &Property) -> AnyElement {
     }
 }
 
+/// The chips of a "Chọn nhiều" property, whose list is kept here too: a typed option is added to the
+/// property and picked (one already there in another case is picked instead), the ✕ after one removes
+/// it from the list after asking. A removed option the value still holds stays as a chip without ✕.
+fn multi_select_editor(slot: Slot, label: String) -> impl IntoElement {
+    let toggle = move |option: &str, on: bool| {
+        let next = if on { with_choice(slot.choices(), option) } else { without_choice(slot.choices(), option) };
+        slot.set((!next.is_empty()).then_some(FieldValue::Choices(next)));
+    };
+    let add = move |typed: String| {
+        // Read before the definition changes: the value is written through the list, not the slot.
+        let (key, before) = (slot.key(), slot.choices());
+        let Some(option) = slot.list.add_option(&key, &typed) else { return };
+        if !before.contains(&option) {
+            slot.list.emit_value(&key, Some(FieldValue::Choices(with_choice(before, &option))));
+        }
+    };
+    // The question is the root's task: the property list is built again when its data is read again.
+    let asker = root_owner();
+    let named = label.to_lowercase();
+    let list = stored(named.clone());
+    let remove = move |option: &str, _: &str| {
+        let (key, option) = (slot.key(), option.to_owned());
+        let handle = slot.list;
+        confirm_then(
+            asker,
+            format!("Xoá «{option}» khỏi danh sách {}?", list.get()),
+            "Không còn để chọn nữa; lệnh đã ghi vẫn giữ nó.",
+            "Xoá",
+            move || handle.remove_option(&key, &option),
+        );
+    };
+    let chips = move || {
+        let listed = slot.options();
+        let kept: Vec<String> = slot.choices().into_iter().filter(|c| !listed.contains(c)).collect();
+        listed
+            .into_iter()
+            .map(|o| TagOption::listed(o.clone(), o))
+            .chain(kept.into_iter().map(|o| TagOption::kept(o.clone(), o)))
+            .collect()
+    };
+    view().gap_2().child(removable_tags(label, chips, move || slot.choices(), toggle, remove)).child(add_field(
+        format!("Thêm {named}"),
+        "+ Thêm lựa chọn, rồi Enter",
+        add,
+    ))
+}
+
 /// The input of a property of the trader's, by its kind.
 fn custom_editor(slot: Slot, property: &Property, scale_max: u8) -> AnyElement {
     let label = property.label.clone();
@@ -756,36 +818,20 @@ fn custom_editor(slot: Slot, property: &Property, scale_max: u8) -> AnyElement {
             move |n| slot.set(n.map(FieldValue::Number)),
         )
         .into_element(),
-        FieldKind::Select => {
-            let options = property.options.clone();
-            select_value(
-                label,
-                move || {
-                    std::iter::once(Choice::new("", "Trống"))
-                        .chain(options.iter().map(|o| Choice::new(o.clone(), o.clone())))
-                        .collect()
-                },
-                move || slot.choice(),
-                move |chosen| {
-                    slot.set((!chosen.is_empty()).then(|| FieldValue::Choice(chosen.to_string())));
-                },
-            )
-            .into_element()
-        }
-        FieldKind::MultiSelect => {
-            let options = property.options.clone();
-            tag_picker(
-                label,
-                move || options.iter().map(|o| (o.clone(), o.clone())).collect(),
-                move || slot.choices(),
-                move |option, on| {
-                    let next =
-                        if on { with_choice(slot.choices(), option) } else { without_choice(slot.choices(), option) };
-                    slot.set((!next.is_empty()).then_some(FieldValue::Choices(next)));
-                },
-            )
-            .into_element()
-        }
+        FieldKind::Select => select_value(
+            label,
+            move || {
+                std::iter::once(Choice::new("", "Trống"))
+                    .chain(slot.options().into_iter().map(|o| Choice::new(o.clone(), o)))
+                    .collect()
+            },
+            move || slot.choice(),
+            move |chosen| {
+                slot.set((!chosen.is_empty()).then(|| FieldValue::Choice(chosen.to_string())));
+            },
+        )
+        .into_element(),
+        FieldKind::MultiSelect => multi_select_editor(slot, label).into_element(),
         FieldKind::Checkbox => {
             check_box(label, move || slot.flag(), move |on| slot.set(Some(FieldValue::Flag(on)))).into_element()
         }
@@ -1076,7 +1122,7 @@ fn options_editor(list: Handle, slot: Slot) -> impl IntoElement {
             move |row, index| option_row(list, slot, row.with_untracked(Clone::clone), index, count),
         ))
         .child(add_field("Thêm lựa chọn", "+ Thêm lựa chọn", move |option| {
-            list.add_option(&slot.key(), &option);
+            let _added = list.add_option(&slot.key(), &option);
         }))
 }
 

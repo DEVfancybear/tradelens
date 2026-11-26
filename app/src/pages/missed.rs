@@ -15,14 +15,15 @@ use tradelens_core::{
     time::{naive, to_ms},
 };
 
+use super::catalog_tags::catalog_tags;
 use crate::{
     format,
     store::{Reading, query, store, writer},
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{
-            Choice, Variant, action, action_icon, action_icon_when, add_field, confirm_then, root_owner, segmented,
-            select_field, tag_picker, text_field, textarea,
+            Choice, Variant, action, action_icon, action_icon_when, confirm_then, root_owner, segmented, select_field,
+            text_field_ref, textarea,
         },
         date_picker::{DatePick, date_pick, date_trigger},
         forms::{NumberRange, number_field},
@@ -58,6 +59,8 @@ pub(crate) fn missed() -> impl IntoElement {
     let reasons = query(|db, _| db.catalog(CatalogKind::MissedReason));
     // `Never`: pressing "Ghi lệnh bỏ lỡ" starts a clean form even when one was already blank.
     let editing = signal_with(None::<MissedTrade>, SignalEquals::Never);
+    // The symbol field of the form shown, which "Ghi lệnh bỏ lỡ" gives the keyboard to.
+    let symbol_field = element_ref();
     let picked = global::<Picked>();
     effect(move || {
         let Some(id) = picked.get().0 else { return };
@@ -70,7 +73,15 @@ pub(crate) fn missed() -> impl IntoElement {
     page_with(
         "Lệnh bỏ lỡ",
         "Setup đúng nhưng không vào — ghi lại để biết do dự tốn bao nhiêu.",
-        action_icon(Icon::Plus, "Ghi lệnh bỏ lỡ", Variant::Primary, move || editing.set(None)),
+        action_icon(Icon::Plus, "Ghi lệnh bỏ lỡ", Variant::Primary, move || {
+            editing.set(None);
+            // The blank form is drawn in the next frame: its field takes the focus then, so the press
+            // shows (a blank form built again looks the same) and the trader can type at once.
+            spawn(async move {
+                next_frame().await;
+                symbol_field.focus();
+            });
+        }),
         view()
             .gap_6()
             .child(stats_row(list, reasons))
@@ -90,7 +101,7 @@ pub(crate) fn missed() -> impl IntoElement {
                     )
                     .child(view().w(px(400.0)).child(dynamic(move || {
                         let draft = editing.get();
-                        untracked(|| form(draft, editing, reasons).into_element())
+                        untracked(|| form(draft, editing, reasons, symbol_field).into_element())
                     }))),
             )
             .child(dynamic(move || list.error().map(error_line))),
@@ -388,11 +399,13 @@ impl Fields {
     }
 }
 
-/// The form of a missed trade: blank for `None`, else the one being edited.
+/// The form of a missed trade: blank for `None`, else the one being edited. `symbol_field` is pointed
+/// at its symbol input.
 fn form(
     draft: Option<MissedTrade>,
     editing: Signal<Option<MissedTrade>>,
     reasons: Reading<Vec<CatalogItem>>,
+    symbol_field: ElementRef,
 ) -> impl IntoElement {
     let store = store();
     let write = writer();
@@ -442,8 +455,8 @@ fn form(
         .child(
             text(if id == 0 { "Ghi lệnh bỏ lỡ" } else { "Sửa lệnh bỏ lỡ" }).text_sm().font_weight(FontWeight::SEMIBOLD),
         )
-        .child(trade_fields(fields))
-        .child(reason_field(fields.reason, reasons, error))
+        .child(trade_fields(fields, symbol_field))
+        .child(reason_field(fields.reason, reasons))
         .child(labelled(
             "Ghi chú",
             textarea(
@@ -476,9 +489,16 @@ fn form(
 }
 
 /// Symbol, side, time, the prices and the playbook.
-fn trade_fields(fields: Fields) -> impl IntoElement {
+fn trade_fields(fields: Fields, symbol_field: ElementRef) -> impl IntoElement {
     let store = store();
     let Fields { symbol, side, seen, entry, stop, target, outcome, playbook, .. } = fields;
+    let symbol_input = text_field_ref(
+        "Symbol",
+        "XAUUSD",
+        move || symbol.get(),
+        move |typed| symbol.set(typed.to_owned()),
+        &symbol_field,
+    );
     view()
         .gap_4()
         .child(
@@ -486,16 +506,7 @@ fn trade_fields(fields: Fields) -> impl IntoElement {
                 .flex_row()
                 .flex_wrap()
                 .gap_3()
-                .child(view().flex_1().min_w(px(140.0)).child(labelled(
-                    "Symbol",
-                    text_field(
-                        "Symbol",
-                        None,
-                        "XAUUSD",
-                        move || symbol.get(),
-                        move |typed| symbol.set(typed.to_owned()),
-                    ),
-                )))
+                .child(view().flex_1().min_w(px(140.0)).child(labelled("Symbol", symbol_input)))
                 .child(labelled(
                     "Chiều",
                     segmented("Chiều", &SIDES, Side::label, move || side.get(), move |next| side.set(next)),
@@ -549,60 +560,18 @@ fn trade_fields(fields: Fields) -> impl IntoElement {
         ))
 }
 
-/// The options of a catalog that are in use, as `(key, label)`. A memo: it changes only when the
-/// options do, so a picker over it is not made again every time the catalog is read.
-pub(super) fn catalog_options(items: Reading<Vec<CatalogItem>>) -> Memo<Vec<(String, String)>> {
-    computed(move || {
-        items.value().map_or_default(|all| {
-            all.iter().filter(|item| !item.archived).map(|item| (item.key.clone(), item.label.clone())).collect()
-        })
-    })
-}
-
 /// The reason for not entering: one of the trader's reasons, or a new one typed here.
-fn reason_field(
-    reason: Signal<Option<String>>,
-    reasons: Reading<Vec<CatalogItem>>,
-    error: Signal<Option<String>>,
-) -> impl IntoElement {
-    let write = writer();
-    let add_reason = move |label: String| {
-        let label = label.trim().to_owned();
-        if label.is_empty() {
-            return;
-        }
-        let key = format!("custom_{}", chrono::Utc::now().timestamp_millis());
-        let chosen = key.clone();
-        write.run(
-            move |db| {
-                db.save_catalog_item(&CatalogItem {
-                    id: 0,
-                    kind: CatalogKind::MissedReason,
-                    key,
-                    label,
-                    color: None,
-                    position: i32::MAX,
-                    archived: false,
-                })
-            },
-            move |result| match result {
-                Ok(_) => reason.set(Some(chosen)),
-                Err(message) => error.set(Some(message)),
-            },
-        );
-    };
-    let options = catalog_options(reasons);
+fn reason_field(reason: Signal<Option<String>>, reasons: Reading<Vec<CatalogItem>>) -> impl IntoElement {
     labelled(
         "Lý do không vào",
-        view()
-            .gap_2()
-            .child(tag_picker(
-                "Lý do",
-                move || options.get(),
-                move || reason.get().into_iter().collect(),
-                move |key, on| reason.set(on.then(|| key.to_owned())),
-            ))
-            .child(add_field("Thêm lý do", "+ Thêm lý do mới, rồi Enter", add_reason)),
+        catalog_tags(
+            CatalogKind::MissedReason,
+            "Lý do",
+            "+ Thêm lý do mới, rồi Enter",
+            move || reasons.value().map_or_default(|all| all.to_vec()),
+            move || reason.get().into_iter().collect(),
+            move |key, on| reason.set(on.then(|| key.to_owned())),
+        ),
     )
 }
 

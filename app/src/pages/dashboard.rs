@@ -18,6 +18,7 @@ use crate::{
     nav::{self, Route},
     snapshot::{Range, Snapshot},
     store::{Load, Reading, Store, query, store},
+    trade_list::Filter,
     ui::{
         chart::equity_chart,
         charts::{DivergingItem, diverging_bars},
@@ -454,7 +455,7 @@ fn month_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
     titled_card(
         move || month_title(shown.get()),
         link("Mở lịch", || nav::go(Route::Calendar)),
-        mini_month(weeks, today),
+        mini_month(weeks, today, super::calendar::show_day),
     )
 }
 
@@ -485,8 +486,15 @@ fn symbol_card(analysis: Memo<Arc<Analysis>>) -> impl IntoElement {
     titled_card(
         "Theo symbol",
         link("Xem phân tích", || nav::go(Route::Analytics)),
-        diverging_bars(move || analysis.with(|a| symbol_items(a, &store.snapshot().currency))),
+        diverging_bars(move || analysis.with(|a| symbol_items(a, &store.snapshot().currency)), show_symbol),
     )
+}
+
+/// Opens the trades list on the trades of `symbol` alone.
+fn show_symbol(symbol: &str) {
+    let store = store();
+    store.trade_filter.set(Filter { symbol: Some(symbol.to_owned()), ..Filter::default() });
+    nav::go(Route::Trades);
 }
 
 #[cfg(test)]

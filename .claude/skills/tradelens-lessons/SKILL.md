@@ -57,6 +57,25 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
   - One agent removed `Variant::Destructive` while another was using it.
 - **Check:** before removing or changing a `pub(crate)` item in `ui/`, `rg` its uses on the integration branch.
 
+### 1.7 A copied image goes through `files::copy_png` on Windows
+- **Rule:** to put a picture on the clipboard, call `ui::files::copy_png` (in `blocking`) on Windows; `set_clipboard_image` is for the other platforms only.
+- **Why:** NSH 0.7 on Windows writes only the registered `PNG` clipboard format. "Sao chép ảnh" said it had copied, yet pasting into Paint, Zalo or Telegram gave nothing: they read the bitmap (`CF_DIB`/`CF_DIBV5`). `arboard` writes the bitmap and the PNG together.
+- **Check:** after pressing the button in the real app, `[System.Windows.Forms.Clipboard]::GetDataObject().GetFormats()` in PowerShell lists `Bitmap` and `DeviceIndependentBitmap`, and Ctrl+V in Paint shows the card.
+
+- **Also:** each `#[cfg(target_os = ...)]` branch must pass clippy on its own. The local gate only compiles the Windows one; the non-Windows `put_on_clipboard` took an `Arc` by value it did not consume and CI failed on Linux and macOS (`needless_pass_by_value`). Give both branches the same borrowed signature and read the other branch line by line before pushing.
+
+### 1.8 A wrapping row centres its lines with `content_center`
+- **Rule:** a row with `flex_wrap()` and a fixed or minimum height also gets `.content_center()`; `items_center` alone centres items inside a line, not the lines inside the row.
+- **Why:** the Phân tích tables (`ui/breakdown.rs`) packed each symbol and its figures against the rule above, with the empty part of the 40 pt row below them; the user read it as a broken symbol column.
+
+### 1.9 Focus a field the press rebuilt through an `ElementRef`, a frame later
+- **Rule:** to give the keyboard to a field of a form that a button rebuilds (a blank form for "Ghi lệnh bỏ lỡ"), point an `element_ref()` taken at the page root at the input (`controls::text_field_ref`), and in the press `spawn` a task that awaits `next_frame()` and calls `focus()`.
+- **Why:** pressing "Ghi lệnh bỏ lỡ" on a form that was already blank rebuilt an identical form, so nothing seemed to happen. `auto_focus(true)` on the rebuilt input did not take the focus from the button that was pressed.
+
+### 1.10 An editor is made again only when what it is changes
+- **Rule:** a `dynamic` that builds a value editor from a row (`properties.rs`, the property list) keys on what the editor *is* (the field, its kind, its name) through a `computed`, not on the whole row. Data the editor shows that its own handlers change (a select's options) is read live inside it (`Slot::options`). A handler that changes the row reads what it needs first and writes through the list, not through state of the editor it may replace.
+- **Why:** adding an option in a "Chọn nhiều" property changed its definition, the whole row was read again, and the editor (with its add field) was made again under its own Enter handler: the field lost the focus and the handler went on with the old, disposed slot.
+
 ## 2. Typing lost when data is read again
 
 - **Rule:**

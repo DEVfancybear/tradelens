@@ -1,6 +1,6 @@
 //! The month grid: one cell per day coloured by what the day made, with a column of weekly
-//! totals. The full grid (Lịch P/L) picks a day; the compact one (Tổng quan) only shows the
-//! weekdays.
+//! totals. The full grid (Lịch P/L) picks a day; the compact one (Tổng quan) shows the weekdays
+//! and opens the calendar on the day pressed.
 
 use chrono::{Datelike, NaiveDate, Weekday};
 use nsh_base::{button, theme};
@@ -263,8 +263,13 @@ fn compact_weeks(weeks: Vec<CalendarWeek>) -> Vec<CalendarWeek> {
 }
 
 /// A small month for the overview: the weekdays only, each day a short signed figure, a dashed
-/// empty cell for a weekday that belongs to a neighbouring month.
-pub(crate) fn mini_month(weeks: impl Fn() -> Vec<CalendarWeek> + 'static, today: Memo<NaiveDate>) -> impl IntoElement {
+/// empty cell for a weekday that belongs to a neighbouring month. Pressing a day of the month tells
+/// `on_pick`.
+pub(crate) fn mini_month(
+    weeks: impl Fn() -> Vec<CalendarWeek> + 'static,
+    today: Memo<NaiveDate>,
+    on_pick: impl Fn(NaiveDate) + Copy + 'static,
+) -> impl IntoElement {
     let header = view().flex_row().gap_1().children(WEEKDAY_NAMES.iter().take(5).map(|name| {
         text(name.replace("Thứ ", "T"))
             .flex_1()
@@ -279,18 +284,35 @@ pub(crate) fn mini_month(weeks: impl Fn() -> Vec<CalendarWeek> + 'static, today:
         untracked(|| {
             view().gap_1().children(weeks.iter().map(|week| {
                 view().flex_row().gap_1().children(week.days.iter().filter(|d| !is_weekend(d.date)).map(|&day| {
-                    let cell = view().flex_1().min_w(px(0.0)).h(px(COMPACT_HEIGHT)).items_center().justify_center();
                     if !day.in_month {
-                        return cell.rounded(px(6.0)).border_1().border_dashed().border_color(move || theme().border);
+                        return view()
+                            .flex_1()
+                            .min_w(px(0.0))
+                            .h(px(COMPACT_HEIGHT))
+                            .rounded(px(6.0))
+                            .border_1()
+                            .border_dashed()
+                            .border_color(move || theme().border)
+                            .into_element();
                     }
                     let label = compact_label(&day);
                     let tone = day.stat.map_or(Tone::Neutral, |s| tone_of(s.result()));
-                    cell.rounded(px(6.0))
+                    let date = day.date;
+                    button()
+                        .cursor_pointer()
+                        .on_press(move || on_pick(date))
+                        .accessibility_label(format!("Xem ngày {} {}", date.format("%d/%m"), label))
+                        .flex_1()
+                        .min_w(px(0.0))
+                        .h(px(COMPACT_HEIGHT))
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(6.0))
                         .border_1()
                         .border_color(move || edge(&day))
                         .bg(move || fill(&day))
-                        .accessible(true)
-                        .label(format!("{} {}", day.date.format("%d/%m"), label))
+                        .hover(|s| s.border_color(move || theme().ring))
+                        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
                         .child(
                             text(label)
                                 .text_xs()
@@ -307,6 +329,7 @@ pub(crate) fn mini_month(weeks: impl Fn() -> Vec<CalendarWeek> + 'static, today:
                                     }
                                 }),
                         )
+                        .into_element()
                 }))
             }))
         })

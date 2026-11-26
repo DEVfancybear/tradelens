@@ -11,7 +11,6 @@ use std::{
     },
 };
 
-use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{Datelike, NaiveDate};
 use nsh_base::theme;
 use nsh_core::{
@@ -182,8 +181,10 @@ fn render(card: &ShareCard) -> Result<Rendered, String> {
     Ok(Rendered { bytes, file })
 }
 
-/// The `data:` URI the clipboard takes an image as.
+/// The `data:` URI NSH's clipboard takes an image as (Windows goes through `files::copy_png`).
+#[cfg(any(not(target_os = "windows"), test))]
 fn data_uri(png: &[u8]) -> String {
+    use base64::{Engine, engine::general_purpose::STANDARD};
     format!("data:image/png;base64,{}", STANDARD.encode(png))
 }
 
@@ -330,9 +331,27 @@ fn save_picture(target: ShareTarget, state: State) -> impl Fn() + Clone + 'stati
 fn copy_picture(state: State) -> impl Fn() + Clone + 'static {
     move || {
         let Some(picture) = state.rendered.get_untracked() else { return };
-        set_clipboard_image(data_uri(&picture.bytes));
-        state.succeed("Đã sao chép ảnh vào clipboard.".to_owned());
+        state.note.set(None);
+        put_on_clipboard(&picture, state);
     }
+}
+
+#[cfg(target_os = "windows")]
+fn put_on_clipboard(picture: &Arc<Rendered>, state: State) {
+    let picture = Arc::clone(picture);
+    spawn(async move {
+        match blocking(move || crate::ui::files::copy_png(&picture.bytes)).await {
+            Ok(Ok(())) => state.succeed("Đã sao chép ảnh vào clipboard.".to_owned()),
+            Ok(Err(message)) => state.fail(message),
+            Err(error) => state.fail(format!("Luồng sao chép ảnh bị dừng: {error}")),
+        }
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn put_on_clipboard(picture: &Rendered, state: State) {
+    set_clipboard_image(data_uri(&picture.bytes));
+    state.succeed("Đã sao chép ảnh vào clipboard.".to_owned());
 }
 
 /// "Xuất báo cáo PDF tháng": the PDF of the month shown, at the privacy level chosen here. The

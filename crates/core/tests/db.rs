@@ -567,3 +567,27 @@ fn day_notes_round_trip_per_account_and_are_searchable() {
     assert_eq!(hits.len(), 1, "the note of all accounts is indexed apart from the account's");
     assert_eq!(hits[0].reference, "2026-11-20");
 }
+
+#[test]
+fn a_catalog_label_added_twice_or_after_removal_is_one_option() {
+    use tradelens_core::catalog::CatalogKind;
+    let mut db = Db::in_memory().unwrap();
+    let offered = |db: &Db| -> Vec<String> {
+        db.catalog(CatalogKind::Timeframe).unwrap().into_iter().filter(|i| !i.archived).map(|i| i.label).collect()
+    };
+    let before = offered(&db);
+    let key = db.add_catalog_label(CatalogKind::Timeframe, " M30 ").unwrap();
+    assert_eq!(offered(&db), [before.clone(), vec!["M30".to_owned()]].concat(), "added once, trimmed, at the end");
+    assert_eq!(db.add_catalog_label(CatalogKind::Timeframe, "m30").unwrap(), key, "the same name in another case");
+    assert_eq!(offered(&db).len(), before.len() + 1);
+
+    db.archive_catalog_item(CatalogKind::Timeframe, &key).unwrap();
+    assert_eq!(offered(&db), before, "a removed option is no longer offered");
+    let kept = db.catalog(CatalogKind::Timeframe).unwrap();
+    assert!(kept.iter().any(|i| i.key == key && i.label == "M30"), "its label is still read for what stored it");
+
+    assert_eq!(db.add_catalog_label(CatalogKind::Timeframe, "M30").unwrap(), key, "typed again, it comes back");
+    assert_eq!(offered(&db).len(), before.len() + 1);
+    db.archive_catalog_item(CatalogKind::Timeframe, "no_such_key").unwrap();
+    assert!(db.add_catalog_label(CatalogKind::Timeframe, "  ").is_err(), "a blank name adds nothing");
+}

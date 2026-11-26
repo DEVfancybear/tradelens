@@ -294,16 +294,22 @@ fn opening_a_day_of_the_calendar_shows_that_days_journal() {
 
     app.press("role:button[Lịch P/L]").expect("the calendar row is a button");
     app.wait_for("Kết quả tháng").expect("the page opens");
-    app.press("role:button[Tháng trước]").expect("goes to last month");
+    let last_month = format!("Tháng {}, {}", day.month(), day.year());
     let cell = format!("role:button[Xem ngày {}]", day.format("%d/%m"));
-    app.wait_for(&cell).expect("last month is drawn");
-    // The day card's title ("Thứ 5, 15/10") names the picked day; a press that lands while the
-    // month is drawn again is lost, so the day is picked again until the card follows.
-    // "." stands for the "/" between day and month, which would end the pattern.
+    // The day card's title ("Thứ 5, 15/10") names the picked day; "." stands for the "/" between day
+    // and month, which would end the pattern.
     let title = format!("text:/, {}$/", day.format("%d.%m"));
-    let picked = (0..5).any(|_| {
-        app.press(&cell).expect("picks the day");
-        app.wait_for_within(&title, Duration::from_secs(2)).is_ok()
+    // Once its data is read the page opens on the latest month with trades (here the current one),
+    // which undoes a "Tháng trước" pressed before that; and a press that lands while the month is
+    // drawn again is lost. So last month is asked for again while it is not shown, and the day is
+    // picked again until the card follows.
+    let picked = (0..10).any(|_| {
+        if !app.screen().shows(&last_month) {
+            let _pressed = app.press("role:button[Tháng trước]");
+            let _drawn = app.wait_for_within(&cell, Duration::from_secs(2));
+            return false;
+        }
+        app.press(&cell).is_ok() && app.wait_for_within(&title, Duration::from_secs(2)).is_ok()
     });
     assert!(picked, "the day card shows {day}");
     app.press("role:button[Mở nhật ký ngày]").expect("opens its journal");
