@@ -64,10 +64,9 @@ pub(crate) fn news_page() -> impl IntoElement {
             }))
             .child(dynamic(move || shown.error().map(error_line)))
             .child(dynamic(move || {
-                let events = shown.value().map(|s| s.events.clone())?;
+                let read = shown.value()?;
                 let at = now.get();
-                let next = events.into_iter().find(|e| e.at_ms > at)?;
-                Some(next_card(&next, at))
+                read.events.iter().find(|e| e.at_ms > at).map(|next| next_card(next, at))
             }))
             .child(dynamic(move || {
                 let (start_ms, end_ms) = week.get();
