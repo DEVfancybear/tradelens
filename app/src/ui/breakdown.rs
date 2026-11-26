@@ -89,9 +89,10 @@ fn figures(widths: Widths) -> View {
 }
 
 /// A line of the table: the name takes what the figures leave, never less than [`NAME_MIN`] (or it
-/// moves above them), and the figures stand at the right.
+/// moves above them), and the figures stand at the right. The wrapped lines sit in the middle of the
+/// row's height: a wrapping row packs them at its top otherwise, against the rule above it.
 fn line(name: Text, figures: View) -> View {
-    view().flex_row().flex_wrap().items_center().gap_x(px(COLUMN_GAP_MIN)).child(name).child(figures)
+    view().flex_row().flex_wrap().items_center().content_center().gap_x(px(COLUMN_GAP_MIN)).child(name).child(figures)
 }
 
 /// The name column: one line, cut with an ellipsis only when the name is longer than the room.
