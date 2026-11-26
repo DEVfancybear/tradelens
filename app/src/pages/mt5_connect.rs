@@ -121,6 +121,14 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
                                     move || idle,
                                     move || mt5.install_python(),
                                 ))
+                            })
+                            .when(setup.needs_terminal(), |v| {
+                                v.child(action_when(
+                                    "Cài MetaTrader 5 tự động",
+                                    Variant::Primary,
+                                    move || idle,
+                                    move || mt5.install_terminal(),
+                                ))
                             }),
                     )
                 })
@@ -174,7 +182,7 @@ fn sign_in_blocked(state: &State, picked: Option<&PathBuf>) -> Option<&'static s
         return Some("Cần Python trước khi đăng nhập: bấm \"Cài Python tự động\" ở trên.");
     }
     if terminal_choices(state, picked).is_empty() {
-        return Some("Cần MetaTrader 5 trên máy: cài MT5 của broker hoặc chọn terminal64.exe.");
+        return Some("Cần MetaTrader 5 trên máy: bấm \"Cài MetaTrader 5 tự động\" ở trên hoặc chọn terminal64.exe.");
     }
     None
 }
@@ -302,7 +310,7 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
                 let none = mt5.state.with(|state| terminal_choices(state, form.picked.get().as_ref()).is_empty());
                 untracked(|| {
                     if none {
-                        return text("Chưa thấy MetaTrader 5 trên máy: cài MT5 của broker rồi bấm \"Kiểm tra lại\", hoặc chọn terminal64.exe.")
+                        return text("Chưa thấy MetaTrader 5 trên máy: bấm \"Cài MetaTrader 5 tự động\" ở trên (bản của MetaQuotes, đăng nhập được mọi broker), hoặc chọn terminal64.exe nếu đã cài ở chỗ khác.")
                             .text_sm()
                             .text_color(tokens::warning)
                             .into_element();
@@ -398,11 +406,11 @@ fn account_row(mt5: Mt5, account: AccountRef) -> impl IntoElement {
             let title = live.with_untracked(|live| live.as_ref().map_or_default(Live::title));
             confirm_then(
                 owner,
-                "Xoá tài khoản MT5?",
+                "Đăng xuất tài khoản MT5?",
                 format!(
                     "Ngắt kết nối {title}, xoá mật khẩu đã lưu và bản terminal riêng của tài khoản. Lệnh đã vào nhật ký vẫn giữ nguyên."
                 ),
-                "Xoá",
+                "Đăng xuất",
                 move || mt5.forget(&account),
             );
         }
@@ -471,13 +479,31 @@ fn account_row(mt5: Mt5, account: AccountRef) -> impl IntoElement {
                 })
             })
         }))
-        .child(
-            view().flex_row().gap_2().pt_1().child(action("Kết nối lại", Variant::Secondary, reconnect)).child(action(
-                "Xoá",
-                Variant::Destructive,
-                forget,
-            )),
-        )
+        .child(account_buttons(status, reconnect, forget))
+}
+
+/// An account's buttons: "Kết nối lại" while its link is stuck (`offers_reconnect`), and "Đăng xuất".
+fn account_buttons(
+    status: Memo<Option<Status>>,
+    reconnect: impl Fn() + Clone + 'static,
+    forget: impl Fn() + 'static,
+) -> impl IntoElement {
+    view()
+        .flex_row()
+        .gap_2()
+        .pt_1()
+        .child(dynamic(move || {
+            let stuck = status.with(|status| status.as_ref().is_some_and(offers_reconnect));
+            let reconnect = reconnect.clone();
+            stuck.then(|| untracked(|| action("Kết nối lại", Variant::Secondary, reconnect)))
+        }))
+        .child(action("Đăng xuất", Variant::Destructive, forget))
+}
+
+/// Whether an account in `status` shows "Kết nối lại": only when its link gave up or keeps failing,
+/// never while it is connected or still on its way.
+fn offers_reconnect(status: &Status) -> bool {
+    matches!(status, Status::Retrying(_) | Status::Refused(_) | Status::Stopped)
 }
 
 /// One open position: its figures follow each poll in place.

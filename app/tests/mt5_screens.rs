@@ -147,8 +147,14 @@ fn a_saved_account_connects_by_itself_at_the_next_start_and_can_be_forgotten() {
     app.wait_for_within("MT5 · đã kết nối", WAIT).expect("the saved account connects at the start");
     open_data_sources(&mut app);
     app.wait_for_within("Demo Thử (52012345)", WAIT).expect("the account is listed");
-    app.on_dialog(|_| DialogAnswer::Press("Xoá".to_owned()));
-    app.press("role:button[Xoá]").expect("the forget button");
+    app.wait_for_within("Đã kết nối", WAIT).expect("the account card says it is connected");
+    assert!(!app.screen().shows("Kết nối lại"), "a connected account offers no reconnect");
+    app.on_dialog(|dialog| {
+        let title = dialog.title.clone().unwrap_or_default();
+        assert!(title.contains("Đăng xuất"), "{title}");
+        DialogAnswer::Press("Đăng xuất".to_owned())
+    });
+    app.press("role:button[Đăng xuất]").expect("the sign-out button");
     app.wait_for_within("Chưa có tài khoản MT5 nào kết nối.", WAIT).expect("the account is gone");
     app.wait_for_within("MT5: chưa kết nối", WAIT).expect("the sidebar follows");
     let db = fixture.db();

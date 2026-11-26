@@ -12,4 +12,4 @@ allow-expect-in-tests = true
 allow-print-in-tests = true
 
 # Product and protocol names that are not code.
-doc-valid-idents = ["TradeLens", "SQLite", "OAuth", "OneDrive", "MetaTrader", "WebRequest", "PKCE", ".."]
+doc-valid-idents = ["TradeLens", "SQLite", "OAuth", "OneDrive", "MetaTrader", "MetaQuotes", "WebRequest", "PKCE", ".."]

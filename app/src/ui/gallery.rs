@@ -110,7 +110,7 @@ pub fn gallery(
                                     label,
                                     index,
                                     len,
-                                    file: folder.as_ref().map(|dir| dir.join(&item.path)),
+                                    file: folder.as_deref().map(|dir| item.file_in(dir)),
                                     caption: caption_of(&item),
                                 };
                                 tile(place, hooks.clone(), items, on_change, columns)
@@ -239,7 +239,7 @@ fn bring_back(
 
 /// What the viewer shows of a picture.
 fn slide_of(item: &Attachment, folder: Option<&std::path::Path>) -> Slide {
-    Slide { file: folder.map(|dir| dir.join(&item.path)), caption: caption_of(item), detail: detail_of(item) }
+    Slide { file: folder.map(|dir| item.file_in(dir)), caption: caption_of(item), detail: detail_of(item) }
 }
 
 /// When a picture was added, and how a picture of the old EA was taken.
@@ -743,14 +743,21 @@ mod tests {
         app.wait_for("2 / 3").expect("opened");
         app.press("role:button[Mở bằng ứng dụng khác]").expect("open with another program");
         app.press("role:button[Hiện trong thư mục]").expect("show in the folder");
+        // Compared as strings: `Path`'s `==` reads `\` and `/` alike on Windows, where the shell
+        // refuses to show a path that mixes them.
         let wanted = dir.path().join("attachments").join("images").join("b.png");
+        let wanted = wanted.as_os_str();
         let requests = app.screen().file_requests().to_vec();
         assert!(
-            requests.iter().any(|r| matches!(r, nsh_core::file_dialog::FileRequest::OpenPath(p) if *p == wanted)),
+            requests
+                .iter()
+                .any(|r| matches!(r, nsh_core::file_dialog::FileRequest::OpenPath(p) if p.as_os_str() == wanted)),
             "{requests:?}"
         );
         assert!(
-            requests.iter().any(|r| matches!(r, nsh_core::file_dialog::FileRequest::RevealPath(p) if *p == wanted)),
+            requests
+                .iter()
+                .any(|r| matches!(r, nsh_core::file_dialog::FileRequest::RevealPath(p) if p.as_os_str() == wanted)),
             "{requests:?}"
         );
     }
