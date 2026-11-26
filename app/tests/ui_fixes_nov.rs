@@ -8,7 +8,10 @@ use nsh_core::Command;
 use nsh_core::platform::Os;
 use nsh_testing::{DialogAnswer, Headless, Screen};
 use tradelens_core::{
-    Db, Deal, DealBatch, DealEntry, DealKind, catalog::CatalogKind, model::AccountInfo, time::parse_mt5_time,
+    Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, TradeKey,
+    catalog::{CatalogKind, FieldDef, FieldKind, FieldScope, Requirement},
+    model::AccountInfo,
+    time::parse_mt5_time,
 };
 
 mod support;
@@ -109,7 +112,8 @@ fn a_day_of_the_overviews_month_opens_the_calendar_on_that_day() {
     app.wait_for_within(&trade_button("EURUSD"), WAIT).expect("its first trade is listed");
     app.wait_for_within(&trade_button("XAUUSD"), WAIT).expect("and its second");
     assert!(!shows_any(&app, "Thứ 4, 11/03"), "the latest day did not take the selection: {:?}", app.screen().texts());
-    assert!(!shows_any(&app, "GBPJPY"), "the trade of the 11th is not in the 10th's list");
+    // Only the day card lists trades as buttons: the 11th's would be one there.
+    assert_eq!(app.screen().count(&trade_button("GBPJPY")), Ok(0), "the trade of the 11th is not in the 10th's list");
 }
 
 #[test]
@@ -192,21 +196,27 @@ fn the_playbook_form_adds_a_timeframe_and_removes_one_after_asking() {
     assert_eq!(app.screen().count(toggle), Ok(1), "one M30 option");
     assert!(is_on(app.screen(), toggle), "still picked");
 
-    // ✕ asks, and the answer archives the timeframe and unpicks it.
+    // ✕ asks, and the answer archives the timeframe; the playbook being edited keeps it picked, as a
+    // chip that can no longer be removed, until it is unpicked.
+    let remove = "role:button[Xoá Khung thời gian M30]";
     app.answer_dialogs_myself();
-    app.press("role:button[Xoá Khung thời gian M30]").expect("the remove button of the option");
+    app.press(remove).expect("the remove button of the option");
     let title = app.pending_dialog().and_then(|dialog| dialog.title.clone());
     assert!(title.as_deref().is_some_and(|t| t.contains("M30")), "the removal of M30 is asked first: {title:?}");
     assert_eq!(stored_timeframe(&fixture, "M30"), [(key.clone(), false)], "nothing is removed before the answer");
     app.answer_dialog(DialogAnswer::Press("Xoá".to_owned())).expect("answers");
     wait_until("M30 being archived", || stored_timeframe(&fixture, "M30") == [(key.clone(), true)]);
-    app.wait_for_gone(toggle, WAIT).expect("the removed timeframe is no longer an option");
+    app.wait_for_gone(remove, WAIT).expect("the archived timeframe has no ✕ any more");
+    assert!(is_on(app.screen(), toggle), "the playbook being edited keeps M30");
+    app.press(toggle).expect("M30 is unpicked");
+    app.wait_for_gone(toggle, WAIT).expect("unpicked, the archived timeframe is no longer shown");
 
     // Typed once more, the archived one comes back rather than a second one.
     app.type_text("label:Thêm khung thời gian", "m30").expect("typed once more");
     app.press_key("enter").expect("Enter");
     wait_until("M30 being brought back", || stored_timeframe(&fixture, "M30") == [(key.clone(), false)]);
-    app.wait_for_within(toggle, WAIT).expect("it is an option again");
+    app.wait_for_within(remove, WAIT).expect("it is an option of the list again, with its ✕");
+    app.wait_until("M30 being picked again", WAIT, |screen| is_on(screen, toggle)).expect("and picked");
 }
 
 #[test]
@@ -239,6 +249,8 @@ fn a_row_of_the_symbol_table_holds_its_name_in_the_middle_of_its_height() {
     seed_recent(&mut fixture.db());
     let mut app = fixture.start(1280.0, 1000.0, |_| {});
     app.press("role:button[Phân tích]").expect("the analytics row");
+    // The page redraws once its data is read: the tab is pressed after that, so the press is not lost.
+    app.wait_for_within("\u{2212}$40.00", WAIT).expect("the analytics are read: the loss of a weekday shows");
     app.press("role:tab[Phân tích: Symbol]").expect("the symbol tab");
     app.wait_for_within("Theo symbol", WAIT).expect("the symbol breakdown shows");
     app.wait_for_within("EURUSD", WAIT).expect("a symbol has its row");
@@ -314,4 +326,144 @@ fn a_reason_of_a_missed_trade_is_removed_from_the_list_after_asking() {
         stored_option(&fixture, CatalogKind::MissedReason, "Sợ sau lệnh thua") == [("fear".to_owned(), true)]
     });
     app.wait_for_gone(toggle, WAIT).expect("the removed reason is no longer an option");
+}
+
+#[test]
+fn a_mistake_typed_in_a_trades_journal_joins_the_mistakes_and_is_ticked() {
+    let fixture = Fixture::new();
+    seed_recent(&mut fixture.db());
+    // Enter reaches the focused field only on a desktop.
+    let mut app = fixture.start(1280.0, 1100.0, |config| config.environment.os = Os::Linux);
+    open_trade(&mut app, "EURUSD");
+    app.wait_for_within("label:Thêm lỗi", WAIT).expect("the journal has a field to add a mistake");
+
+    app.type_text("label:Thêm lỗi", "Dời SL").expect("a mistake is typed");
+    app.press_key("enter").expect("Enter adds it");
+    wait_until("the mistake being stored", || stored_option(&fixture, CatalogKind::Mistake, "Dời SL").len() == 1);
+    let [(_, archived)] = stored_option(&fixture, CatalogKind::Mistake, "Dời SL").try_into().expect("one mistake");
+    assert!(!archived, "the new mistake is offered");
+    let toggle = "role:button[Lỗi: Dời SL]";
+    app.wait_for_within(toggle, WAIT).expect("the new mistake is an option");
+    app.wait_until("the mistake being ticked", WAIT, |screen| is_on(screen, toggle))
+        .expect("the mistake added is ticked");
+}
+
+/// Opens the trades list, then the trade of `symbol`.
+fn open_trade(app: &mut Headless, symbol: &str) {
+    app.press("role:button[Lệnh]").expect("the trades row");
+    app.wait_for_within(&trade_button(symbol), WAIT).expect("the trades load");
+    app.press(&trade_button(symbol)).expect("a trade opens");
+    app.wait_for_within("Nhật ký lệnh", WAIT).expect("the journal card shows");
+}
+
+/// The key of the trade of `position` on the only account.
+fn key_of(db: &Db, position: i64) -> TradeKey {
+    let account = db.accounts().expect("accounts read").remove(0);
+    TradeKey { account_id: account.id, position_id: position, segment: 0 }
+}
+
+#[test]
+fn a_tag_removed_from_the_list_stays_on_the_trade_whose_journal_holds_it() {
+    let fixture = Fixture::new();
+    let mut db = fixture.db();
+    seed_recent(&mut db);
+    let key = key_of(&db, 1);
+    let tagged = JournalEntry { tags: vec!["news".into()], ..JournalEntry::default() };
+    db.save_journal(&key, &tagged).expect("the journal is stored");
+    drop(db);
+    let mut app = fixture.start(1280.0, 1100.0, |_| {});
+    open_trade(&mut app, "EURUSD");
+    let (toggle, remove) = ("role:button[Tag: Tin tức]", "role:button[Xoá Tag Tin tức]");
+    app.wait_until("the stored tag being ticked", WAIT, |screen| is_on(screen, toggle)).expect("the journal's tag");
+
+    app.answer_dialogs_myself();
+    app.press(remove).expect("the remove button of the tag");
+    assert!(app.pending_dialog().is_some(), "the removal is asked first");
+    app.answer_dialog(DialogAnswer::Press("Xoá".to_owned())).expect("answers");
+    wait_until("the tag being archived", || {
+        stored_option(&fixture, CatalogKind::Tag, "Tin tức") == [("news".to_owned(), true)]
+    });
+    app.wait_for_gone(remove, WAIT).expect("the archived tag has no ✕ any more");
+    assert!(is_on(app.screen(), toggle), "the trade keeps its tag, as a chip");
+
+    // Away and back: the stored journal still holds the tag, and the trade shows it the same way.
+    app.press("role:button[‹ Lệnh]").expect("back to the list");
+    open_trade(&mut app, "EURUSD");
+    app.wait_until("the tag being shown again", WAIT, |screen| is_on(screen, toggle)).expect("the tag is still on");
+    assert_eq!(app.screen().count(remove), Ok(0), "still without ✕");
+    let stored = fixture.db().journal(&key).expect("reads").expect("the journal");
+    assert_eq!(stored.tags, ["news"], "the stored journal keeps the archived tag");
+}
+
+/// A "Chọn nhiều" property of trades, "Bối cảnh", offering Asia.
+fn context_property() -> FieldDef {
+    FieldDef {
+        id: 0,
+        scope: FieldScope::Trade,
+        key: "context".into(),
+        label: "Bối cảnh".into(),
+        kind: FieldKind::MultiSelect,
+        options: vec!["Asia".into()],
+        max: None,
+        required: Requirement::Optional,
+        analysed: false,
+        position: 0,
+        archived: false,
+    }
+}
+
+/// The options the "Bối cảnh" property offers, as stored.
+fn context_options(fixture: &Fixture) -> Vec<String> {
+    fixture
+        .db()
+        .field_defs(FieldScope::Trade)
+        .expect("the properties read")
+        .into_iter()
+        .find(|def| def.key == "context")
+        .map_or_default(|def| def.options)
+}
+
+#[test]
+fn a_multi_select_property_keeps_its_options_from_the_trade_and_keeps_the_typing() {
+    let fixture = Fixture::new();
+    let mut db = fixture.db();
+    seed_recent(&mut db);
+    db.apply_field_def(&context_property()).expect("the property is added");
+    drop(db);
+    // Keys reach the focused view only on a desktop.
+    let mut app = fixture.start(1280.0, 1100.0, |config| config.environment.os = Os::Linux);
+    open_trade(&mut app, "EURUSD");
+    let field = "label:Thêm bối cảnh";
+    app.wait_for_within(field, WAIT).expect("the property has a field to add an option");
+    let (asia, london) = ("role:button[Bối cảnh: Asia]", "role:button[Bối cảnh: London]");
+    app.wait_for_within(asia, WAIT).expect("the property's option shows");
+
+    app.type_text(field, "London").expect("an option is typed");
+    app.press_key("enter").expect("Enter adds it");
+    wait_until("London being added to the property", || context_options(&fixture) == ["Asia", "London"]);
+    app.wait_until("London being ticked", WAIT, |screen| is_on(screen, london)).expect("the option added is ticked");
+
+    // The field kept the keyboard: the next one is typed without pressing it again. An option already
+    // there in another case is ticked rather than added.
+    for key in ["a", "s", "i", "a"] {
+        app.press_key(key).expect("a key is typed on the focused field");
+    }
+    app.wait_until("the keys reaching the field", WAIT, |screen| screen.input_text(field) == Ok(Some("asia")))
+        .expect("the field still has the keyboard after Enter");
+    app.press_key("enter").expect("Enter");
+    app.wait_until("Asia being ticked", WAIT, |screen| is_on(screen, asia)).expect("the option there is ticked");
+    assert_eq!(context_options(&fixture), ["Asia", "London"], "no second Asia");
+    assert_eq!(app.screen().count(asia), Ok(1), "one Asia chip");
+    assert!(is_on(app.screen(), london), "London stays ticked");
+    assert_eq!(app.screen().input_text(field), Ok(Some("")), "the field is emptied");
+
+    // ✕ removes London from the property; the value being edited keeps it, as a chip without ✕.
+    let remove = "role:button[Xoá Bối cảnh London]";
+    app.answer_dialogs_myself();
+    app.press(remove).expect("the remove button of London");
+    assert!(app.pending_dialog().is_some(), "the removal is asked first");
+    app.answer_dialog(DialogAnswer::Press("Xoá".to_owned())).expect("answers");
+    wait_until("London leaving the property", || context_options(&fixture) == ["Asia"]);
+    app.wait_for_gone(remove, WAIT).expect("the removed option has no ✕ any more");
+    assert!(is_on(app.screen(), london), "the value keeps London");
 }
