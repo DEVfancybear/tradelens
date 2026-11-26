@@ -24,16 +24,16 @@ thiserror.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nsh-platform-linux = { version = "=0.7.0", default-features = false, features = ["plot", "svg", "net"] }
+nsh-platform-linux = { version = "=0.7.1", default-features = false, features = ["plot", "svg", "net"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nsh-platform-macos = { version = "=0.7.0", default-features = false, features = ["plot", "svg"] }
+nsh-platform-macos = { version = "=0.7.1", default-features = false, features = ["plot", "svg"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-nsh-platform-windows = { version = "=0.7.0", default-features = false, features = ["plot", "svg", "net"] }
+nsh-platform-windows = { version = "=0.7.1", default-features = false, features = ["plot", "svg", "net"] }
 
 [dev-dependencies]
-nsh-engine = "=0.7.0"
-nsh-testing = { version = "=0.7.0", features = ["live"] }
+nsh-engine = "=0.7.1"
+nsh-testing = { version = "=0.7.1", features = ["live"] }
 tempfile = "3"
 tiny_http = "0.12"
