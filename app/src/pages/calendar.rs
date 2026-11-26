@@ -14,7 +14,8 @@ use crate::{
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{Variant, action_icon, icon_action, segmented},
-        icons::Icon,
+        date_picker::{DatePick, date_pick},
+        icons::{Icon, icon},
         layout::{columns, titled_card},
         month_grid::{Figure, month_grid},
         parts::{empty_state, page_with, property_row},
@@ -42,17 +43,29 @@ fn month_name((year, month): Month) -> String {
     format!("Tháng {month}, {year}")
 }
 
+/// The day the calendar opens on next instead of today (a day pressed on the overview's month).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct Picked(Option<NaiveDate>);
+
+/// Opens the calendar on `day`: its month shown, the day selected with its trades and note.
+pub(super) fn show_day(day: NaiveDate) {
+    global::<Picked>().set(Picked(Some(day)));
+    nav::go(nav::Route::Calendar);
+}
+
 pub(crate) fn calendar() -> impl IntoElement {
     let store = store();
-    let opened_on = insight::today_now(&store.snapshot_now());
+    let picked = global::<Picked>().get_untracked().0;
+    untracked(|| global::<Picked>().set(Picked(None)));
+    let opened_on = picked.unwrap_or_else(|| insight::today_now(&store.snapshot_now()));
     let today = computed(move || insight::today_now(&store.snapshot()));
     let month = signal(month_of(opened_on));
     let selected = signal(Some(opened_on));
     let figure = signal(Figure::Net);
     let days = computed(move || insight::daily_results(&store.snapshot()));
     // Once the data is read, a month with no trades gives way to the latest one that has some
-    // ("Hôm nay" still goes back to today).
-    let settled = stored(false);
+    // ("Hôm nay" still goes back to today). A day picked before opening stays.
+    let settled = stored(picked.is_some());
     effect(move || {
         if store.load_state() != Load::Ready {
             return;
@@ -82,6 +95,46 @@ pub(crate) fn calendar() -> impl IntoElement {
     )
 }
 
+/// The month's name, which opens a date picker to go to any day: the days with trades carry a dot, and
+/// picking one shows its month and selects it.
+fn month_pick(
+    month: Signal<Month>,
+    selected: Signal<Option<NaiveDate>>,
+    days: Memo<std::collections::BTreeMap<NaiveDate, metrics::DayStat>>,
+    today: Memo<NaiveDate>,
+) -> impl IntoElement {
+    let pick = DatePick::day(
+        "Chọn ngày",
+        move || selected.get(),
+        move || today.get_untracked(),
+        move |day| {
+            batch(|| {
+                month.set(month_of(day));
+                selected.set(Some(day));
+            });
+        },
+    )
+    .marking(move |day| days.with_untracked(|d| d.contains_key(&day)));
+    let trigger = view()
+        .role(AccessibilityRole::Button)
+        .label("Chọn tháng")
+        .focusable(true)
+        .cursor_pointer()
+        .flex_row()
+        .items_center()
+        .justify_center()
+        .gap_2()
+        .min_w(px(150.0))
+        .h(px(36.0))
+        .px_2()
+        .rounded(move || theme().radius)
+        .hover(|s| s.bg(move || theme().accent))
+        .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
+        .child(text(move || month_name(month.get())).text_xl().font_weight(FontWeight::SEMIBOLD))
+        .child(icon(Icon::ChevronDown, 16.0).text_color(move || theme().muted_foreground));
+    date_pick(pick, trigger)
+}
+
 fn month_card(
     month: Signal<Month>,
     selected: Signal<Option<NaiveDate>>,
@@ -104,13 +157,7 @@ fn month_card(
                 .child(icon_action(Icon::ChevronLeft, "Tháng trước", Variant::Ghost, move || {
                     month.update(|m| *m = previous(*m));
                 }))
-                .child(
-                    text(move || month_name(month.get()))
-                        .text_xl()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .min_w(px(150.0))
-                        .text_center(),
-                )
+                .child(month_pick(month, selected, days, today))
                 .child(icon_action(Icon::ChevronRight, "Tháng sau", Variant::Ghost, move || {
                     month.update(|m| *m = next(*m));
                 }))

@@ -454,7 +454,7 @@ fn month_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
     titled_card(
         move || month_title(shown.get()),
         link("Mở lịch", || nav::go(Route::Calendar)),
-        mini_month(weeks, today),
+        mini_month(weeks, today, super::calendar::show_day),
     )
 }
 

@@ -47,6 +47,8 @@ pub enum Icon {
     ChevronLeft,
     /// Not in the design's SVG; the mirror of [`Icon::ChevronLeft`], for "next" buttons.
     ChevronRight,
+    /// Not in the design's SVG; opens a drop-down (the month of the calendar).
+    ChevronDown,
     // Things.
     Document,
     Folder,
@@ -57,7 +59,7 @@ pub enum Icon {
 
 impl Icon {
     /// Every glyph, in declaration order.
-    pub const ALL: [Self; 38] = [
+    pub const ALL: [Self; 39] = [
         Self::Dashboard,
         Self::Trades,
         Self::Calendar,
@@ -91,6 +93,7 @@ impl Icon {
         Self::ArrowDown,
         Self::ChevronLeft,
         Self::ChevronRight,
+        Self::ChevronDown,
         Self::Document,
         Self::Folder,
         Self::Image,
@@ -140,6 +143,7 @@ impl Icon {
             Self::ArrowDown => "M12 4v12M7 11l5 5 5-5",
             Self::ChevronLeft => "M15 18l-6-6 6-6",
             Self::ChevronRight => "M9 6l6 6-6 6",
+            Self::ChevronDown => "M6 9l6 6 6-6",
             Self::Document => "M5 4h11l3 3v13H5z",
             Self::Folder => "M3 7h6l2 2h10v10H3z",
             Self::Image => "M4 5h16v14H4zM4 15l4-4 5 5 3-3 4 4M15 9h.01",
