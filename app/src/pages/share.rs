@@ -332,12 +332,13 @@ fn copy_picture(state: State) -> impl Fn() + Clone + 'static {
     move || {
         let Some(picture) = state.rendered.get_untracked() else { return };
         state.note.set(None);
-        put_on_clipboard(picture, state);
+        put_on_clipboard(&picture, state);
     }
 }
 
 #[cfg(target_os = "windows")]
-fn put_on_clipboard(picture: Arc<Rendered>, state: State) {
+fn put_on_clipboard(picture: &Arc<Rendered>, state: State) {
+    let picture = Arc::clone(picture);
     spawn(async move {
         match blocking(move || crate::ui::files::copy_png(&picture.bytes)).await {
             Ok(Ok(())) => state.succeed("Đã sao chép ảnh vào clipboard.".to_owned()),
@@ -348,7 +349,7 @@ fn put_on_clipboard(picture: Arc<Rendered>, state: State) {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn put_on_clipboard(picture: Arc<Rendered>, state: State) {
+fn put_on_clipboard(picture: &Rendered, state: State) {
     set_clipboard_image(data_uri(&picture.bytes));
     state.succeed("Đã sao chép ảnh vào clipboard.".to_owned());
 }
