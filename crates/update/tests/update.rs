@@ -1,16 +1,19 @@
 //! The updater against a release served on this machine: a manifest signed with a key made for
 //! the test, its signature and an archive, as `nsh package` and `nsh update-manifest` publish them.
 
+#[cfg(not(target_os = "macos"))]
+use std::path::{Path, PathBuf};
 use std::{
     collections::BTreeMap,
     fs,
-    path::{Path, PathBuf},
     sync::{Arc, Mutex},
     thread::JoinHandle,
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as B64};
-use tradelens_update::{Installation, Origin, Source, UpdateError, platform, sha256, sign};
+#[cfg(not(target_os = "macos"))]
+use tradelens_update::Installation;
+use tradelens_update::{Origin, Source, UpdateError, platform, sha256, sign};
 
 const ID: &str = "vn.dat.tradelens";
 /// A signing key for these tests only (32 bytes, base64): never one a release is signed with.
@@ -103,6 +106,7 @@ const CONFIG: &[u8] = br#"{"id":"vn.dat.tradelens","version":"0.1.0","github":"D
 
 /// A package of version 0.1.0 laid out as `nsh package` makes it on Windows and Linux: the
 /// executable beside `nsh/app.json` and `nsh/assets/nsh-updater.json`. Returns its executable.
+#[cfg(not(target_os = "macos"))]
 fn installed_package(dir: &Path) -> PathBuf {
     let root = dir.join("TradeLens");
     fs::create_dir_all(root.join("nsh/assets")).expect("the package directory");

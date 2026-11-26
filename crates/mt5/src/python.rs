@@ -46,14 +46,19 @@ const PACKAGE: &str = "MetaTrader5";
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
+/// A command for `program`; on Windows it runs without a console window.
 fn command(program: impl AsRef<OsStr>) -> Command {
-    let mut command = Command::new(program);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt as _;
+        let mut command = Command::new(program);
         command.creation_flags(CREATE_NO_WINDOW);
+        command
     }
-    command
+    #[cfg(not(windows))]
+    {
+        Command::new(program)
+    }
 }
 
 // --- finding Python ------------------------------------------------------------------------------
