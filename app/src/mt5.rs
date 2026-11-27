@@ -633,6 +633,20 @@ fn folder() -> Option<PathBuf> {
     Store::database_path().and_then(|path| path.parent().map(|dir| dir.join("mt5")))
 }
 
+/// Whether `terminal` is one of the portable copies the app made for an account (under
+/// `mt5/terminals`): it names that account, but it is no terminal to copy for another. Call it on
+/// the UI thread, as [`folder`].
+pub(crate) fn is_own_copy(terminal: &Path) -> bool {
+    folder().is_some_and(|files| is_copy_in(terminal, &files))
+}
+
+/// Whether `terminal` lies under the portable terminals of the connection's folder `files`, compared
+/// as Windows compares paths (without case or the kind of slash).
+fn is_copy_in(terminal: &Path, files: &Path) -> bool {
+    let normal = |path: &Path| path.to_string_lossy().replace('/', "\\").to_lowercase();
+    normal(terminal).starts_with(&format!("{}\\", normal(&files.join("terminals"))))
+}
+
 /// Where the app's own Python goes ([`runtime`]) under the connection's folder `files`.
 fn runtime_in(files: &Path) -> PathBuf {
     files.join("runtime")
@@ -1429,6 +1443,17 @@ impl Mt5 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_copy_made_for_an_account_is_told_apart_from_a_terminal() {
+        let files = Path::new(r"C:\Users\T\AppData\Roaming\vn.dat.tradelens\mt5");
+        let copy =
+            Path::new("c:/users/t/appdata/roaming/vn.dat.tradelens/mt5/terminals/434572098@exness/terminal64.exe");
+        assert!(is_copy_in(copy, files), "the app's copy, whatever the case or the slashes");
+        assert!(!is_copy_in(Path::new(r"C:\Program Files\MetaTrader 5\terminal64.exe"), files));
+        assert!(!is_copy_in(&files.join("metatrader").join("terminal64.exe"), files), "the app's own MetaTrader");
+        assert!(!is_copy_in(Path::new(r"C:\Users\T\AppData\Roaming\vn.dat.tradelens\mt5\terminals-old\x.exe"), files));
+    }
 
     #[test]
     fn what_is_missing_is_said_in_order() {

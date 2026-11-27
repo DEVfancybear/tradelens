@@ -2,7 +2,7 @@
 //! form, the accounts signed in to with their open positions, and the plan prompt switch.
 //! The design's EA card is replaced by this one (`docs/design/README.md`, deviations).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local};
 use nsh_base::theme;
@@ -162,6 +162,8 @@ fn chosen_terminal(state: &State, form: Form) -> Option<PathBuf> {
     choices
         .iter()
         .find(|choice| choice.value.as_ref() == wanted.as_str())
+        // None chosen: the first terminal that is no copy the app made for an account.
+        .or_else(|| choices.iter().find(|choice| !crate::mt5::is_own_copy(Path::new(choice.value.as_ref()))))
         .or(choices.first())
         .map(|choice| PathBuf::from(choice.value.as_ref()))
 }
@@ -341,7 +343,7 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
                     Ok(paths) => {
                         if let Some(path) = paths.into_iter().next() {
                             form.picked.set(Some(path.clone()));
-                            choose_terminal(owner, form, &path.display().to_string());
+                            choose_terminal(owner, mt5, form, &path.display().to_string());
                         }
                     }
                     Err(error) => mt5.state.update(|state| state.error = Some(Notice::Words(error))),
@@ -371,7 +373,7 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
                         t!("mt5_connect.terminal"),
                         move || choices.get(),
                         move || SharedString::from(form.terminal.get()),
-                        move |next| choose_terminal(owner, form, &next),
+                        move |next| choose_terminal(owner, mt5, form, &next),
                     )
                     .into_element()
                 })
@@ -384,18 +386,37 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
 /// logged in to last (a terminal of the account the trader means to add). The terminal's settings
 /// are read on a blocking thread, under `owner` (the card's root, which a rebuilt select does not
 /// cancel); what arrives after another terminal was chosen is dropped.
-fn choose_terminal(owner: Owner, form: Form, terminal: &str) {
+///
+/// A copy the app made for an account only names that account: once its login and server are in,
+/// the terminal goes back to the first one that is no such copy, the MetaTrader the new account is
+/// copied from.
+fn choose_terminal(owner: Owner, mt5: Mt5, form: Form, terminal: &str) {
     form.terminal.set(terminal.to_owned());
     let chosen = terminal.to_owned();
+    let source =
+        crate::mt5::is_own_copy(Path::new(terminal)).then(|| mt5.state.with_untracked(source_terminal)).flatten();
     owner.run(move || {
         spawn(async move {
             let path = PathBuf::from(&chosen);
             let Ok(last) = blocking(move || install::last_login(&path)).await else { return };
             if form.terminal.get_untracked() == chosen {
                 fill_from_terminal(form, last.unwrap_or_default());
+                if let Some(source) = source {
+                    form.terminal.set(source);
+                }
             }
         });
     });
+}
+
+/// The first terminal found that is no copy the app made for an account, as the select names it.
+fn source_terminal(state: &State) -> Option<String> {
+    state
+        .setup
+        .installs
+        .iter()
+        .find(|install| !crate::mt5::is_own_copy(&install.terminal))
+        .map(|install| install.terminal.display().to_string())
 }
 
 /// Puts `login` and `server` (empty when the terminal tells none) into the fields that are empty or
