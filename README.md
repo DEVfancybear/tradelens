@@ -1,60 +1,78 @@
 # TradeLens
 
-Nhật ký giao dịch desktop cho trader **MetaTrader 5**: lấy lệnh từ MT5 (đăng nhập ngay trong app hoặc
-import báo cáo), gom thành giao dịch, tính thống kê, viết nhật ký từng lệnh, theo dõi kỷ luật và sync
-lên Google Drive / OneDrive.
+**Nhật ký giao dịch cho trader MetaTrader 5.** TradeLens tự lấy lệnh từ tài khoản MT5, gom thành từng giao dịch,
+tính thống kê và giúp bạn ghi lại vì sao vào lệnh, đã làm đúng kế hoạch chưa, và rút ra bài học gì. Mục tiêu là biến
+lịch sử giao dịch thành thứ bạn có thể học từ đó, thay vì chỉ là một bảng số.
 
-UI viết bằng [Native Shell (NSH)](https://github.com/longbridge/nsh) ở chế độ Rust: native trên
-Windows, macOS và Linux, không có JavaScript VM.
+App chạy trên máy tính (Windows), dữ liệu nằm trên máy của bạn, có thể đồng bộ qua Google Drive hoặc OneDrive của
+chính bạn. Giao diện tiếng Việt và tiếng Anh.
 
-## Tải về
+[Tải bản mới nhất cho Windows](https://github.com/DEVfancybear/tradelens/releases/latest/download/TradeLens-setup.exe) ·
+[Tất cả phiên bản](https://github.com/DEVfancybear/tradelens/releases) ·
+[Trang giới thiệu](https://devfancybear.github.io/tradelens/)
 
-**Bản mới nhất: [TradeLens 0.1.0 cho Windows](https://github.com/DEVfancybear/tradelens/releases/latest/download/TradeLens-setup.exe)**
-(Windows 10/11, 64-bit) · [tất cả phiên bản](https://github.com/DEVfancybear/tradelens/releases) ·
-[trang giới thiệu](https://devfancybear.github.io/tradelens/)
+## TradeLens làm được gì
 
+### Lệnh tự vào nhật ký
+
+- **Kết nối MT5 ngay trong app**: nhập số tài khoản, mật khẩu và server; lệnh đã đóng hiện trong nhật ký sau vài giây,
+  không cần mở MetaTrader hay cài EA. Theo dõi nhiều tài khoản cùng lúc.
+- **Hoặc import báo cáo** MT5 (HTML, XLSX) bằng cách kéo thả, và chuyển nhật ký cũ từ **Notion** sang.
+- **Nhập tay** lệnh và nhật ký khi cần.
+- **Quản lý lệnh đang mở**: sửa SL/TP, đóng toàn bộ hoặc một phần ngay trong app.
+
+### Hiểu mình giao dịch thế nào
+
+- **Tổng quan**: lợi nhuận, tỉ lệ thắng, profit factor, kỳ vọng, đường equity và drawdown.
+- **Lịch P/L**: kết quả từng ngày trong tháng, bấm vào một ngày để xem các lệnh của ngày đó.
+- **Phân tích** theo symbol, setup, tag, phiên, giờ, chiều Buy/Sell, cảm xúc và lỗi hay mắc; mỗi dòng mở thẳng ra các
+  lệnh tạo nên nó.
+- **Tìm kiếm** toàn văn qua lệnh, ghi chú và nhật ký.
+
+### Ghi nhật ký có chiều sâu
+
+- **Kế hoạch lúc vào vs thực tế**: khi có lệnh mới, app hỏi kế hoạch (lý do vào, SL/TP dự kiến); sau đó so với cách
+  lệnh thực sự diễn ra.
+- **Nhật ký từng lệnh**: setup, hạng setup, điểm thực thi, cảm xúc, lý do thoát, lỗi mắc phải và cái giá của lỗi đó,
+  kèm nhiều ảnh chart.
+- **Form tuỳ biến** kiểu Notion: tự thêm trường bạn muốn theo dõi.
+- **Nhật ký ngày**, **tổng kết tuần/tháng** với hàng chờ những lệnh chưa xem lại, và mẫu ghi chú dùng lại được.
+- **Playbook**: mô tả từng setup của bạn và xem setup nào thực sự hiệu quả.
+- **Lệnh bỏ lỡ**: ghi lại cơ hội đã thấy mà không vào, để biết mình bỏ qua bao nhiêu.
+
+### Giữ kỷ luật
+
+- **Quy tắc riêng cho từng tài khoản** (lỗ tối đa trong ngày, số lệnh tối đa trong ngày, rủi ro mỗi lệnh, chuỗi
+  thua liên tiếp), app đánh dấu khi vi phạm.
+- **Checklist trước khi vào lệnh** và thẻ "Kỷ luật hôm nay".
+- **Tin quan trọng**: tin đỏ trong tuần và đếm ngược tới tin kế tiếp, để không vào lệnh ngay trước tin lớn.
+
+### Đồng bộ và chia sẻ
+
+- **Đồng bộ nhiều máy** qua Google Drive hoặc OneDrive của bạn: tự động định kỳ và khi đóng app, sửa trên hai máy cùng
+  lúc không mất dữ liệu; khôi phục toàn bộ sang máy mới.
+- **Thẻ chia sẻ kết quả** (có thể ẩn số tiền, chỉ hiện R) và **báo cáo PDF** theo tháng.
+
+## Quyền riêng tư
+
+- Dữ liệu giao dịch và nhật ký nằm trên máy của bạn; khi bật đồng bộ, chúng chỉ đi tới Google Drive hoặc OneDrive của
+  chính bạn.
+- Mật khẩu MT5 được giữ trong trình quản lý mật khẩu của Windows, không lưu dạng chữ thường.
+- Xem thêm [Chính sách quyền riêng tư](docs/privacy.md) và [Điều khoản sử dụng](docs/terms.md).
+
+## Cài đặt
+
+- Windows 10/11, 64-bit. Tải bộ cài ở trên và chạy.
 - Bộ cài chưa ký số: nếu Windows SmartScreen cảnh báo, chọn **Thông tin thêm** → **Vẫn chạy**.
-- App tự kiểm tra và tải bản mới, cài khi khởi động lại (tắt ở Cài đặt › Về TradeLens › Tự động cập nhật).
-- Kết nối MT5 trực tiếp cần terminal MetaTrader 5 trên máy. Nếu máy chưa có Python, bấm **Cài Python tự động** ở
-  **Nguồn dữ liệu › Kết nối MT5**: app tự cài một bản Python riêng (khoảng 40 MB, trong thư mục dữ liệu của app, không
-  cần quyền admin); máy đã có Python thì app chỉ cài thêm gói `MetaTrader5`. Nút **Đăng nhập** chỉ bật khi đã có cả
-  Python và MetaTrader 5.
+- App tự kiểm tra và tải bản mới, cài khi khởi động lại (có thể tắt trong Cài đặt).
+- Muốn kết nối MT5 trực tiếp thì máy cần MetaTrader 5; những thành phần còn thiếu app tự cài giúp bạn, không cần quyền
+  quản trị.
 
-Lộ trình và nội dung từng bản: [docs/roadmap.md](docs/roadmap.md).
+## Lộ trình
 
-## Cấu trúc
+Đã có: nhật ký và phân tích, kỷ luật, đồng bộ đám mây, kết nối MT5 trực tiếp và quản lý lệnh. Sắp tới: **copy lệnh giữa
+nhiều tài khoản**, bản macOS và tài liệu hướng dẫn người dùng. Chi tiết từng bản ở [lộ trình](docs/roadmap.md).
 
-```text
-crates/core     tradelens-core    model, deal → lệnh, thống kê, quy tắc, SQLite, import báo cáo
-crates/cloud    tradelens-cloud   đăng nhập Google/Microsoft, sync Google Drive / OneDrive
-crates/mt5      tradelens-mt5     kết nối MT5: terminal portable ẩn + worker Python cho từng tài khoản
-crates/update   tradelens-update  tự cập nhật qua nsh-updater (manifest ký Ed25519 trên GitHub Releases)
-app/            nsh-app-tradelens giao diện NSH
-python/         tradelens_worker.py (worker kết nối MT5), tradelens_sync.py (ghi lịch sử ra JSON để import)
-docs/           kiến trúc, sync đám mây, lộ trình, trang giới thiệu (GitHub Pages)
-docs/design/    thiết kế UI: HTML tham chiếu + ảnh, và chuẩn để code
-```
-
-## Chạy từ mã nguồn
-
-Cần Rust 1.100 (bản stable mới nhất; `rust-toolchain.toml` tự chọn đúng bản khi chạy `rustup`). Trên Linux cần thêm GTK 4 (≥ 4.14) và GStreamer dev.
-
-```sh
-cargo test --workspace          # domain + headless UI tests
-cargo run -p nsh-app-tradelens  # mở app trên desktop
-# hoặc với NSH CLI: nsh run app
-```
-
-Phát hành: đẩy tag `v<version>` khớp `Cargo.toml` và `app/nsh.json`, xem mục "Tự cập nhật" trong
-[docs/roadmap.md](docs/roadmap.md).
-
-## Đưa lệnh MT5 vào app
-
-- **Kết nối MT5** (Nguồn dữ liệu): đăng nhập số tài khoản, mật khẩu, server; app chạy một bản MT5 riêng, ẩn cho mỗi
-  tài khoản và đưa lệnh vào nhật ký trong vài giây, không cần EA. Mật khẩu nằm trong Windows Credential Manager.
-- Hoặc MT5 → *History* → chuột phải → *Report* → lưu HTML hoặc XLSX, rồi kéo thả vào **Nguồn dữ liệu**.
-- Hoặc chạy `python python/tradelens_sync.py --days 365 --out deals.json` khi terminal đang mở, rồi import file JSON.
-
-## License
+## Giấy phép
 
 MIT
