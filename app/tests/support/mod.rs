@@ -68,7 +68,9 @@ impl Fixture {
         };
         tweak(&mut config);
         let mut app = Headless::start(config).expect("the app starts");
-        app.wait_for("Tổng quan").expect("the app opens");
+        // Not `wait_for` (a fixed 5 s): on a loaded machine the first frame alone took longer, and
+        // every test of a binary failed with an empty screen.
+        app.wait_for_within("Tổng quan", WAIT).expect("the app opens");
         app
     }
 }
