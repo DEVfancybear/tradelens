@@ -1,0 +1,210 @@
+_version: 2
+
+# The Playbook screen (pages/playbook.rs) and the catalog pick (pages/catalog_tags.rs).
+playbook.title:
+  vi: "Playbook"
+  en: "Playbook"
+playbook.summary:
+  vi: "Mỗi setup một bộ quy tắc, checklist và ảnh mẫu, kèm số liệu thật."
+  en: "One set of rules, a checklist and example pictures per setup, with real figures."
+playbook.add:
+  vi: "Thêm playbook"
+  en: "Add playbook"
+playbook.list.title:
+  vi: "Playbook của bạn"
+  en: "Your playbooks"
+playbook.list.empty:
+  vi: "Chưa có playbook nào"
+  en: "No playbooks yet"
+playbook.list.empty_hint:
+  vi: "Bấm “Thêm playbook” để ghi setup đầu tiên."
+  en: "Press “Add playbook” to write your first setup."
+playbook.list.unlinked_hint:
+  vi: "“Chưa gắn setup” là các lệnh chưa có playbook — gắn trong nhật ký của từng lệnh."
+  en: "“No setup” covers trades with no playbook yet — link one in each trade’s journal."
+playbook.item.label:
+  vi: "Playbook %{name}"
+  en: "Playbook %{name}"
+playbook.archived:
+  vi: "Đã lưu trữ"
+  en: "Archived"
+playbook.counts.none:
+  vi: "Chưa có lệnh"
+  en: "No trades yet"
+playbook.counts.some:
+  vi: "%{trades} · %{win}% thắng · Kỳ vọng %{expectancy}"
+  en: "%{trades} · %{win}% won · Expectancy %{expectancy}"
+playbook.ungraded:
+  vi: "Chưa chấm"
+  en: "Not graded"
+playbook.examples.count:
+  vi: "Ảnh mẫu · %{n}"
+  en: "Example pictures · %{n}"
+playbook.examples:
+  vi: "Ảnh mẫu"
+  en: "Example pictures"
+playbook.archive:
+  vi: "Lưu trữ"
+  en: "Archive"
+playbook.unarchive:
+  vi: "Bỏ lưu trữ"
+  en: "Unarchive"
+playbook.risk_line:
+  vi: "Risk mặc định %{risk}%."
+  en: "Default risk %{risk}%."
+playbook.stat.trades:
+  vi: "Lệnh"
+  en: "Trades"
+playbook.stat.trades_note:
+  vi: "tất cả thời gian"
+  en: "all time"
+playbook.stat.win:
+  vi: "Thắng"
+  en: "Win"
+playbook.stat.expectancy:
+  vi: "Kỳ vọng"
+  en: "Expectancy"
+playbook.stat.expectancy_note:
+  vi: "trung bình mỗi lệnh"
+  en: "average per trade"
+playbook.stat.net:
+  vi: "Net"
+  en: "Net"
+playbook.stat.net_note:
+  vi: "sau phí"
+  en: "after fees"
+playbook.rules.entry:
+  vi: "Điều kiện vào"
+  en: "Entry conditions"
+playbook.rules.exit:
+  vi: "Thoát lệnh"
+  en: "Exit rules"
+playbook.rules.invalidation:
+  vi: "Huỷ setup khi"
+  en: "Cancel the setup when"
+playbook.checklist.hint:
+  vi: "Checklist — hiện khi chọn playbook này lúc vào lệnh"
+  en: "Checklist — shown when you pick this playbook at entry"
+playbook.checklist.empty:
+  vi: "Chưa có mục nào."
+  en: "No items yet."
+playbook.grades.title:
+  vi: "Theo hạng setup"
+  en: "By setup grade"
+playbook.grades.view:
+  vi: "Xem %{trades}"
+  en: "View %{trades}"
+playbook.grades.empty:
+  vi: "Chưa có lệnh nào gắn setup này."
+  en: "No trades are linked to this setup yet."
+playbook.grades.grade:
+  vi: "Hạng"
+  en: "Grade"
+playbook.grades.trades:
+  vi: "Lệnh"
+  en: "Trades"
+playbook.grades.win:
+  vi: "Thắng"
+  en: "Win"
+playbook.grades.expectancy:
+  vi: "Kỳ vọng"
+  en: "Expectancy"
+playbook.grades.net:
+  vi: "Net"
+  en: "Net"
+playbook.name_taken:
+  vi: "Đã có playbook tên “%{name}”."
+  en: "A playbook named “%{name}” already exists."
+playbook.name_empty:
+  vi: "Tên playbook không được để trống."
+  en: "The playbook name cannot be empty."
+playbook.delete.title:
+  vi: "Xoá playbook?"
+  en: "Delete the playbook?"
+playbook.delete.body:
+  vi: "Các lệnh đã gắn setup này sẽ thành “Setup đã xoá” trong thống kê. Không hoàn tác được."
+  en: "Trades linked to this setup will show as “Deleted setup” in the statistics. This cannot be undone."
+playbook.delete.confirm:
+  vi: "Xoá hẳn"
+  en: "Delete for good"
+playbook.delete:
+  vi: "Xoá playbook"
+  en: "Delete playbook"
+playbook.form.new:
+  vi: "Playbook mới"
+  en: "New playbook"
+playbook.form.edit:
+  vi: "Sửa playbook"
+  en: "Edit playbook"
+playbook.form.timeframe:
+  vi: "Khung thời gian"
+  en: "Timeframe"
+playbook.form.timeframe_placeholder:
+  vi: "+ Thêm khung (vd. M30), rồi Enter"
+  en: "+ Add a timeframe (e.g. M30), then Enter"
+playbook.form.name:
+  vi: "Tên"
+  en: "Name"
+playbook.form.name_label:
+  vi: "Tên playbook"
+  en: "Playbook name"
+playbook.form.name_placeholder:
+  vi: "Breakout phiên Á"
+  en: "Asian session breakout"
+playbook.form.description:
+  vi: "Mô tả"
+  en: "Description"
+playbook.form.description_placeholder:
+  vi: "Setup này là gì, trong một vài câu"
+  en: "What this setup is, in a few sentences"
+playbook.form.symbols:
+  vi: "Symbol áp dụng (bỏ trống: mọi symbol)"
+  en: "Symbols it applies to (leave empty: every symbol)"
+playbook.form.symbols_label:
+  vi: "Symbol áp dụng"
+  en: "Symbols it applies to"
+playbook.form.risk:
+  vi: "Risk mặc định"
+  en: "Default risk"
+playbook.form.entry:
+  vi: "Điều kiện vào"
+  en: "Entry conditions"
+playbook.form.entry_add:
+  vi: "Thêm điều kiện vào"
+  en: "Add an entry condition"
+playbook.form.exit:
+  vi: "Thoát lệnh"
+  en: "Exit rules"
+playbook.form.exit_add:
+  vi: "Thêm quy tắc thoát"
+  en: "Add an exit rule"
+playbook.form.invalidation:
+  vi: "Huỷ setup khi (mỗi dòng một ý)"
+  en: "Cancel the setup when (one idea per line)"
+playbook.form.invalidation_label:
+  vi: "Huỷ setup khi"
+  en: "Cancel the setup when"
+playbook.form.invalidation_placeholder:
+  vi: "Có tin đỏ trong 30 phút"
+  en: "A red-flag news event within 30 minutes"
+playbook.form.checklist:
+  vi: "Checklist trước khi vào lệnh"
+  en: "Checklist before entering a trade"
+playbook.form.checklist_label:
+  vi: "Mục checklist"
+  en: "Checklist item"
+playbook.form.checklist_add:
+  vi: "Thêm mục checklist"
+  en: "Add a checklist item"
+catalog_tags.add:
+  vi: "Thêm %{named}"
+  en: "Add %{named}"
+catalog_tags.remove_title:
+  vi: "Xoá «%{label}» khỏi danh sách %{list}?"
+  en: "Remove “%{label}” from the %{list} list?"
+catalog_tags.remove_body:
+  vi: "Không còn để chọn nữa; những gì đã ghi vẫn giữ nó."
+  en: "It can no longer be chosen; whatever already stored it keeps it."
+catalog_tags.remove_confirm:
+  vi: "Xoá"
+  en: "Remove"

@@ -36,13 +36,13 @@ const SCOPES: &[FieldScope] =
     &[FieldScope::Trade, FieldScope::EntryPlan, FieldScope::Day, FieldScope::MissedTrade, FieldScope::Review];
 
 /// The tab's name.
-fn scope_label(scope: FieldScope) -> &'static str {
+fn scope_label(scope: FieldScope) -> String {
     match scope {
-        FieldScope::Trade => "Nhật ký lệnh",
-        FieldScope::EntryPlan => "Kế hoạch lúc vào",
-        FieldScope::Day => "Nhật ký ngày",
-        FieldScope::MissedTrade => "Lệnh bỏ lỡ",
-        FieldScope::Review => "Tổng kết tuần/tháng",
+        FieldScope::Trade => t!("form_editor.scope.trade"),
+        FieldScope::EntryPlan => t!("form_editor.scope.entry_plan"),
+        FieldScope::Day => t!("form_editor.scope.day"),
+        FieldScope::MissedTrade => t!("form_editor.scope.missed"),
+        FieldScope::Review => t!("form_editor.scope.review"),
     }
 }
 
@@ -55,15 +55,20 @@ const PANEL_WIDTH: f32 = 380.0;
 pub(crate) fn form_editor(scope: FieldScope) -> impl IntoElement {
     let tab = signal(scope);
     page_with(
-        "Tuỳ biến form nhập liệu",
-        "Như thuộc tính trong Notion: đổi tên, đổi thứ tự, ẩn, thêm, sửa, đổi kiểu, xoá",
-        view().flex_row().items_center().gap_3().child(action("Xong", Variant::Primary, nav::close_form_editor)),
-        view().gap_4().child(tab_bar("Form", SCOPES, scope_label, move || tab.get(), move |next| tab.set(next))).child(
-            dynamic(move || {
+        t!("form_editor.title"),
+        t!("form_editor.summary"),
+        view().flex_row().items_center().gap_3().child(action(
+            t!("form_editor.done"),
+            Variant::Primary,
+            nav::close_form_editor,
+        )),
+        view()
+            .gap_4()
+            .child(tab_bar(t!("form_editor.tabs"), SCOPES, scope_label, move || tab.get(), move |next| tab.set(next)))
+            .child(dynamic(move || {
                 let scope = tab.get();
                 untracked(|| editor(scope))
-            }),
-        ),
+            })),
     )
 }
 
@@ -117,11 +122,11 @@ fn hint_of(property: &Property, defs: &[FieldDef], scope: FieldScope) -> String 
 
 fn builtin_hint(builtin: BuiltinField, _scope: FieldScope) -> String {
     match (builtin.catalog(), builtin) {
-        (Some(catalog), _) => format!("Danh mục {}", catalog.label().to_lowercase()),
-        (None, BuiltinField::Playbook) => "Liên kết Playbook".to_owned(),
-        (None, BuiltinField::ExecutionRating) => "1–5 sao".to_owned(),
-        (None, BuiltinField::Checklist) => "Checklist của tài khoản".to_owned(),
-        (None, BuiltinField::Screenshots) => "Thư viện ảnh".to_owned(),
+        (Some(catalog), _) => t!("form_editor.hint.catalog", kind = catalog.label().to_lowercase()),
+        (None, BuiltinField::Playbook) => t!("form_editor.hint.playbook"),
+        (None, BuiltinField::ExecutionRating) => t!("form_editor.hint.rating"),
+        (None, BuiltinField::Checklist) => t!("form_editor.hint.checklist"),
+        (None, BuiltinField::Screenshots) => t!("form_editor.hint.screenshots"),
         (None, _) => String::new(),
     }
 }
@@ -135,9 +140,9 @@ fn deleted(defs: &[FieldDef]) -> Vec<FieldDef> {
 fn summary_of(rows: &[Property]) -> String {
     let hidden = rows.iter().filter(|p| p.hidden).count();
     if hidden == 0 {
-        format!("{} thuộc tính · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa", rows.len())
+        t!("form_editor.summary.shown", n = rows.len())
     } else {
-        format!("{} thuộc tính · {hidden} đang ẩn · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa", rows.len())
+        t!("form_editor.summary.hidden", n = rows.len(), hidden = hidden)
     }
 }
 
@@ -274,12 +279,9 @@ impl Ops {
                     Ok(KindImpact { lost, .. }) if lost > 0 => {
                         confirm_then(
                             self.owner,
-                            "Đổi kiểu sẽ mất giá trị đã ghi?",
-                            format!(
-                                "{lost} giá trị đã ghi không chuyển được sang kiểu “{}” và sẽ bị bỏ trống.",
-                                kind_name(to)
-                            ),
-                            "Đổi kiểu",
+                            t!("form_editor.kind.lose_title"),
+                            t!("form_editor.kind.lose_body", lost = lost, kind = kind_name(to)),
+                            t!("form_editor.kind.lose_confirm"),
                             move || apply(self),
                         );
                     }
@@ -342,8 +344,7 @@ fn table_card(ops: Ops, rows: Memo<Vec<Property>>) -> impl IntoElement {
             let empty = no_rows.get();
             untracked(|| {
                 if empty {
-                    return empty_state("Form này chưa có thuộc tính", "Thêm một thuộc tính ở khung bên phải.")
-                        .into_element();
+                    return empty_state(t!("form_editor.empty"), t!("form_editor.empty_hint")).into_element();
                 }
                 view()
                     .child(each(
@@ -367,20 +368,19 @@ fn table_card(ops: Ops, rows: Memo<Vec<Property>>) -> impl IntoElement {
                         untracked(|| {
                             action_icon(
                                 Icon::Refresh,
-                                format!("Khôi phục thuộc tính đã xoá ({n})"),
+                                t!("form_editor.restore_deleted", n = n),
                                 Variant::Ghost,
                                 move || restoring.update(|r| *r = !*r),
                             )
                         })
                     })
                 }))
-                .child(action("Đặt lại mặc định", Variant::Ghost, move || {
+                .child(action(t!("form_editor.reset"), Variant::Ghost, move || {
                     confirm_then(
                         ops.owner,
-                        "Đặt lại thứ tự và tên mặc định?",
-                        "Thứ tự, tên đã đổi và thuộc tính đang ẩn của form này về như ban đầu. \
-                         Thuộc tính riêng và dữ liệu đã ghi được giữ nguyên.",
-                        "Đặt lại",
+                        t!("form_editor.reset.title"),
+                        t!("form_editor.reset.body"),
+                        t!("form_editor.reset.confirm"),
                         move || ops.arrange(FormLayout::default_for(ops.scope)),
                     );
                 })),
@@ -403,7 +403,9 @@ fn deleted_list(ops: Ops, archived: Memo<Vec<FieldDef>>) -> impl IntoElement {
                         text(kind_glyph(def.kind)).w(px(24.0)).text_sm().text_color(move || theme().muted_foreground),
                     )
                     .child(text(def.label.clone()).flex_1().min_w(px(0.0)).text_sm())
-                    .child(action(format!("Khôi phục {}", def.label), Variant::Secondary, move || ops.restore(&key)))
+                    .child(action(t!("form_editor.restore", label = def.label), Variant::Secondary, move || {
+                        ops.restore(&key);
+                    }))
             }))
         })
     }))
@@ -417,16 +419,8 @@ fn shared_options_note() -> impl IntoElement {
         .border_1()
         .border_color(move || theme().border)
         .bg(move || theme().card)
-        .child(text("Danh mục lựa chọn dùng chung").text_sm().font_weight(FontWeight::SEMIBOLD))
-        .child(
-            text(
-                "Tag, lỗi, cảm xúc, lý do thoát, hạng setup, trạng thái thị trường, khung giờ, lý do không vào lệnh: \
-                 thêm, đổi tên, lưu trữ trong Cài đặt → Danh mục. Xoá một lựa chọn chỉ ẩn khỏi danh sách chọn, \
-                 nhật ký cũ giữ nguyên.",
-            )
-            .text_sm()
-            .text_color(move || theme().muted_foreground),
-        )
+        .child(text(t!("form_editor.shared.title")).text_sm().font_weight(FontWeight::SEMIBOLD))
+        .child(text(t!("form_editor.shared.body")).text_sm().text_color(move || theme().muted_foreground))
 }
 
 /// The key a row is identified by, so it keeps its state while the others change.
@@ -474,12 +468,12 @@ fn table_row(
         .on_layout(move |bounds: &Bounds<Points>| {
             heights.with(|h| h.insert(measured.clone(), bounds.size.height.0));
         })
-        .child(drag_handle(move || format!("Kéo để đổi thứ tự {}", row.with(|p| p.label.clone())), by_drag, by_key))
+        .child(drag_handle(move || t!("form_editor.row.drag", name = row.with(|p| p.label.clone())), by_drag, by_key))
         .child(text(move || row.with(glyph_of)).w(px(20.0)).text_sm().text_color(move || theme().muted_foreground))
         .child(
             view()
                 .role(AccessibilityRole::Button)
-                .label(move || format!("Sửa thuộc tính {}", row.with(|p| p.label.clone())))
+                .label(move || t!("form_editor.row.edit", label = row.with(|p| p.label.clone())))
                 .focusable(true)
                 .cursor_pointer()
                 .on_press(move || ops.picked.set(Some(row.with_untracked(|p| p.field.clone()))))
@@ -503,7 +497,10 @@ fn table_row(
         )
         .child(dynamic(move || {
             let custom = row.with(|p| matches!(p.field, FieldRef::Custom(_)));
-            chip(if custom { "riêng" } else { "có sẵn" }, if custom { Tone::Primary } else { Tone::Neutral })
+            chip(
+                if custom { t!("form_editor.row.custom") } else { t!("form_editor.row.builtin") },
+                if custom { Tone::Primary } else { Tone::Neutral },
+            )
         }))
         .child(dynamic(move || {
             let (hidden, label) = row.with(|p| (p.hidden, p.label.clone()));
@@ -511,7 +508,11 @@ fn table_row(
             untracked(|| {
                 icon_action(
                     if hidden { Icon::EyeOff } else { Icon::Eye },
-                    if hidden { format!("Hiện {label}") } else { format!("Ẩn {label}") },
+                    if hidden {
+                        t!("form_editor.row.show", label = label)
+                    } else {
+                        t!("form_editor.row.hide", label = label)
+                    },
                     Variant::Ghost,
                     move || if hidden { ops.show(&field) } else { ops.hide(&field) },
                 )
@@ -547,8 +548,8 @@ fn edit_panel(ops: Ops, rows: Memo<Vec<Property>>) -> impl IntoElement {
         rows.with(|all| all.iter().find(|p| p.field == field).cloned())
     });
     let title = move || match current.get() {
-        Some(p) => format!("Sửa thuộc tính · {}", p.label),
-        None => "Sửa thuộc tính".to_owned(),
+        Some(p) => t!("form_editor.panel.title_of", label = p.label),
+        None => t!("form_editor.panel.title"),
     };
     // Which property the panel is for: a memo, so that a change of the property's name or options (a
     // rename kept, a read of the database that brings another text) does not make the panel again.
@@ -559,7 +560,7 @@ fn edit_panel(ops: Ops, rows: Memo<Vec<Property>>) -> impl IntoElement {
             // Rebuilt when another property is picked, not on every keystroke of its name.
             let which = which.get();
             untracked(|| match which {
-                None => text("Bấm tên một thuộc tính ở bảng bên trái để sửa.")
+                None => text(t!("form_editor.panel.pick"))
                     .text_sm()
                     .text_color(move || theme().muted_foreground)
                     .into_element(),
@@ -579,20 +580,25 @@ fn property_panel(ops: Ops, current: Memo<Option<Property>>, field: &FieldRef) -
     let hide_field = field.clone();
     view()
         .gap_3()
-        .child(view().gap_1().child(text("Tên").text_xs().text_color(move || theme().muted_foreground)).child(
-            commit_field("Tên thuộc tính", "Tên thuộc tính", name, move |typed| {
-                ops.rename(&rename_field, &typed);
-            }),
-        ))
+        .child(
+            view()
+                .gap_1()
+                .child(text(t!("form_editor.panel.name")).text_xs().text_color(move || theme().muted_foreground))
+                .child(commit_field(
+                    t!("form_editor.panel.name_label"),
+                    t!("form_editor.panel.name_label"),
+                    name,
+                    move |typed| {
+                        ops.rename(&rename_field, &typed);
+                    },
+                )),
+        )
         .child(match key {
             Some(key) => custom_panel(ops, key).into_element(),
-            None => text(
-                "Thuộc tính có sẵn gắn với một mục của nhật ký: chỉ đổi tên hoặc ẩn được. Danh sách lựa chọn của nó \
-                 sửa ở Cài đặt → Danh mục.",
-            )
-            .text_sm()
-            .text_color(move || theme().muted_foreground)
-            .into_element(),
+            None => text(t!("form_editor.panel.builtin_note"))
+                .text_sm()
+                .text_color(move || theme().muted_foreground)
+                .into_element(),
         })
         .child(dynamic(move || {
             let hidden = current.with(|p| p.as_ref().is_some_and(|p| p.hidden));
@@ -600,7 +606,7 @@ fn property_panel(ops: Ops, current: Memo<Option<Property>>, field: &FieldRef) -
             untracked(|| {
                 action_icon(
                     if hidden { Icon::Eye } else { Icon::EyeOff },
-                    if hidden { "Hiện trong form" } else { "Ẩn khỏi form" },
+                    if hidden { t!("form_editor.panel.show") } else { t!("form_editor.panel.hide") },
                     Variant::Secondary,
                     move || if hidden { ops.show(&field) } else { ops.hide(&field) },
                 )
@@ -627,9 +633,9 @@ fn custom_panel(ops: Ops, key: String) -> impl IntoElement {
                 .items_center()
                 .justify_between()
                 .gap_3()
-                .child(text("Kiểu").text_sm().text_color(move || theme().muted_foreground))
+                .child(text(t!("form_editor.panel.kind")).text_sm().text_color(move || theme().muted_foreground))
                 .child(select_value(
-                    "Kiểu",
+                    t!("form_editor.panel.kind"),
                     || {
                         KINDS
                             .iter()
@@ -656,9 +662,13 @@ fn custom_panel(ops: Ops, key: String) -> impl IntoElement {
                         .items_center()
                         .justify_between()
                         .gap_3()
-                        .child(text("Điểm tối đa").text_sm().text_color(move || theme().muted_foreground))
+                        .child(
+                            text(t!("form_editor.panel.scale_max"))
+                                .text_sm()
+                                .text_color(move || theme().muted_foreground),
+                        )
                         .child(number_field(
-                            "Điểm tối đa",
+                            t!("form_editor.panel.scale_max"),
                             None,
                             NumberRange::between(2.0, 10.0),
                             move || def().map(|d| f64::from(d.scale_max())),
@@ -672,8 +682,8 @@ fn custom_panel(ops: Ops, key: String) -> impl IntoElement {
             })
         }))
         .child(switch_row(
-            "Nên điền khi lưu",
-            Some("Nhắc nếu để trống; không chặn việc lưu"),
+            t!("form_editor.panel.expected"),
+            Some(t!("form_editor.panel.expected_hint")),
             move || flag(|d| d.required == Requirement::Expected),
             move |on| {
                 ops.edit_def(&key_text(), |d| {
@@ -682,13 +692,13 @@ fn custom_panel(ops: Ops, key: String) -> impl IntoElement {
             },
         ))
         .child(switch_row(
-            "Đưa vào Phân tích",
-            Some("Thành một cột trong bảng Lệnh và một nhóm trong Phân tích"),
+            t!("form_editor.panel.analysed"),
+            Some(t!("form_editor.panel.analysed_hint")),
             move || flag(|d| d.analysed),
             move |on| ops.edit_def(&key_text(), |d| d.analysed = on),
         ))
         .child(kind_note())
-        .child(action_icon(Icon::Trash, "Xoá thuộc tính", Variant::Secondary, move || {
+        .child(action_icon(Icon::Trash, t!("form_editor.panel.delete"), Variant::Secondary, move || {
             ask_to_delete(ops, &def().map_or_default(|d| d.label), &key_text());
         }))
 }
@@ -702,15 +712,8 @@ fn kind_note() -> impl IntoElement {
         .border_1()
         .border_color(move || theme().border)
         .bg(move || theme().background)
-        .child(text("Đổi kiểu dữ liệu").text_xs().font_weight(FontWeight::SEMIBOLD))
-        .child(
-            text(
-                "Chọn một → Chọn nhiều: giữ nguyên giá trị. Văn bản → Chọn một: tạo lựa chọn từ chữ đã ghi. \
-                 Số → Thang điểm: làm tròn. Giá trị không chuyển được sẽ được báo trước khi đổi.",
-            )
-            .text_xs()
-            .text_color(move || theme().muted_foreground),
-        )
+        .child(text(t!("form_editor.kind_note.title")).text_xs().font_weight(FontWeight::SEMIBOLD))
+        .child(text(t!("form_editor.kind_note.body")).text_xs().text_color(move || theme().muted_foreground))
 }
 
 /// Asks before deleting the property `key` (named `name`): its values stay, and it can be restored.
@@ -719,9 +722,9 @@ fn ask_to_delete(ops: Ops, name: &str, key: &str) {
     // Under the editor's owner: the popover this is asked from is built again as the form changes.
     confirm_then(
         ops.owner,
-        format!("Xoá thuộc tính “{name}”?"),
-        "Giá trị đã ghi ở các lệnh cũ được giữ lại; thuộc tính chỉ biến khỏi form và khôi phục được ở đây.",
-        "Xoá thuộc tính",
+        t!("form_editor.delete.title", name = name),
+        t!("form_editor.delete.body"),
+        t!("form_editor.delete.confirm"),
         move || ops.delete(&key),
     );
 }
@@ -755,11 +758,7 @@ fn options_editor(ops: Ops, key: String) -> impl IntoElement {
     let add_key = key.clone();
     view()
         .gap_1()
-        .child(
-            text("Lựa chọn (đổi tên ở đây thì mọi lệnh cũ đổi theo)")
-                .text_xs()
-                .text_color(move || theme().muted_foreground),
-        )
+        .child(text(t!("form_editor.options.title")).text_xs().text_color(move || theme().muted_foreground))
         // A row is known by its option: renaming one makes that row again and leaves the others, so
         // the one the trader moves on to is still there when the rename of the one they leave is kept.
         .child(view().gap_1().child(each(
@@ -767,7 +766,7 @@ fn options_editor(ops: Ops, key: String) -> impl IntoElement {
             |option: &String| option.clone(),
             move |row, _| option_row(ops, key.clone(), row.with_untracked(Clone::clone)),
         )))
-        .child(add_field("Thêm lựa chọn", "+ Thêm lựa chọn", move |option| {
+        .child(add_field(t!("form_editor.options.add"), t!("form_editor.options.add_placeholder"), move |option| {
             let option = option.trim().to_owned();
             if !option.is_empty() {
                 ops.edit_def(&add_key, |d| {
@@ -787,8 +786,8 @@ fn option_row(ops: Ops, key: String, option: String) -> impl IntoElement {
         .items_center()
         .gap_2()
         .child(view().flex_1().child(commit_field(
-            format!("Tên lựa chọn {name}"),
-            "Tên lựa chọn",
+            t!("form_editor.options.name_of", name = name),
+            t!("form_editor.options.name"),
             move || shown.clone(),
             move |new| {
                 let new = new.trim().to_owned();
@@ -802,19 +801,19 @@ fn option_row(ops: Ops, key: String, option: String) -> impl IntoElement {
                 }
             },
         )))
-        .child(icon_action(Icon::Close, format!("Xoá lựa chọn {name}"), Variant::Ghost, move || {
+        .child(icon_action(Icon::Close, t!("form_editor.options.remove", name = name), Variant::Ghost, move || {
             ops.edit_def(&key, |d| d.options.retain(|o| *o != removed));
         }))
 }
 
-/// "Thêm thuộc tính — chọn kiểu": one button per type.
+/// "Add a property — choose its type": one button per type.
 fn add_panel(ops: Ops) -> impl IntoElement {
     panel_frame(
-        "Thêm thuộc tính — chọn kiểu",
+        t!("form_editor.add.title"),
         view().gap_1().children(KINDS.iter().map(move |&kind| {
             view()
                 .role(AccessibilityRole::Button)
-                .label(format!("Thêm thuộc tính kiểu {}", kind_name(kind)))
+                .label(t!("form_editor.add.of_kind", kind = kind_name(kind)))
                 .focusable(true)
                 .cursor_pointer()
                 .on_press(move || ops.add(kind))

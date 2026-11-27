@@ -74,10 +74,15 @@ pub(crate) fn dashboard() -> impl IntoElement {
     // Ctrl+N adds a trade by hand, as the button does (and as it does on the trades page).
     on_key_with("mod+n", KeyOptions { pass_through: true, ..KeyOptions::default() }, |_| nav::open_manual_entry());
     page_with(
-        "Tổng quan",
+        t!("nav.dashboard"),
         move || {
             let accounts = store.snapshot().accounts.len();
-            format!("{} · {accounts} tài khoản", range.get().describe())
+            let range = range.get().describe();
+            if accounts == 1 {
+                t!("dashboard.summary.one", range = range, accounts = accounts)
+            } else {
+                t!("dashboard.summary.other", range = range, accounts = accounts)
+            }
         },
         view()
             .flex_row()
@@ -86,13 +91,13 @@ pub(crate) fn dashboard() -> impl IntoElement {
             .gap_3()
             .child(account_picker())
             .child(segmented(
-                "Khoảng thời gian",
+                t!("dashboard.range"),
                 &Range::ALL,
                 Range::label,
                 move || range.get(),
                 move |next| range.set(next),
             ))
-            .child(action_icon(Icon::Plus, "Thêm lệnh", Variant::Primary, nav::open_manual_entry)),
+            .child(action_icon(Icon::Plus, t!("dashboard.add_trade"), Variant::Primary, nav::open_manual_entry)),
         view().gap_6().child(stat_row()).child(columns(
             view().gap_6().child(curve_card(today)).child(recent_card()),
             view().gap_6().child(discipline_card(today)).child(month_card(today)).child(symbol_card(analysis)),
@@ -116,19 +121,16 @@ fn drawdown_figure(s: &Snapshot) -> (String, Tone) {
 /// The line under the drawdown: how far from the peak, or what the R figure is.
 fn drawdown_note(s: &Snapshot) -> String {
     match s.unit() {
-        Unit::R => "sụt giảm sâu nhất của R tích luỹ".to_owned(),
-        Unit::Money => s
-            .stats
-            .max_drawdown_pct
-            .map_or_else(|| "chưa có đợt sụt giảm".to_owned(), |p| format!("−{} từ đỉnh", format::percent(p))),
+        Unit::R => t!("dashboard.drawdown.r"),
+        Unit::Money => s.stats.max_drawdown_pct.map_or_else(
+            || t!("dashboard.drawdown.none"),
+            |p| t!("dashboard.drawdown.from_peak", pct = format::percent(p)),
+        ),
     }
 }
 
 /// What a figure with nothing to count shows.
 const NONE: &str = "—";
-
-/// The line under the first tile when no trade closed in the range.
-const NONE_HINT: &str = "Chưa có lệnh đóng trong khoảng này";
 
 /// The line under the net result: how much of the balance it is, or what the trades are.
 fn net_note(s: &Snapshot) -> String {
@@ -136,11 +138,11 @@ fn net_note(s: &Snapshot) -> String {
     if let Some(mixed) = s.basis.money_note() {
         mixed
     } else if s.unit() == Unit::R {
-        format!("{} lệnh đã đóng, tính theo R", st.trades)
+        t!("dashboard.net_note.r", trades = format::trade_count(st.trades))
     } else if st.start_balance > 0.0 {
-        format!("{} so với số dư đầu kỳ", format::percent(st.net / st.start_balance))
+        t!("dashboard.net_note.balance", pct = format::percent(st.net / st.start_balance))
     } else {
-        format!("{} lệnh đã đóng", st.trades)
+        t!("dashboard.net_note.closed", trades = format::trade_count(st.trades))
     }
 }
 
@@ -180,7 +182,7 @@ fn stat_row() -> impl IntoElement {
             }),
             move || {
                 let snapshot = store.snapshot();
-                if snapshot.stats.trades == 0 { NONE_HINT.to_owned() } else { net_note(&snapshot) }
+                if snapshot.stats.trades == 0 { t!("dashboard.none_hint") } else { net_note(&snapshot) }
             },
         ))
         .child(stat_tile(
@@ -188,7 +190,7 @@ fn stat_row() -> impl IntoElement {
             figure(|s| {
                 (if s.stats.trades == 0 { "—".to_owned() } else { format::percent(s.stats.win_rate) }, Tone::Neutral)
             }),
-            note(|s| format!("{} thắng · {} thua", s.stats.wins, s.stats.losses)),
+            note(|s| t!("dashboard.win_note", wins = s.stats.wins, losses = s.stats.losses)),
         ))
         .child(stat_tile(
             "Profit Factor",
@@ -200,12 +202,12 @@ fn stat_row() -> impl IntoElement {
                 (format::ratio(factor), Tone::Neutral)
             }),
             note(|s| match s.unit() {
-                Unit::Money => format!(
-                    "Lãi gộp {} / lỗ {}",
-                    money(s, s.stats.gross_profit, Sign::OnlyNegative),
-                    money(s, -s.stats.gross_loss, Sign::OnlyNegative)
+                Unit::Money => t!(
+                    "dashboard.pf_note.money",
+                    profit = money(s, s.stats.gross_profit, Sign::OnlyNegative),
+                    loss = money(s, -s.stats.gross_loss, Sign::OnlyNegative)
                 ),
-                Unit::R => "tổng R thắng / tổng R thua".to_owned(),
+                Unit::R => t!("dashboard.pf_note.r"),
             }),
         ))
         .child(stat_tile(
@@ -219,13 +221,13 @@ fn stat_row() -> impl IntoElement {
                 (text, tone)
             }),
             note(|s| match s.unit() {
-                Unit::Money => "trung bình mỗi lệnh".to_owned(),
-                Unit::R => "R trung bình mỗi lệnh".to_owned(),
+                Unit::Money => t!("dashboard.expectancy_note.money"),
+                Unit::R => t!("dashboard.expectancy_note.r"),
             }),
         ))
         .child(stat_tile("Max drawdown", figure(drawdown_figure), note(drawdown_note)))
         .child(stat_tile_with(
-            move || if unit() == Unit::R { "Lệnh đã đóng" } else { "R trung bình" },
+            move || if unit() == Unit::R { t!("dashboard.closed_trades") } else { t!("dashboard.avg_r") },
             figure(|s| match s.unit() {
                 Unit::R => (s.stats.trades.to_string(), Tone::Neutral),
                 Unit::Money => {
@@ -235,8 +237,8 @@ fn stat_row() -> impl IntoElement {
                 }
             }),
             note(|s| match s.unit() {
-                Unit::R => format!("{} lệnh có R", s.stats.r_trades),
-                Unit::Money => format!("{} lệnh có SL", s.stats.r_trades),
+                Unit::R => t!("dashboard.r_note.r", trades = format::trade_count(s.stats.r_trades)),
+                Unit::Money => t!("dashboard.r_note.money", trades = format::trade_count(s.stats.r_trades)),
             }),
         ))
 }
@@ -261,10 +263,10 @@ fn curve_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
     titled_card(
         move || match curve.get() {
             Curve::Balance => "Balance & drawdown".to_owned(),
-            Curve::R => "R tích luỹ".to_owned(),
+            Curve::R => t!("dashboard.curve.r_title"),
         },
         segmented(
-            "Biểu đồ",
+            t!("dashboard.curve.chart"),
             &Curve::ALL,
             Curve::label,
             move || curve.get(),
@@ -293,8 +295,7 @@ fn balance_body() -> impl IntoElement {
     view().child(dynamic(move || {
         if in_r.get() {
             // A balance line of zeros says nothing: the journal is kept in R.
-            empty_state("Nhật ký này ghi kết quả theo R — xem tab R", "Chưa có số tiền để vẽ đường số dư.")
-                .into_element()
+            empty_state(t!("dashboard.balance.in_r"), t!("dashboard.balance.in_r_hint")).into_element()
         } else if drawable.get() {
             equity_chart(
                 move || store.snapshot().curve.clone(),
@@ -304,11 +305,8 @@ fn balance_body() -> impl IntoElement {
             .into_element()
         } else {
             let (title, hint) = match store.load_state() {
-                Load::Loading => ("Đang tải dữ liệu…".to_owned(), String::new()),
-                _ => (
-                    "Chưa có đủ lệnh đóng để vẽ đường số dư".to_owned(),
-                    "Chọn khoảng thời gian dài hơn hoặc import thêm lệnh ở Nguồn dữ liệu.".to_owned(),
-                ),
+                Load::Loading => (t!("dashboard.balance.loading"), String::new()),
+                _ => (t!("dashboard.balance.few"), t!("dashboard.balance.few_hint")),
             };
             empty_state(title, hint).into_element()
         }
@@ -328,8 +326,7 @@ fn r_body(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
             )
             .into_element()
         } else {
-            empty_state("Chưa có lệnh nào đo được R", "Đặt SL hoặc ghi rủi ro dự định ở nhật ký lệnh để tính R.")
-                .into_element()
+            empty_state(t!("dashboard.r.none"), t!("dashboard.r.none_hint")).into_element()
         }
     }))
 }
@@ -345,11 +342,10 @@ fn recent_card() -> impl IntoElement {
             nav::show_trade(row.key().clone());
         }
     };
-    let empty =
-        || ("Chưa có lệnh nào trong khoảng này".to_owned(), "Chọn khoảng thời gian dài hơn để thấy thêm.".to_owned());
+    let empty = || (t!("dashboard.recent.empty"), t!("dashboard.recent.empty_hint"));
     titled_card(
-        "Lệnh gần đây",
-        link("Xem tất cả", || nav::go(Route::Trades)),
+        t!("dashboard.recent.title"),
+        link(t!("dashboard.recent.all"), || nav::go(Route::Trades)),
         view().h(px(RECENT_HEIGHT)).child(recent_trades(rows, open, empty)),
     )
 }
@@ -366,14 +362,22 @@ fn rules_reading() -> Reading<Vec<(i64, Rules)>> {
 }
 
 /// A rule's name, and what is used of its limit as text.
-fn usage_line(usage: &RuleUsage, snapshot: &Snapshot) -> (&'static str, String) {
+fn usage_line(usage: &RuleUsage, snapshot: &Snapshot) -> (String, String) {
     let whole = |value: f64| format::money_whole(value, Sign::OnlyNegative, &snapshot.currency);
     let count = |value: f64| format!("{value:.0}");
     match usage.kind {
-        RuleKind::DailyLoss => ("Lỗ trong ngày", format!("{} / {}", whole(usage.used), whole(usage.limit))),
-        RuleKind::DailyTrades => ("Số lệnh", format!("{} / {}", count(usage.used), count(usage.limit))),
-        RuleKind::RiskPerTrade => ("Risk lệnh lớn nhất", format!("{:.1}% / {:.1}%", usage.used, usage.limit)),
-        RuleKind::LosingStreak => ("Thua liên tiếp", format!("{} / {}", count(usage.used), count(usage.limit))),
+        RuleKind::DailyLoss => {
+            (t!("dashboard.rule.daily_loss"), format!("{} / {}", whole(usage.used), whole(usage.limit)))
+        }
+        RuleKind::DailyTrades => {
+            (t!("dashboard.rule.daily_trades"), format!("{} / {}", count(usage.used), count(usage.limit)))
+        }
+        RuleKind::RiskPerTrade => {
+            (t!("dashboard.rule.risk_per_trade"), format!("{:.1}% / {:.1}%", usage.used, usage.limit))
+        }
+        RuleKind::LosingStreak => {
+            (t!("dashboard.rule.losing_streak"), format!("{} / {}", count(usage.used), count(usage.limit)))
+        }
     }
 }
 
@@ -382,8 +386,8 @@ fn warning_of(usage: &[RuleUsage], snapshot: &Snapshot) -> Option<String> {
     usage.iter().find(|u| RuleLevel::of(u.ratio()) != RuleLevel::Within).map(|u| {
         let (name, summary) = usage_line(u, snapshot);
         match RuleLevel::of(u.ratio()) {
-            RuleLevel::Over => format!("{name} đã chạm giới hạn ({summary})"),
-            _ => format!("{name} gần chạm giới hạn ({summary})"),
+            RuleLevel::Over => t!("dashboard.rule.over", name = name, summary = summary),
+            _ => t!("dashboard.rule.near", name = name, summary = summary),
         }
     })
 }
@@ -400,11 +404,16 @@ fn discipline_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
         insight::violations(&snapshot, &read).iter().filter(|v| v.day == day).count()
     };
     titled_card(
-        "Kỷ luật hôm nay",
+        t!("dashboard.discipline.title"),
         dynamic(move || {
             let count = violations_today();
             let tone = if count == 0 { Tone::Profit } else { Tone::Loss };
-            chip(format!("{count} vi phạm"), tone)
+            let words = if count == 1 {
+                t!("dashboard.discipline.violations.one", count = count)
+            } else {
+                t!("dashboard.discipline.violations.other", count = count)
+            };
+            chip(words, tone)
         }),
         view().child(dynamic(move || {
             let read = rules.value();
@@ -415,11 +424,8 @@ fn discipline_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
                 let Some((account, usage)) = closest else {
                     return view()
                         .gap_3()
-                        .child(empty_state(
-                            "Chưa đặt quy tắc kỷ luật",
-                            "Đặt giới hạn lỗ và số lệnh mỗi ngày ở Tài khoản & kỷ luật.",
-                        ))
-                        .child(action("Đặt quy tắc", Variant::Secondary, || nav::go(Route::Accounts)))
+                        .child(empty_state(t!("dashboard.discipline.none"), t!("dashboard.discipline.none_hint")))
+                        .child(action(t!("dashboard.discipline.set"), Variant::Secondary, || nav::go(Route::Accounts)))
                         .into_element();
                 };
                 let warn = warning_of(&usage, &snapshot);
@@ -441,9 +447,9 @@ fn discipline_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
     )
 }
 
-/// The title of the month's calendar: `Tháng 11/2026`.
+/// The title of the month's calendar: `Tháng 11/2026` (`November 2026`).
 fn month_title(day: chrono::NaiveDate) -> String {
-    format!("Tháng {}/{}", day.month(), day.year())
+    t!("dashboard.month", month = day.month(), name = format::month_name(day.month()), year = day.year())
 }
 
 /// The month's calendar in small, with a link to the full one. It shows the current month, or the
@@ -459,7 +465,7 @@ fn month_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
     };
     titled_card(
         move || month_title(shown.get()),
-        link("Mở lịch", || nav::go(Route::Calendar)),
+        link(t!("dashboard.month.open"), || nav::go(Route::Calendar)),
         mini_month(weeks, today, super::calendar::show_day),
     )
 }
@@ -489,8 +495,8 @@ fn symbol_items(analysis: &Analysis, currency: &str) -> Vec<DivergingItem> {
 fn symbol_card(analysis: Memo<Arc<Analysis>>) -> impl IntoElement {
     let store: Store = store();
     titled_card(
-        "Theo symbol",
-        link("Xem phân tích", || nav::go(Route::Analytics)),
+        t!("dashboard.symbols.title"),
+        link(t!("dashboard.symbols.view"), || nav::go(Route::Analytics)),
         diverging_bars(move || analysis.with(|a| symbol_items(a, &store.snapshot().currency)), show_symbol),
     )
 }
@@ -545,19 +551,32 @@ mod tests {
 
     #[test]
     fn a_rule_close_to_its_limit_is_worded_as_a_warning() {
-        let snapshot = Snapshot::default();
         let near = [RuleUsage { kind: RuleKind::RiskPerTrade, used: 1.3, limit: 1.5 }];
-        assert_eq!(warning_of(&near, &snapshot).as_deref(), Some("Risk lệnh lớn nhất gần chạm giới hạn (1.3% / 1.5%)"));
+        let warned = |usage: &[RuleUsage], lang| {
+            crate::i18n::with_text(lang, {
+                let usage = usage.to_vec();
+                move || warning_of(&usage, &Snapshot::default())
+            })
+        };
+        assert_eq!(
+            warned(&near, crate::i18n::Lang::Vi).as_deref(),
+            Some("Risk lệnh lớn nhất gần chạm giới hạn (1.3% / 1.5%)")
+        );
+        assert_eq!(
+            warned(&near, crate::i18n::Lang::En).as_deref(),
+            Some("Largest trade risk is close to its limit (1.3% / 1.5%)")
+        );
         let over = [RuleUsage { kind: RuleKind::DailyTrades, used: 5.0, limit: 5.0 }];
-        assert_eq!(warning_of(&over, &snapshot).as_deref(), Some("Số lệnh đã chạm giới hạn (5 / 5)"));
+        assert_eq!(warned(&over, crate::i18n::Lang::Vi).as_deref(), Some("Số lệnh đã chạm giới hạn (5 / 5)"));
         let fine = [RuleUsage { kind: RuleKind::DailyTrades, used: 1.0, limit: 5.0 }];
-        assert_eq!(warning_of(&fine, &snapshot), None);
+        assert_eq!(warned(&fine, crate::i18n::Lang::Vi), None);
     }
 
     #[test]
     fn the_loss_limit_reads_in_money() {
         let snapshot = Snapshot::default();
         let usage = RuleUsage { kind: RuleKind::DailyLoss, used: 120.0, limit: 300.0 };
-        assert_eq!(usage_line(&usage, &snapshot), ("Lỗ trong ngày", "$120 / $300".to_owned()));
+        let line = crate::i18n::with_text(crate::i18n::Lang::Vi, move || usage_line(&usage, &snapshot));
+        assert_eq!(line, ("Lỗ trong ngày".to_owned(), "$120 / $300".to_owned()));
     }
 }
