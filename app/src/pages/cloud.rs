@@ -6,6 +6,7 @@ use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_cloud::{Provider, auth::Identity, sync::DeviceInfo, sync::SyncReport};
 
+use crate::i18n::plural;
 use crate::{
     cloud::{self as app_cloud, AutoSync, Cloud, Fault, Outcome, Phase, State, Why},
     ui::{
@@ -158,13 +159,13 @@ fn when(ms: i64) -> String {
 fn counts(report: &SyncReport) -> String {
     let mut parts = vec![t!("cloud.counts.moved", pushed = report.pushed, pulled = report.pulled)];
     if report.conflicts_resolved > 0 {
-        parts.push(t!("cloud.counts.conflicts", n = report.conflicts_resolved));
+        parts.push(plural!(report.conflicts_resolved, "cloud.counts.conflicts", n = report.conflicts_resolved));
     }
     if report.attachments_uploaded + report.attachments_downloaded > 0 {
         parts.push(t!("cloud.counts.pictures", up = report.attachments_uploaded, down = report.attachments_downloaded));
     }
     if report.attachments_failed > 0 {
-        parts.push(t!("cloud.counts.pictures_failed", n = report.attachments_failed));
+        parts.push(plural!(report.attachments_failed, "cloud.counts.pictures_failed", n = report.attachments_failed));
     }
     if report.snapshot_taken {
         parts.push(t!("cloud.counts.snapshot"));
@@ -332,7 +333,7 @@ mod tests {
             crate::i18n::with_text(lang, move || counts(&report))
         };
         assert_eq!(said(&report, crate::i18n::Lang::Vi), "đẩy 12 thay đổi, nhận 3");
-        assert_eq!(said(&report, crate::i18n::Lang::En), "pushed 12 changes, received 3");
+        assert_eq!(said(&report, crate::i18n::Lang::En), "changes pushed: 12, received: 3");
         report.conflicts_resolved = 2;
         report.attachments_uploaded = 1;
         report.attachments_failed = 3;

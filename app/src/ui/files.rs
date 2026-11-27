@@ -12,6 +12,8 @@ use nsh_core::{
     prelude::*,
 };
 use tradelens_core::attachments::IMAGE_EXTENSIONS;
+
+use crate::i18n::plural;
 use url::Url;
 
 use super::icons::{Icon, icon};
@@ -70,7 +72,7 @@ pub fn sift(paths: Vec<PathBuf>, accept: Accept, pick: Pick) -> (Vec<PathBuf>, O
     if pick == Pick::One {
         kept.truncate(1);
     }
-    (kept, (skipped > 0).then(|| t!("ui.files.skipped", n = skipped, kind = (accept.name)())))
+    (kept, (skipped > 0).then(|| plural!(skipped, "ui.files.skipped", n = skipped, kind = (accept.name)())))
 }
 
 /// Shows the system's open dialog for `accept`. `Ok(vec![])` when the trader cancels; the error

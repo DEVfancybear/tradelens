@@ -16,6 +16,7 @@ use tradelens_core::{
     time::naive,
 };
 
+use crate::i18n::plural;
 use crate::{
     cloud as app_cloud,
     format::{self, Sign},
@@ -735,7 +736,11 @@ fn preview_view(
         .when(!plan.issues.is_empty(), |v| {
             let mut lines: Vec<String> = plan.issues.iter().take(ISSUES_SHOWN).map(ToString::to_string).collect();
             if plan.issues.len() > ISSUES_SHOWN {
-                lines.push(t!("data_sources.preview.more_rows", n = plan.issues.len() - ISSUES_SHOWN));
+                lines.push(plural!(
+                    plan.issues.len() - ISSUES_SHOWN,
+                    "data_sources.preview.more_rows",
+                    n = plan.issues.len() - ISSUES_SHOWN
+                ));
             }
             v.child(section(t!("data_sources.preview.skipped_title"), lines))
         })
@@ -782,7 +787,7 @@ fn summary_lines(report: &notion::NotionImportReport) -> Vec<String> {
         unchanged = report.unchanged
     )];
     if report.matched_mt5 > 0 {
-        lines.push(t!("data_sources.summary.matched", n = report.matched_mt5));
+        lines.push(plural!(report.matched_mt5, "data_sources.summary.matched", n = report.matched_mt5));
     }
     if !report.properties_created.is_empty() {
         let created: Vec<String> =
@@ -793,7 +798,7 @@ fn summary_lines(report: &notion::NotionImportReport) -> Vec<String> {
         lines.push(t!("data_sources.summary.properties_reused", list = report.properties_reused.join(", ")));
     }
     if report.options_added > 0 {
-        lines.push(t!("data_sources.summary.options", n = report.options_added));
+        lines.push(plural!(report.options_added, "data_sources.summary.options", n = report.options_added));
     }
     if report.images_attached + report.images_missing > 0 {
         lines.push(t!(
@@ -827,7 +832,7 @@ fn summary_view(report: &notion::NotionImportReport) -> impl IntoElement {
                 skipped
                     .iter()
                     .cloned()
-                    .chain((more > 0).then(|| t!("data_sources.preview.more_rows", n = more)))
+                    .chain((more > 0).then(|| plural!(more, "data_sources.preview.more_rows", n = more)))
                     .collect(),
             ))
         })

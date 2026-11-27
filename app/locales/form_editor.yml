@@ -43,16 +43,25 @@ form_editor.hint.checklist:
 form_editor.hint.screenshots:
   vi: "Thư viện ảnh"
   en: "Picture gallery"
-form_editor.summary.shown:
+form_editor.summary.shown.one:
+  vi: "%{n} thuộc tính · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa"
+  en: "%{n} property · drag ⋮⋮ to reorder, press a name to edit"
+form_editor.summary.shown.other:
   vi: "%{n} thuộc tính · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa"
   en: "%{n} properties · drag ⋮⋮ to reorder, press a name to edit"
-form_editor.summary.hidden:
+form_editor.summary.hidden.one:
+  vi: "%{n} thuộc tính · %{hidden} đang ẩn · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa"
+  en: "%{n} property · %{hidden} hidden · drag ⋮⋮ to reorder, press a name to edit"
+form_editor.summary.hidden.other:
   vi: "%{n} thuộc tính · %{hidden} đang ẩn · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa"
   en: "%{n} properties · %{hidden} hidden · drag ⋮⋮ to reorder, press a name to edit"
 form_editor.kind.lose_title:
   vi: "Đổi kiểu sẽ mất giá trị đã ghi?"
   en: "Change the type and lose written values?"
-form_editor.kind.lose_body:
+form_editor.kind.lose_body.one:
+  vi: "%{lost} giá trị đã ghi không chuyển được sang kiểu “%{kind}” và sẽ bị bỏ trống."
+  en: "%{lost} written value cannot be converted to the “%{kind}” type and will be left empty."
+form_editor.kind.lose_body.other:
   vi: "%{lost} giá trị đã ghi không chuyển được sang kiểu “%{kind}” và sẽ bị bỏ trống."
   en: "%{lost} written values cannot be converted to the “%{kind}” type and will be left empty."
 form_editor.kind.lose_confirm:

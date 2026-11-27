@@ -4,6 +4,7 @@ use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_cloud::Provider;
 
+use crate::i18n::plural;
 use crate::{
     cloud::{self, Phase, State},
     nav::{self, Route, SECTIONS},
@@ -125,7 +126,7 @@ fn mt5_line(state: &crate::mt5::State) -> String {
         (0, _) => t!("shell.mt5.not_connected"),
         (1, 1) => t!("shell.mt5.connected"),
         (_, 0) => t!("shell.mt5.lost"),
-        (total, connected) => t!("shell.mt5.accounts", connected = connected, total = total),
+        (total, connected) => plural!(total, "shell.mt5.accounts", connected = connected, total = total),
     }
 }
 

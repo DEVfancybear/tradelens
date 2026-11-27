@@ -40,7 +40,10 @@ missed.tile.blocked:
 missed.tile.top_reason:
   vi: "Lý do nhiều nhất"
   en: "Top reason"
-missed.tile.times:
+missed.tile.times.one:
+  vi: "%{n} / %{all} lần"
+  en: "%{n} / %{all} time"
+missed.tile.times.other:
   vi: "%{n} / %{all} lần"
   en: "%{n} / %{all} times"
 

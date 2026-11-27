@@ -57,10 +57,13 @@ entry_plan.warn.risk:
   en: "Risk %{percent}% exceeds the %{limit}% rule of account %{account}."
 entry_plan.warn.daily_trades:
   vi: "Lệnh thứ %{count} trong ngày vượt quy tắc %{limit} lệnh/ngày của tài khoản %{account}."
-  en: "Trade number %{count} of the day exceeds the rule of %{limit} trades/day of account %{account}."
+  en: "Trade %{count} of the day exceeds the rule of %{limit} a day of account %{account}."
 entry_plan.warn.daily_loss:
   vi: "Lỗ trong ngày %{loss} đã vượt quy tắc %{limit} của tài khoản %{account}."
   en: "The day's loss of %{loss} has exceeded the rule of %{limit} of account %{account}."
-entry_plan.warn.streak:
+entry_plan.warn.streak.one:
+  vi: "Vào lệnh sau %{streak} lệnh thua liên tiếp, vượt quy tắc %{limit} của tài khoản %{account}."
+  en: "Trading after %{streak} loss in a row exceeds the rule of %{limit} of account %{account}."
+entry_plan.warn.streak.other:
   vi: "Vào lệnh sau %{streak} lệnh thua liên tiếp, vượt quy tắc %{limit} của tài khoản %{account}."
   en: "Trading after %{streak} losses in a row exceeds the rule of %{limit} of account %{account}."

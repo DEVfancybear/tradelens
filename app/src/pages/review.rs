@@ -14,6 +14,7 @@ use super::{
     account_picker::account_picker,
     share::{self, PRIVACY_CHOICES, ShareTarget, privacy_label},
 };
+use crate::i18n::plural;
 use crate::{
     format::{self, Sign},
     insight, month_report, nav,
@@ -453,7 +454,7 @@ fn figures_row(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
         .child(stat_tile(
             t!("review.tile.journaled"),
             move || (now.with(|f| share(f.journalled, f.trades)), Tone::Neutral),
-            move || now.with(|f| t!("review.tile.journaled_of", done = f.journalled, all = f.trades)),
+            move || now.with(|f| plural!(f.trades, "review.tile.journaled_of", done = f.journalled, all = f.trades)),
         ))
         .child(stat_tile(
             t!("review.tile.mistake_cost"),
@@ -745,9 +746,9 @@ fn queue_groups(snapshot: &Snapshot) -> (usize, Vec<(QueueReason, Vec<TradeKey>)
 
 fn queue_title(reason: QueueReason, count: usize) -> String {
     match reason {
-        QueueReason::NotJournalled => t!("review.queue.not_journalled", count = count),
-        QueueReason::Flagged => t!("review.queue.flagged", count = count),
-        QueueReason::LostMoreThanRisk => t!("review.queue.lost_more", count = count),
+        QueueReason::NotJournalled => plural!(count, "review.queue.not_journalled", count = count),
+        QueueReason::Flagged => plural!(count, "review.queue.flagged", count = count),
+        QueueReason::LostMoreThanRisk => plural!(count, "review.queue.lost_more", count = count),
     }
 }
 
@@ -884,9 +885,9 @@ fn template_row(
                         template.value().map_or_else(String::new, |t| {
                             let default = *t == ReviewTemplate::default_for(period);
                             if default {
-                                t!("review.template.count_default", n = t.prompts.len())
+                                plural!(t.prompts.len(), "review.template.count_default", n = t.prompts.len())
                             } else {
-                                t!("review.template.count", n = t.prompts.len())
+                                plural!(t.prompts.len(), "review.template.count", n = t.prompts.len())
                             }
                         })
                     })

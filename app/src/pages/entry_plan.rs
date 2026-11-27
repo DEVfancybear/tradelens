@@ -15,6 +15,7 @@ use tradelens_core::{
 };
 
 use super::account_trades;
+use crate::i18n::plural;
 use crate::{
     format,
     journal_draft::{key_of_choice, key_or_empty, ticked, unticked},
@@ -234,7 +235,7 @@ fn warning_line(kind: &ViolationKind, account: &str) -> String {
             account = account
         ),
         ViolationKind::AfterLosingStreak(streak, limit) => {
-            t!("entry_plan.warn.streak", streak = streak, limit = limit, account = account)
+            plural!(*streak, "entry_plan.warn.streak", streak = streak, limit = limit, account = account)
         }
     }
 }

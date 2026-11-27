@@ -41,10 +41,16 @@ trades.figure.trades:
 trades.figure.unjournaled:
   vi: "Chưa viết nhật ký"
   en: "Not journaled"
-trades.showing:
+trades.showing.one:
+  vi: "Hiển thị %{shown} / %{all} lệnh"
+  en: "Showing %{shown} / %{all} trade"
+trades.showing.other:
   vi: "Hiển thị %{shown} / %{all} lệnh"
   en: "Showing %{shown} / %{all} trades"
-trades.selected:
+trades.selected.one:
+  vi: "Đã chọn %{n} lệnh"
+  en: "%{n} trade selected"
+trades.selected.other:
   vi: "Đã chọn %{n} lệnh"
   en: "%{n} trades selected"
 trades.deselect:

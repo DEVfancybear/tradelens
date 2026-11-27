@@ -90,9 +90,12 @@ ui.files.images:
 ui.files.reports:
   vi: "Báo cáo MT5"
   en: "MT5 reports"
-ui.files.skipped:
+ui.files.skipped.one:
   vi: "%{n} file không đúng loại (%{kind})"
   en: "%{n} file of the wrong type (%{kind})"
+ui.files.skipped.other:
+  vi: "%{n} file không đúng loại (%{kind})"
+  en: "%{n} files of the wrong type (%{kind})"
 ui.files.dialog_failed:
   vi: "Không mở được hộp thoại chọn file: %{error}"
   en: "Could not open the file dialog: %{error}"
@@ -212,7 +215,7 @@ ui.month_grid.weekday.sun:
   en: "Sun"
 ui.month_grid.wins_of:
   vi: "%{wins}/%{trades} lệnh thắng"
-  en: "%{wins}/%{trades} trades won"
+  en: "%{wins}/%{trades} won"
 ui.month_grid.wins:
   vi: "%{wins} thắng"
   en: "%{wins} won"
@@ -465,10 +468,16 @@ ui.properties.option_name_short:
 ui.properties.option_remove:
   vi: "Xoá lựa chọn %{name}"
   en: "Remove option %{name}"
-ui.properties.hidden_count:
+ui.properties.hidden_count.one:
+  vi: "%{n} thuộc tính ẩn"
+  en: "%{n} hidden property"
+ui.properties.hidden_count.other:
   vi: "%{n} thuộc tính ẩn"
   en: "%{n} hidden properties"
-ui.properties.hidden_list:
+ui.properties.hidden_list.one:
+  vi: "%{arrow} %{n} thuộc tính ẩn (%{names})"
+  en: "%{arrow} %{n} hidden property (%{names})"
+ui.properties.hidden_list.other:
   vi: "%{arrow} %{n} thuộc tính ẩn (%{names})"
   en: "%{arrow} %{n} hidden properties (%{names})"
 ui.properties.show:

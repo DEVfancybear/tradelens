@@ -63,7 +63,10 @@ journal.not_chosen:
 journal.trades:
   vi: "Lệnh trong ngày"
   en: "Trades of the day"
-journal.trades_won:
+journal.trades_won.one:
+  vi: "%{n} lệnh · %{wins} thắng"
+  en: "%{n} trade · %{wins} won"
+journal.trades_won.other:
   vi: "%{n} lệnh · %{wins} thắng"
   en: "%{n} trades · %{wins} won"
 journal.no_trades:
@@ -81,6 +84,9 @@ journal.checklist:
 journal.checklist_empty:
   vi: "Chưa có mục nào: thêm ở Tài khoản & kỷ luật."
   en: "No items yet: add them in Accounts & discipline."
-journal.checklist_count:
+journal.checklist_count.one:
+  vi: "%{confirmed} / %{total} lệnh"
+  en: "%{confirmed} / %{total} trade"
+journal.checklist_count.other:
   vi: "%{confirmed} / %{total} lệnh"
   en: "%{confirmed} / %{total} trades"

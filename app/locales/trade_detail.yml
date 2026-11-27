@@ -59,7 +59,10 @@ trade_detail.manage:
 trade_detail.share:
   vi: "Chia sẻ"
   en: "Share"
-trade_detail.source_mt5:
+trade_detail.source_mt5.one:
+  vi: "%{account} · nguồn: %{origin} · gộp %{n} deal"
+  en: "%{account} · source: %{origin} · %{n} deal"
+trade_detail.source_mt5.other:
   vi: "%{account} · nguồn: %{origin} · gộp %{n} deal"
   en: "%{account} · source: %{origin} · %{n} deals merged"
 trade_detail.source:

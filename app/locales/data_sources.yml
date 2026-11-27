@@ -18,7 +18,7 @@ data_sources.accept.notion:
   en: "Notion CSV or ZIP"
 data_sources.report.result:
   vi: "%{inserted} deal mới, %{updated} deal cập nhật, %{existing} deal đã có · tài khoản %{login}"
-  en: "%{inserted} new deals, %{updated} updated deals, %{existing} already stored · account %{login}"
+  en: "Deals: %{inserted} new, %{updated} updated, %{existing} already stored · account %{login}"
 data_sources.report.title:
   vi: "Import báo cáo MT5"
   en: "Import MT5 report"
@@ -96,7 +96,7 @@ data_sources.api.file_name:
   en: "%{title} (Notion API)"
 data_sources.preview.found:
   vi: "%{file} · %{rows} dòng: %{count} đọc được, %{skipped} dòng bị bỏ qua"
-  en: "%{file} · %{rows} rows: %{count} read, %{skipped} rows skipped"
+  en: "%{file} · rows: %{rows} · %{count} read · rows skipped: %{skipped}"
 data_sources.preview.total_r:
   vi: "tổng kết quả trong file %{r} · %{wins} thắng, %{losses} thua, %{even} hòa vốn"
   en: "total result in the file %{r} · %{wins} won, %{losses} lost, %{even} break-even"
@@ -129,8 +129,11 @@ data_sources.preview.properties_title:
   en: "Properties that will be created in the trade form (reused when one has the same name)"
 data_sources.preview.ignored:
   vi: "Bỏ qua %{n} cột: %{columns}"
-  en: "Skipped %{n} columns: %{columns}"
-data_sources.preview.more_rows:
+  en: "Columns skipped (%{n}): %{columns}"
+data_sources.preview.more_rows.one:
+  vi: "… và %{n} dòng nữa"
+  en: "… and %{n} more row"
+data_sources.preview.more_rows.other:
   vi: "… và %{n} dòng nữa"
   en: "… and %{n} more rows"
 data_sources.preview.skipped_title:
@@ -147,19 +150,25 @@ data_sources.preview.import:
   en: "Import %{trades}"
 data_sources.summary.imported:
   vi: "Đã nhập %{created} lệnh mới · %{updated} cập nhật · %{unchanged} không đổi"
-  en: "Imported %{created} new trade(s) · %{updated} updated · %{unchanged} unchanged"
-data_sources.summary.matched:
+  en: "New trades imported: %{created} · updated: %{updated} · unchanged: %{unchanged}"
+data_sources.summary.matched.one:
   vi: "%{n} lệnh trùng lệnh MT5: chỉ gắn nhật ký vào lệnh MT5, không tạo thêm lệnh"
-  en: "%{n} trade(s) match MT5 trades: the journal is only attached to the MT5 trade, no extra trade is created"
+  en: "%{n} trade matches an MT5 trade: its journal is only attached to the MT5 trade, no extra trade is created"
+data_sources.summary.matched.other:
+  vi: "%{n} lệnh trùng lệnh MT5: chỉ gắn nhật ký vào lệnh MT5, không tạo thêm lệnh"
+  en: "%{n} trades match MT5 trades: their journals are only attached to the MT5 trades, no extra trade is created"
 data_sources.summary.properties_created:
   vi: "Thuộc tính đã tạo: %{list}"
   en: "Properties created: %{list}"
 data_sources.summary.properties_reused:
   vi: "Thuộc tính dùng lại: %{list}"
   en: "Properties reused: %{list}"
-data_sources.summary.options:
+data_sources.summary.options.one:
   vi: "%{n} lựa chọn mới đã thêm vào danh sách tag, lỗi, cảm xúc…"
-  en: "%{n} new option(s) added to the tag, mistake and emotion lists…"
+  en: "%{n} new option added to the tag, mistake and emotion lists…"
+data_sources.summary.options.other:
+  vi: "%{n} lựa chọn mới đã thêm vào danh sách tag, lỗi, cảm xúc…"
+  en: "%{n} new options added to the tag, mistake and emotion lists…"
 data_sources.summary.images:
   vi: "Ảnh gắn vào lệnh: %{attached} · không có trong file zip: %{missing}"
   en: "Pictures attached to trades: %{attached} · not in the zip file: %{missing}"
@@ -180,10 +189,10 @@ data_sources.log.counts:
   en: "+%{inserted} · %{updated} updated"
 data_sources.log.deals:
   vi: "%{inserted} deal mới, %{updated} deal cập nhật"
-  en: "%{inserted} new deals, %{updated} updated deals"
+  en: "Deals: %{inserted} new, %{updated} updated"
 data_sources.log.notion:
   vi: "%{inserted} lệnh mới, %{updated} lệnh cập nhật từ Notion"
-  en: "%{inserted} new trades, %{updated} updated trades from Notion"
+  en: "Trades from Notion: %{inserted} new, %{updated} updated"
 data_sources.source.mt5:
   vi: "Kết nối MT5"
   en: "MT5 connection"

@@ -11,6 +11,7 @@ use tradelens_core::{
 };
 
 use super::account_trades::{self, AccountTrades};
+use crate::i18n::plural;
 use crate::{
     format::{self, Sign},
     store::{Reading, Writer, query, writer},
@@ -761,7 +762,9 @@ fn violations_card(data: Reading<AccountsData>, id: i64) -> impl IntoElement {
                     )
                     .child(
                         text(move || match compliance() {
-                            Some(rate) => t!("accounts.violations.compliance", rate = format::percent(rate)),
+                            Some(rate) => {
+                                plural!(lines().len(), "accounts.violations.compliance", rate = format::percent(rate))
+                            }
                             None => t!("accounts.violations.no_days"),
                         })
                         .text_sm()
@@ -781,7 +784,7 @@ fn violations_card(data: Reading<AccountsData>, id: i64) -> impl IntoElement {
                     view()
                         .child(view().children(all.into_iter().take(LISTED).map(|line| violation_row(&line))))
                         .child((more > 0).then(|| {
-                            text(t!("accounts.violations.more", n = more))
+                            text(plural!(more, "accounts.violations.more", n = more))
                                 .pt_2()
                                 .text_xs()
                                 .text_color(move || theme().muted_foreground)

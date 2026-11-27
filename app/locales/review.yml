@@ -63,7 +63,10 @@ review.tile.win:
 review.tile.journaled:
   vi: "Đã ghi nhật ký"
   en: "Journaled"
-review.tile.journaled_of:
+review.tile.journaled_of.one:
+  vi: "%{done} / %{all} lệnh"
+  en: "%{done} / %{all} trade"
+review.tile.journaled_of.other:
   vi: "%{done} / %{all} lệnh"
   en: "%{done} / %{all} trades"
 review.tile.mistake_cost:
@@ -138,13 +141,22 @@ review.queue.empty:
 review.queue.and_more:
   vi: "%{names} và %{more} lệnh nữa"
   en: "%{names} and %{more} more"
-review.queue.not_journalled:
+review.queue.not_journalled.one:
+  vi: "%{count} lệnh chưa ghi nhật ký"
+  en: "%{count} trade not journaled"
+review.queue.not_journalled.other:
   vi: "%{count} lệnh chưa ghi nhật ký"
   en: "%{count} trades not journaled"
-review.queue.flagged:
+review.queue.flagged.one:
+  vi: "%{count} lệnh đánh dấu “Xem lại sau”"
+  en: "%{count} trade marked “Review later”"
+review.queue.flagged.other:
   vi: "%{count} lệnh đánh dấu “Xem lại sau”"
   en: "%{count} trades marked “Review later”"
-review.queue.lost_more:
+review.queue.lost_more.one:
+  vi: "%{count} lệnh lỗ quá 1R"
+  en: "%{count} trade lost more than 1R"
+review.queue.lost_more.other:
   vi: "%{count} lệnh lỗ quá 1R"
   en: "%{count} trades lost more than 1R"
 review.queue.journal_now:
@@ -181,10 +193,16 @@ review.template.week:
 review.template.month:
   vi: "Tổng kết tháng"
   en: "Month review"
-review.template.count:
+review.template.count.one:
+  vi: "%{n} câu"
+  en: "%{n} question"
+review.template.count.other:
   vi: "%{n} câu"
   en: "%{n} questions"
-review.template.count_default:
+review.template.count_default.one:
+  vi: "%{n} câu · mặc định"
+  en: "%{n} question · default"
+review.template.count_default.other:
   vi: "%{n} câu · mặc định"
   en: "%{n} questions · default"
 review.template.edit:

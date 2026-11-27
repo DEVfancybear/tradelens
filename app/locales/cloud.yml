@@ -33,16 +33,22 @@ cloud.today:
   en: "%{time} today"
 cloud.counts.moved:
   vi: "đẩy %{pushed} thay đổi, nhận %{pulled}"
-  en: "pushed %{pushed} changes, received %{pulled}"
-cloud.counts.conflicts:
+  en: "changes pushed: %{pushed}, received: %{pulled}"
+cloud.counts.conflicts.one:
   vi: "%{n} chỗ hai máy sửa khác nhau đã gộp theo lần sửa mới nhất"
-  en: "%{n} conflicting edit(s) from two machines merged by the latest edit"
+  en: "%{n} conflicting edit from two machines, resolved by the latest edit"
+cloud.counts.conflicts.other:
+  vi: "%{n} chỗ hai máy sửa khác nhau đã gộp theo lần sửa mới nhất"
+  en: "%{n} conflicting edits from two machines, resolved by the latest edit"
 cloud.counts.pictures:
   vi: "ảnh: %{up} lên, %{down} xuống"
-  en: "pictures: %{up} up, %{down} down"
-cloud.counts.pictures_failed:
+  en: "images: %{up} up, %{down} down"
+cloud.counts.pictures_failed.one:
   vi: "%{n} ảnh chưa chuyển được, lần sync sau sẽ thử lại"
-  en: "%{n} picture(s) not transferred yet, the next sync will try again"
+  en: "%{n} image not transferred yet, the next sync will try again"
+cloud.counts.pictures_failed.other:
+  vi: "%{n} ảnh chưa chuyển được, lần sync sau sẽ thử lại"
+  en: "%{n} images not transferred yet, the next sync will try again"
 cloud.counts.snapshot:
   vi: "đã chụp bản sao tuần"
   en: "weekly snapshot taken"

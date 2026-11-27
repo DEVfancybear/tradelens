@@ -381,7 +381,7 @@ mod tests {
             let s = stat(330.4, 3, 2);
             (figure_of(&s, Figure::Trades, "USD").0, note_of(&s, Figure::Net))
         });
-        assert_eq!((trades.as_str(), note.as_str()), ("3 trades", "2/3 trades won"));
+        assert_eq!((trades.as_str(), note.as_str()), ("3 trades", "2/3 won"));
     }
 
     fn day_shows_the_figure_the_switch_asks_for() {

@@ -157,7 +157,10 @@ accounts.today.streak:
 accounts.violations.title:
   vi: "Vi phạm 30 ngày"
   en: "Violations, 30 days"
-accounts.violations.compliance:
+accounts.violations.compliance.one:
+  vi: "vi phạm · tuân thủ %{rate} số ngày"
+  en: "violation · compliant on %{rate} of days"
+accounts.violations.compliance.other:
   vi: "vi phạm · tuân thủ %{rate} số ngày"
   en: "violations · compliant on %{rate} of days"
 accounts.violations.no_days:
@@ -166,6 +169,9 @@ accounts.violations.no_days:
 accounts.violations.none:
   vi: "Không có vi phạm nào trong 30 ngày qua."
   en: "No violations in the last 30 days."
-accounts.violations.more:
+accounts.violations.more.one:
+  vi: "…và %{n} vi phạm cũ hơn"
+  en: "…and %{n} older violation"
+accounts.violations.more.other:
   vi: "…và %{n} vi phạm cũ hơn"
   en: "…and %{n} older violations"

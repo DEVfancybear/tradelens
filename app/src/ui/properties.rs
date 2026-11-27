@@ -10,6 +10,7 @@
 
 use std::{collections::HashMap, rc::Rc};
 
+use crate::i18n::plural;
 use nsh_base::{PopoverEvent, popover, theme};
 use nsh_core::prelude::*;
 use tradelens_core::catalog::{CustomValues, FieldDef, FieldKind, FieldScope, FieldValue, Requirement};
@@ -1190,13 +1191,14 @@ fn hidden_properties(list: Handle, hidden: Memo<Vec<Property>>) -> impl IntoElem
                 .child(
                     view()
                         .role(AccessibilityRole::Button)
-                        .label(t!("ui.properties.hidden_count", n = all.len()))
+                        .label(plural!(all.len(), "ui.properties.hidden_count", n = all.len()))
                         .focusable(true)
                         .cursor_pointer()
                         .on_press(move || open.update(|o| *o = !*o))
                         .py_2()
                         .child(
-                            text(t!(
+                            text(plural!(
+                                all.len(),
                                 "ui.properties.hidden_list",
                                 arrow = if expanded { "▾" } else { "▸" },
                                 n = all.len(),

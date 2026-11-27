@@ -16,6 +16,7 @@ use tradelens_core::{
 };
 
 use super::catalog_tags::catalog_tags;
+use crate::i18n::plural;
 use crate::{
     format,
     store::{Reading, query, store, writer},
@@ -193,7 +194,8 @@ fn stats_row(list: Reading<Vec<MissedTrade>>, reasons: Reading<Vec<CatalogItem>>
             },
             move || {
                 let (s, _, all) = summary();
-                t!(
+                plural!(
+                    all,
                     "missed.tile.times",
                     n = top_reason(&s, reasons.value().as_deref().map_or(&[][..], Vec::as_slice)).1,
                     all = all

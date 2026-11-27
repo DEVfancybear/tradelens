@@ -19,6 +19,7 @@ use super::{
     account_picker::account_picker,
     account_trades::{self, AccountTrades},
 };
+use crate::i18n::plural;
 use crate::{
     format::{self, MoneyColumn, Position, Sign},
     insight, nav,
@@ -723,7 +724,7 @@ fn trades_card(data: Reading<DayData>) -> impl IntoElement {
                     .child(
                         text(move || {
                             let wins = data.value().map_or(0, |d| d.trades.iter().filter(|t| t.won()).count());
-                            t!("journal.trades_won", n = count(), wins = wins)
+                            plural!(count(), "journal.trades_won", n = count(), wins = wins)
                         })
                         .text_sm()
                         .text_color(move || theme().muted_foreground),
@@ -828,7 +829,7 @@ fn checklist_card(data: Reading<DayData>) -> impl IntoElement {
                                     let line = if total == 0 {
                                         "—".to_owned()
                                     } else {
-                                        t!("journal.checklist_count", confirmed = confirmed, total = total)
+                                        plural!(total, "journal.checklist_count", confirmed = confirmed, total = total)
                                     };
                                     move || line.clone()
                                 })

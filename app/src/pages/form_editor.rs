@@ -14,6 +14,7 @@ use tradelens_core::{
     form::{BuiltinField, FieldRef, FormLayout, Property},
 };
 
+use crate::i18n::plural;
 use crate::{
     nav,
     store::{Reading, Store, Writer, query, store, writer},
@@ -140,9 +141,9 @@ fn deleted(defs: &[FieldDef]) -> Vec<FieldDef> {
 fn summary_of(rows: &[Property]) -> String {
     let hidden = rows.iter().filter(|p| p.hidden).count();
     if hidden == 0 {
-        t!("form_editor.summary.shown", n = rows.len())
+        plural!(rows.len(), "form_editor.summary.shown", n = rows.len())
     } else {
-        t!("form_editor.summary.hidden", n = rows.len(), hidden = hidden)
+        plural!(rows.len(), "form_editor.summary.hidden", n = rows.len(), hidden = hidden)
     }
 }
 
@@ -280,7 +281,7 @@ impl Ops {
                         confirm_then(
                             self.owner,
                             t!("form_editor.kind.lose_title"),
-                            t!("form_editor.kind.lose_body", lost = lost, kind = kind_name(to)),
+                            plural!(lost, "form_editor.kind.lose_body", lost = lost, kind = kind_name(to)),
                             t!("form_editor.kind.lose_confirm"),
                             move || apply(self),
                         );

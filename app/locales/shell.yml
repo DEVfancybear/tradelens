@@ -62,7 +62,10 @@ shell.mt5.connected:
 shell.mt5.lost:
   vi: "MT5 · mất kết nối"
   en: "MT5 · connection lost"
-shell.mt5.accounts:
+shell.mt5.accounts.one:
+  vi: "MT5 · %{connected}/%{total} tài khoản kết nối"
+  en: "MT5 · %{connected}/%{total} account connected"
+shell.mt5.accounts.other:
   vi: "MT5 · %{connected}/%{total} tài khoản kết nối"
   en: "MT5 · %{connected}/%{total} accounts connected"
 shell.cloud.signed_out:

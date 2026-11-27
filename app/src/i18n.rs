@@ -29,6 +29,20 @@ use crate::{
 /// The app's translations as `build.rs` read them from `locales/`: languages, then keys and text.
 pub(crate) const TRANSLATIONS: &str = include_str!(concat!(env!("OUT_DIR"), "/translations.json"));
 
+/// The text of `key.one` when `n` is 1, else of `key.other`, with the arguments given:
+/// `plural!(n, "trades.selected", n = n)`. English writes "1 trade" and "2 trades"; Vietnamese
+/// writes both alike, so its two texts are the same.
+macro_rules! plural {
+    ($n:expr, $key:literal $(, $name:ident = $value:expr)* $(,)?) => {
+        if $n == 1 {
+            ::nsh_core::t!(concat!($key, ".one") $(, $name = $value)*)
+        } else {
+            ::nsh_core::t!(concat!($key, ".other") $(, $name = $value)*)
+        }
+    };
+}
+pub(crate) use plural;
+
 /// The settings key of the language the trader reads the app in.
 pub(crate) const LANGUAGE_KEY: &str = "language";
 

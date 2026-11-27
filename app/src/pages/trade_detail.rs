@@ -19,6 +19,7 @@ use super::{
     entry_plan,
     share::{self, ShareTarget},
 };
+use crate::i18n::plural;
 use crate::{
     format::{self, Sign},
     journal_draft::{Draft, added, key_of_choice, key_or_empty, removed, suggested_exit, ticked, unticked, with_value},
@@ -468,7 +469,13 @@ fn facts_card(row: Memo<Option<TradeRow>>) -> impl IntoElement {
                     let origin = r.origin;
                     // Only a trade of the terminal is made of real deals; the others hold the two the app wrote.
                     if origin == Origin::Mt5 {
-                        t!("trade_detail.source_mt5", account = r.account, origin = origin.label(), n = r.deals.len())
+                        plural!(
+                            r.deals.len(),
+                            "trade_detail.source_mt5",
+                            account = r.account,
+                            origin = origin.label(),
+                            n = r.deals.len()
+                        )
                     } else {
                         t!("trade_detail.source", account = r.account, origin = origin.label())
                     }

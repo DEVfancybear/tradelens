@@ -12,6 +12,7 @@ use tradelens_core::{
 };
 
 use super::{account_picker::account_picker, manual_entry, trade_detail};
+use crate::i18n::plural;
 use crate::{
     format::{self, Sign},
     nav,
@@ -345,7 +346,7 @@ fn footer(
                     text(move || {
                         let shown = picked.with(Vec::len);
                         let all = store.snapshot().rows.len();
-                        t!("trades.showing", shown = shown, all = all)
+                        plural!(all, "trades.showing", shown = shown, all = all)
                     })
                     .text_xs()
                     .text_color(move || theme().muted_foreground),
@@ -389,7 +390,7 @@ fn selection_bar(
         .flex_row()
         .items_center()
         .gap_2()
-        .child(text(t!("trades.selected", n = ticked)).text_sm().font_weight(FontWeight::MEDIUM))
+        .child(text(plural!(ticked, "trades.selected", n = ticked)).text_sm().font_weight(FontWeight::MEDIUM))
         .child(text("·").text_sm().text_color(move || theme().muted_foreground))
         .child(action(t!("common.delete"), Variant::Destructive, remove))
         .child(action(t!("trades.deselect"), Variant::Ghost, move || selected.set(BTreeSet::new())))
