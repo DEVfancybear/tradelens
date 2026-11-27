@@ -36,6 +36,9 @@ const AUTH_FAILED: i64 = -6;
 /// What the package says when the terminal never tells it it is ready (`RES_E_INTERNAL_FAIL_TIMEOUT`):
 /// seen when the terminal does not know the account's server and so never connects.
 const IPC_TIMEOUT: i64 = -10005;
+/// `TRADE_RETCODE_PLACED` and `TRADE_RETCODE_DONE_PARTIAL`, which the worker answers as a failure:
+/// the order went through but did not (yet) do all it asked, so its outcome is not a clear yes or no.
+const UNSETTLED: [i64; 2] = [10_008, 10_010];
 /// How long a login may take: a terminal's first start in a new folder downloads its updates.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long a poll, an order or a probe may take.
@@ -183,24 +186,42 @@ pub fn find(chosen: Option<&Path>, private: Option<&Path>) -> Option<Python> {
     first
 }
 
-/// Installs the `MetaTrader5` package for the user (`pip install --user`). Blocks for as long as
-/// pip takes: call it off the UI thread.
+/// Installs the `MetaTrader5` package for the user (`pip install --user`), or into the virtual
+/// environment when `python` runs in one (pip refuses `--user` there). Blocks for as long as pip
+/// takes: call it off the UI thread.
 ///
 /// # Errors
 ///
 /// [`Mt5Error::Setup`] with the end of pip's output when it fails.
 pub fn install_package(python: &Python) -> Result<(), Mt5Error> {
-    let mut run = python.command();
-    run.args(["-m", "pip", "install", "--user", "--upgrade", "--disable-pip-version-check", PACKAGE])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let output = output_within(run, Duration::from_mins(10))
-        .map_err(|error| Mt5Error::Setup(format!("không chạy được pip: {error}")))?;
+    let mut output = pip_install(python, &["--user"])?;
+    if !output.status.success() && refuses_user_install(&output.stderr) {
+        output = pip_install(python, &[])?;
+    }
     if output.status.success() {
         return Ok(());
     }
     Err(Mt5Error::Setup(format!("pip không cài được {PACKAGE}: {}", tail(&output.stderr))))
+}
+
+/// Runs `pip install` of the package with `extra` arguments (`--user`), up to ten minutes.
+fn pip_install(python: &Python, extra: &[&str]) -> Result<std::process::Output, Mt5Error> {
+    let mut run = python.command();
+    run.args(["-m", "pip", "install"])
+        .args(extra)
+        .args(["--upgrade", "--disable-pip-version-check", PACKAGE])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    output_within(run, Duration::from_mins(10))
+        .map_err(|error| Mt5Error::Setup(format!("không chạy được pip: {error}")))
+}
+
+/// Whether pip refused `--user` because it runs in a virtual environment, whose own site-packages
+/// is where the package goes then.
+fn refuses_user_install(stderr: &[u8]) -> bool {
+    let said = String::from_utf8_lossy(stderr);
+    said.contains("--user") && said.contains("virtualenv")
 }
 
 /// The last lines of what a program printed, on one line: what pip says when it fails.
@@ -365,6 +386,8 @@ fn reply_data(reply: &Value) -> Result<Value, Mt5Error> {
         Mt5Error::LoginRefused(message)
     } else if reply["id"].is_null() {
         Mt5Error::Setup(message)
+    } else if UNSETTLED.contains(&code) {
+        Mt5Error::Uncertain(format!("{message}; hãy xem lại lệnh trên MT5 trước khi gửi lần nữa"))
     } else {
         Mt5Error::Refused { code, message }
     })
@@ -476,6 +499,24 @@ mod tests {
         let early = reply_data(&json!({"id": null, "ok": false, "code": -1, "error": "chưa cài gói MetaTrader5"}));
         assert_eq!(early, Err(Mt5Error::Setup("chưa cài gói MetaTrader5".to_owned())));
         assert_eq!(reply_data(&json!({"id": 3, "ok": true, "data": 7})), Ok(json!(7)));
+    }
+
+    #[test]
+    fn an_order_filled_only_in_part_is_neither_done_nor_refused() {
+        for code in UNSETTLED {
+            let reply =
+                reply_data(&json!({"id": 4, "ok": false, "code": code, "error": "MT5 chỉ khớp 0.05 trên 0.2 lot"}));
+            let Err(Mt5Error::Uncertain(message)) = &reply else { panic!("code {code}: {reply:?}") };
+            assert!(message.starts_with("MT5 chỉ khớp 0.05 trên 0.2 lot"), "{message}");
+        }
+    }
+
+    #[test]
+    fn pip_refusing_a_user_install_in_a_virtual_environment_is_recognised() {
+        let said =
+            b"ERROR: Can not perform a '--user' install. User site-packages are not visible in this virtualenv.\n";
+        assert!(refuses_user_install(said));
+        assert!(!refuses_user_install(b"ERROR: No matching distribution found for MetaTrader5\n"));
     }
 
     #[test]
