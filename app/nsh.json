@@ -1,7 +1,7 @@
 {
   "name": "TradeLens",
   "id": "vn.dat.tradelens",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "build": 1,
   "icon": "icon/png/icon-1024.png",
   "appearance": "system",
