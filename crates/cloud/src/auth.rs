@@ -209,11 +209,11 @@ impl ClientConfig {
             given(setting(&key)).or_else(|| given(std::env::var(env).ok())).or_else(|| given(built.map(str::to_owned)))
         };
         let id = pick(provider.client_id_setting(), provider.client_id_env(), built_id).ok_or_else(|| {
-            CloudError::Config(format!(
-                "chưa có client id của {}: đặt {} hoặc biến môi trường {} (xem docs/cloud-sync.md)",
-                provider.label(),
-                provider.client_id_setting(),
-                provider.client_id_env()
+            CloudError::Config(crate::tr!(
+                "cloud.auth.no_client_id_hint",
+                provider = provider.label(),
+                setting = provider.client_id_setting(),
+                env = provider.client_id_env()
             ))
         })?;
         let secret = pick(provider.client_secret_setting(), provider.client_secret_env(), built_secret);
@@ -229,7 +229,7 @@ impl ClientConfig {
 
     fn check(&self) -> crate::Result<()> {
         if self.client_id.trim().is_empty() {
-            return Err(CloudError::Config(format!("chưa có client id của {}", self.provider.label())));
+            return Err(CloudError::Config(crate::tr!("cloud.auth.no_client_id", provider = self.provider.label())));
         }
         Ok(())
     }
@@ -306,7 +306,7 @@ pub(crate) fn pkce_challenge(verifier: &str) -> String {
 /// `bytes` random bytes from the OS, as unpadded base64url text.
 pub(crate) fn random_token(bytes: usize) -> crate::Result<String> {
     let mut buf = vec![0_u8; bytes];
-    getrandom::fill(&mut buf).map_err(|e| CloudError::Auth(format!("không lấy được số ngẫu nhiên: {e}")))?;
+    getrandom::fill(&mut buf).map_err(|e| CloudError::Auth(crate::tr!("cloud.auth.no_random", error = e)))?;
     Ok(URL_SAFE_NO_PAD.encode(buf))
 }
 
@@ -348,7 +348,7 @@ pub fn sign_in(
 ) -> crate::Result<(Identity, Tokens)> {
     client.check()?;
     let listener = TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|e| CloudError::Network(format!("không mở được cổng nhận đăng nhập: {e}")))?;
+        .map_err(|e| CloudError::Network(crate::tr!("cloud.auth.port_failed", error = e)))?;
     listener.set_nonblocking(true).map_err(|e| CloudError::Network(e.to_string()))?;
     let port = listener.local_addr().map_err(|e| CloudError::Network(e.to_string()))?.port();
     let redirect_uri = format!("http://{}:{port}", client.redirect_host);
@@ -471,7 +471,7 @@ fn exchange_granted(
         }
         return Err(CloudError::Auth(match body["error_description"].as_str() {
             Some(description) => format!("{code}: {description}"),
-            None => format!("dịch vụ trả lỗi {}", response.status),
+            None => crate::tr!("cloud.auth.service_error", status = response.status),
         }));
     }
     let parsed: TokenResponse = response.json()?;
@@ -506,7 +506,7 @@ fn userinfo(http: &Http, client: &ClientConfig, access_token: &str) -> crate::Re
     let joined = [info.given_name, info.family_name].into_iter().flatten().collect::<Vec<_>>().join(" ");
     let name = info.name.filter(|n| !n.is_empty()).unwrap_or(joined);
     if email.is_empty() && name.is_empty() {
-        return Err(CloudError::Auth("không đọc được tên tài khoản từ nhà cung cấp".to_owned()));
+        return Err(CloudError::Auth(crate::tr!("cloud.auth.no_account_name")));
     }
     let name = if name.is_empty() { email.clone() } else { name };
     Ok(Identity { provider: client.provider, email, name })
@@ -516,8 +516,9 @@ fn userinfo(http: &Http, client: &ClientConfig, access_token: &str) -> crate::Re
 
 /// The page the browser lands on, in Vietnamese.
 fn page(title: &str, message: &str) -> String {
+    let lang = tradelens_core::i18n::current().key();
     format!(
-        "<!doctype html><html lang=\"vi\"><head><meta charset=\"utf-8\"><title>TradeLens</title>\
+        "<!doctype html><html lang=\"{lang}\"><head><meta charset=\"utf-8\"><title>TradeLens</title>\
          <meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>\
          <body style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;\
          text-align:center;color:#1f2933\"><h1 style=\"font-size:1.4rem\">{title}</h1><p>{message}</p></body></html>"
@@ -609,7 +610,7 @@ fn wait_for_code(listener: &TcpListener, state: &str, options: &SignInOptions) -
             return Err(CloudError::Cancelled);
         }
         if Instant::now() >= deadline {
-            return Err(CloudError::Auth("hết thời gian chờ đăng nhập".to_owned()));
+            return Err(CloudError::Auth(crate::tr!("cloud.auth.timed_out")));
         }
         let mut stream = match listener.accept() {
             Ok((stream, _)) => stream,
@@ -617,7 +618,7 @@ fn wait_for_code(listener: &TcpListener, state: &str, options: &SignInOptions) -
                 std::thread::sleep(POLL);
                 continue;
             }
-            Err(e) => return Err(CloudError::Network(format!("cổng nhận đăng nhập bị lỗi: {e}"))),
+            Err(e) => return Err(CloudError::Network(crate::tr!("cloud.auth.port_error", error = e))),
         };
         let Some(line) = read_request_line(&mut stream) else { continue };
         let params = query_of(&line);
@@ -627,7 +628,10 @@ fn wait_for_code(listener: &TcpListener, state: &str, options: &SignInOptions) -
             respond(
                 stream,
                 "400 Bad Request",
-                &page("Yêu cầu không hợp lệ", "Trang này chỉ dùng để đăng nhập TradeLens."),
+                &page(
+                    &crate::tr!("cloud.auth.page.bad_request.title"),
+                    &crate::tr!("cloud.auth.page.bad_request.body"),
+                ),
             );
             continue;
         }
@@ -635,7 +639,7 @@ fn wait_for_code(listener: &TcpListener, state: &str, options: &SignInOptions) -
             respond(
                 stream,
                 "200 OK",
-                &page("Đăng nhập chưa hoàn tất", "Bạn đã từ chối hoặc có lỗi. Hãy quay lại TradeLens và thử lại."),
+                &page(&crate::tr!("cloud.auth.page.incomplete.title"), &crate::tr!("cloud.auth.page.incomplete.body")),
             );
             return Err(if error == "access_denied" {
                 CloudError::Cancelled
@@ -645,10 +649,18 @@ fn wait_for_code(listener: &TcpListener, state: &str, options: &SignInOptions) -
         }
         if let Some(code) = get("code") {
             let code = code.to_owned();
-            respond(stream, "200 OK", &page("Đăng nhập thành công", "Bạn có thể đóng tab này và quay lại TradeLens."));
+            respond(
+                stream,
+                "200 OK",
+                &page(&crate::tr!("cloud.auth.page.success.title"), &crate::tr!("cloud.auth.page.success.body")),
+            );
             return Ok(code);
         }
-        respond(stream, "400 Bad Request", &page("Thiếu mã đăng nhập", "Hãy quay lại TradeLens và thử lại."));
+        respond(
+            stream,
+            "400 Bad Request",
+            &page(&crate::tr!("cloud.auth.page.no_code.title"), &crate::tr!("cloud.auth.page.no_code.body")),
+        );
     }
 }
 

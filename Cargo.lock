@@ -5764,6 +5764,7 @@ dependencies = [
  "keyring",
  "log",
  "percent-encoding",
+ "rust-i18n",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -5803,6 +5804,7 @@ name = "tradelens-mt5"
 version = "0.2.1"
 dependencies = [
  "log",
+ "rust-i18n",
  "serde",
  "serde_json",
  "sha2 0.11.1",

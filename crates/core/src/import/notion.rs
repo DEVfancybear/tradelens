@@ -84,35 +84,37 @@ impl Field {
         Self::Screenshot,
     ];
 
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::OpenTime => "Thời gian vào",
-            Self::CloseTime => "Thời gian ra",
-            Self::Symbol => "Symbol",
-            Self::Side => "Buy/Sell",
-            Self::Volume => "Khối lượng",
-            Self::OpenPrice => "Giá vào",
-            Self::ClosePrice => "Giá ra",
-            Self::StopLoss => "Stop loss",
-            Self::TakeProfit => "Take profit",
-            Self::Profit => "Lãi/lỗ",
-            Self::ResultR => "Kết quả (R)",
-            Self::Commission => "Phí",
-            Self::Swap => "Swap",
-            Self::Setup => "Setup",
-            Self::SetupGrade => "Hạng setup",
-            Self::Tags => "Tag",
-            Self::Mistakes => "Lỗi",
-            Self::Emotion => "Cảm xúc",
-            Self::EmotionAfter => "Cảm xúc sau lệnh",
-            Self::ExitReason => "Lý do thoát lệnh",
-            Self::Market => "Trạng thái thị trường",
-            Self::Rating => "Đánh giá",
-            Self::FollowedPlan => "Đúng kế hoạch",
-            Self::ReviewLater => "Xem lại sau",
-            Self::Notes => "Ghi chú",
-            Self::Screenshot => "Ảnh",
-        }
+    /// What the trader calls the field, in the language of the process.
+    pub fn label(self) -> String {
+        let key = match self {
+            Self::OpenTime => "core.notion.field.open_time",
+            Self::CloseTime => "core.notion.field.close_time",
+            Self::Symbol => "core.notion.field.symbol",
+            Self::Side => "core.notion.field.side",
+            Self::Volume => "core.notion.field.volume",
+            Self::OpenPrice => "core.notion.field.open_price",
+            Self::ClosePrice => "core.notion.field.close_price",
+            Self::StopLoss => "core.notion.field.stop_loss",
+            Self::TakeProfit => "core.notion.field.take_profit",
+            Self::Profit => "core.notion.field.profit",
+            Self::ResultR => "core.notion.field.result_r",
+            Self::Commission => "core.notion.field.commission",
+            Self::Swap => "core.notion.field.swap",
+            Self::Setup => "core.notion.field.setup",
+            Self::SetupGrade => "core.notion.field.setup_grade",
+            Self::Tags => "core.notion.field.tags",
+            Self::Mistakes => "core.notion.field.mistakes",
+            Self::Emotion => "core.notion.field.emotion",
+            Self::EmotionAfter => "core.notion.field.emotion_after",
+            Self::ExitReason => "core.notion.field.exit_reason",
+            Self::Market => "core.notion.field.market",
+            Self::Rating => "core.notion.field.rating",
+            Self::FollowedPlan => "core.notion.field.followed_plan",
+            Self::ReviewLater => "core.notion.field.review_later",
+            Self::Notes => "core.notion.field.notes",
+            Self::Screenshot => "core.notion.field.screenshot",
+        };
+        crate::tr!(key)
     }
 
     /// Column names (English and Vietnamese) that usually hold the field. They are compared
@@ -279,13 +281,13 @@ impl NotionMapping {
 pub struct RowIssue {
     /// The line of the file the row starts on (the header is line 1).
     pub line: usize,
-    /// Vietnamese, ready to show.
+    /// Ready to show, in the language the trader had when the import ran.
     pub reason: String,
 }
 
 impl std::fmt::Display for RowIssue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "dòng {}: {}", self.line, self.reason)
+        write!(f, "{}", crate::tr!("core.notion.row_issue", line = self.line, reason = self.reason))
     }
 }
 
@@ -298,11 +300,11 @@ pub enum Verdict {
 }
 
 impl Verdict {
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::Win => "thắng",
-            Self::Loss => "thua",
-            Self::BreakEven => "hòa vốn",
+            Self::Win => crate::tr!("core.notion.verdict.win"),
+            Self::Loss => crate::tr!("core.notion.verdict.loss"),
+            Self::BreakEven => crate::tr!("core.notion.verdict.break_even"),
         }
     }
 }

@@ -295,7 +295,7 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
             from_row(row, |r| {
                 let which = match r.origin {
                     Origin::Mt5 => r.trade.key.position_id.to_string(),
-                    other => other.label().to_owned(),
+                    other => other.label(),
                 };
                 format!("{} · {which}", r.trade.symbol)
             })

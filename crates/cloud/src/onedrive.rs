@@ -196,7 +196,7 @@ impl OneDrive {
                         .and_then(|r| r.split('-').next().and_then(|n| n.parse::<usize>().ok()))
                         .unwrap_or(end);
                     if next <= sent {
-                        return Err(CloudError::Network("OneDrive không nhận phần dữ liệu vừa gửi".to_owned()));
+                        return Err(CloudError::Network(crate::tr!("cloud.onedrive.chunk_refused")));
                     }
                     sent = next.min(total);
                 }

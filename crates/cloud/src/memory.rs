@@ -50,11 +50,7 @@ impl MemoryDrive {
 
     fn online(&self) -> Result<MutexGuard<'_, State>> {
         let state = self.state();
-        if state.link == Link::Down {
-            Err(CloudError::Network("không có kết nối (ổ đĩa thử nghiệm đang ngắt)".into()))
-        } else {
-            Ok(state)
-        }
+        if state.link == Link::Down { Err(CloudError::Network(crate::tr!("cloud.memory.offline"))) } else { Ok(state) }
     }
 
     /// Cuts the connection (every call then fails with a network error) or restores it, to test a sync that is interrupted.
@@ -123,12 +119,9 @@ impl CloudDrive for MemoryDrive {
 
     fn download(&self, file: &RemoteFile) -> Result<Vec<u8>> {
         let state = self.online()?;
-        state
-            .files
-            .values()
-            .find(|stored| stored.id == file.id)
-            .map(|stored| stored.bytes.clone())
-            .ok_or_else(|| CloudError::Service { status: 404, message: format!("không có file {}", file.name) })
+        state.files.values().find(|stored| stored.id == file.id).map(|stored| stored.bytes.clone()).ok_or_else(|| {
+            CloudError::Service { status: 404, message: crate::tr!("cloud.memory.no_file", name = file.name) }
+        })
     }
 
     fn delete(&self, file: &RemoteFile) -> Result<()> {

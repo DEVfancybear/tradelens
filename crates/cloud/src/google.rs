@@ -178,7 +178,7 @@ impl GoogleDrive {
         };
         let session = opened
             .header("location")
-            .ok_or_else(|| CloudError::Network("Google Drive không trả địa chỉ phiên tải lên".to_owned()))?
+            .ok_or_else(|| CloudError::Network(crate::tr!("cloud.drive.no_session_url")))?
             .to_owned();
         self.send_pieces(&session, bytes)
     }
@@ -203,7 +203,7 @@ impl GoogleDrive {
                         .and_then(|n| n.trim().parse::<usize>().ok())
                         .map_or(0, |last| last + 1);
                     if kept <= sent {
-                        return Err(CloudError::Network("Google Drive không nhận phần dữ liệu vừa gửi".to_owned()));
+                        return Err(CloudError::Network(crate::tr!("cloud.drive.chunk_refused")));
                     }
                     sent = kept.min(total);
                 }

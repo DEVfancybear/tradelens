@@ -39,9 +39,14 @@ impl Period {
         let (first, last) = self.bounds(start);
         match self {
             Self::Week => {
-                format!("Tuần {} · {}–{}", first.iso_week().week(), first.format("%d"), last.format("%d/%m"))
+                crate::tr!(
+                    "core.review.week_title",
+                    week = first.iso_week().week(),
+                    from = first.format("%d"),
+                    to = last.format("%d/%m"),
+                )
             }
-            Self::Month => format!("Tháng {}", first.format("%m/%Y")),
+            Self::Month => crate::tr!("core.review.month_title", month = first.format("%m/%Y")),
         }
     }
 
@@ -74,22 +79,22 @@ pub struct ReviewTemplate {
 
 impl ReviewTemplate {
     pub fn default_for(period: Period) -> Self {
-        let prompts: &[&str] = match period {
+        let keys: &[&str] = match period {
             Period::Week => &[
-                "3 điều làm tốt tuần này",
-                "3 lỗi lặp lại và cái giá của chúng",
-                "Setup nào hiệu quả nhất, setup nào nên tạm dừng",
-                "Mục tiêu và quy tắc cho tuần sau",
+                "core.review.week_prompt.good",
+                "core.review.week_prompt.mistakes",
+                "core.review.week_prompt.setups",
+                "core.review.week_prompt.next",
             ],
             Period::Month => &[
-                "Kết quả so với mục tiêu tháng",
-                "Thay đổi lớn nhất trong cách giao dịch",
-                "Lỗi tốn kém nhất và kế hoạch loại bỏ",
-                "Điều chỉnh playbook và quy tắc rủi ro",
-                "Mục tiêu tháng sau",
+                "core.review.month_prompt.goal",
+                "core.review.month_prompt.change",
+                "core.review.month_prompt.costly",
+                "core.review.month_prompt.rules",
+                "core.review.month_prompt.next",
             ],
         };
-        Self { period, prompts: prompts.iter().map(|p| (*p).to_owned()).collect() }
+        Self { period, prompts: keys.iter().map(|key| crate::tr!(key)).collect() }
     }
 }
 
@@ -139,11 +144,11 @@ pub enum QueueReason {
 }
 
 impl QueueReason {
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::Flagged => "Bạn đánh dấu xem lại",
-            Self::LostMoreThanRisk => "Lỗ quá 1R",
-            Self::NotJournalled => "Chưa ghi nhật ký",
+            Self::Flagged => crate::tr!("core.review.queue.flagged"),
+            Self::LostMoreThanRisk => crate::tr!("core.review.queue.lost_more_than_risk"),
+            Self::NotJournalled => crate::tr!("core.review.queue.not_journalled"),
         }
     }
 }

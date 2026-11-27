@@ -17,6 +17,7 @@ serde_json.workspace = true
 chrono.workspace = true
 log.workspace = true
 thiserror.workspace = true
+rust-i18n.workspace = true
 ureq = "3.5"
 keyring = "4.2"
 sha2 = "0.11"
@@ -25,5 +26,6 @@ getrandom = "0.4"
 percent-encoding = "2.3"
 
 [dev-dependencies]
+tradelens-core = { workspace = true, features = ["test-util"] }
 tiny_http = "0.12"
 tempfile = "3"

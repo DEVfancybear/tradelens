@@ -28,13 +28,13 @@ impl DocKind {
     pub const ALL: [Self; 5] = [Self::Trade, Self::Day, Self::Review, Self::Missed, Self::Playbook];
 
     /// The heading of the kind's results.
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::Trade => "Lệnh",
-            Self::Day => "Nhật ký ngày",
-            Self::Review => "Tổng kết",
-            Self::Missed => "Lệnh bỏ lỡ",
-            Self::Playbook => "Playbook",
+            Self::Trade => crate::tr!("core.search.kind.trade"),
+            Self::Day => crate::tr!("core.search.kind.day"),
+            Self::Review => crate::tr!("core.search.kind.review"),
+            Self::Missed => crate::tr!("core.search.kind.missed"),
+            Self::Playbook => crate::tr!("core.search.kind.playbook"),
         }
     }
 }

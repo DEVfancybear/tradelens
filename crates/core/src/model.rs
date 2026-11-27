@@ -337,11 +337,11 @@ pub enum Origin {
 
 impl Origin {
     /// What the screens call it.
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::Mt5 => "MT5",
-            Self::Manual => "Nhập tay",
-            Self::Notion => "Notion",
+            Self::Mt5 => "MT5".to_owned(),
+            Self::Manual => crate::tr!("core.origin.manual"),
+            Self::Notion => "Notion".to_owned(),
         }
     }
 

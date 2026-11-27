@@ -67,12 +67,8 @@ impl Basis {
 
     /// What to say beside money figures that leave trades out; `None` when they cover every trade.
     pub fn money_note(self) -> Option<String> {
-        self.is_mixed().then(|| {
-            format!(
-                "Tiền tính trên {} lệnh có tiền, {} lệnh chỉ có R không tính",
-                self.money_trades, self.r_only_trades
-            )
-        })
+        self.is_mixed()
+            .then(|| crate::tr!("core.metrics.money_note", money = self.money_trades, r_only = self.r_only_trades))
     }
 }
 

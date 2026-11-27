@@ -13,6 +13,17 @@
 //!
 //! Nothing here touches the database or the UI: the app writes what a poll brings.
 
+// The crate's text, from `locales/`; `tr!` reads it in the language of the process (the core's).
+rust_i18n::i18n!("locales", fallback = "vi");
+
+/// The text of `key` in `locales/`, in the language of the process, with `name = value` in its `%{name}`s.
+macro_rules! tr {
+    ($key:expr $(, $name:ident = $value:expr)* $(,)?) => {
+        ::rust_i18n::t!($key, locale = ::tradelens_core::i18n::current().key() $(, $name = $value)*).into_owned()
+    };
+}
+pub(crate) use tr;
+
 pub mod install;
 pub mod installer;
 mod link;
@@ -23,3 +34,24 @@ pub mod runtime;
 
 pub use link::{Event, Link, LinkSettings, LinkState, Listener, Opener};
 pub use protocol::{AccountRef, Direction, Levels, Login, Mt5Error, Password, Poll, Position, Terminal};
+
+#[cfg(test)]
+mod locales {
+    #[test]
+    fn every_key_has_its_vietnamese_and_its_english_text() {
+        let problems = tradelens_core::i18n::testing::problems(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+            &|locale, key| rust_i18n::t!(key, locale = locale).into_owned(),
+            &["mt5."],
+        );
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    #[test]
+    fn a_message_comes_in_the_language_asked_for() {
+        let vi = rust_i18n::t!("mt5.link.not_connected", locale = "vi");
+        let en = rust_i18n::t!("mt5.link.not_connected", locale = "en");
+        assert_eq!((vi.as_ref(), en.as_ref()), ("tài khoản chưa kết nối", "the account is not connected"));
+        assert_eq!(crate::tr!("mt5.link.not_connected"), "tài khoản chưa kết nối", "the process speaks Vietnamese");
+    }
+}

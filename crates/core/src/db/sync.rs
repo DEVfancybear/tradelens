@@ -63,11 +63,11 @@ pub struct SyncState {
 pub type PortableState = BTreeMap<String, BTreeMap<String, Fields>>;
 
 fn to_u64(n: i64) -> Result<u64> {
-    u64::try_from(n).map_err(|_| DbError::Invalid(format!("số thứ tự âm: {n}")))
+    u64::try_from(n).map_err(|_| DbError::Invalid(crate::tr!("core.sync.negative_sequence", n = n)))
 }
 
 fn to_i64(n: u64) -> Result<i64> {
-    i64::try_from(n).map_err(|_| DbError::Invalid(format!("số thứ tự quá lớn: {n}")))
+    i64::try_from(n).map_err(|_| DbError::Invalid(crate::tr!("core.sync.sequence_too_large", n = n)))
 }
 
 // --- clocks and tombstones ---------------------------------------------------------------
@@ -589,7 +589,7 @@ impl Db {
     /// [`DbError::Sqlite`] when the copy fails, for instance because `path` exists.
     pub fn snapshot_to(&self, path: &Path) -> Result<()> {
         let Some(target) = path.to_str() else {
-            return Err(DbError::Invalid(format!("đường dẫn không phải UTF-8: {}", path.display())));
+            return Err(DbError::Invalid(crate::tr!("core.sync.path_not_utf8", path = path.display())));
         };
         self.conn.execute("VACUUM INTO ?1", [target])?;
         Ok(())

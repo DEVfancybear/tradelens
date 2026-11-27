@@ -56,7 +56,7 @@ fn is_clutter(path: &str) -> bool {
 }
 
 fn invalid(error: impl std::fmt::Display) -> ImportError {
-    ImportError::Invalid(format!("file zip không đọc được: {error}"))
+    ImportError::Invalid(crate::tr!("core.notion.zip_unreadable", error = error))
 }
 
 /// Reads the plan of the export archive at `path`: the CSV is `*_all.csv` when there is one,
@@ -89,19 +89,16 @@ pub fn read_archive(path: &Path) -> Result<(NotionPlan, NotionArchive), ImportEr
         Some((index, _)) => *index,
         None => match csv.as_slice() {
             [(index, _)] => *index,
-            [] => return Err(ImportError::Invalid("file zip không có file .csv nào của Notion".into())),
+            [] => return Err(ImportError::Invalid(crate::tr!("core.notion.zip_no_csv"))),
             many => {
-                return Err(ImportError::Invalid(format!(
-                    "file zip có {} file .csv mà không có file «…_all.csv»: giải nén và chọn đúng file",
-                    many.len()
-                )));
+                return Err(ImportError::Invalid(crate::tr!("core.notion.zip_many_csv", n = many.len())));
             }
         },
     };
     let mut bytes = Vec::new();
     let entry = zip.by_index(picked).map_err(invalid)?;
     if entry.size() > MAX_CSV_BYTES {
-        return Err(ImportError::Invalid("file CSV trong zip quá lớn".into()));
+        return Err(ImportError::Invalid(crate::tr!("core.notion.zip_csv_too_large")));
     }
     entry.take(MAX_CSV_BYTES).read_to_end(&mut bytes)?;
     let plan = infer(&bytes)?;

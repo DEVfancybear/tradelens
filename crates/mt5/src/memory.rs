@@ -158,7 +158,7 @@ impl Broker {
         let accounts = self.accounts();
         match accounts.get(&login.account.login) {
             Some(account) if account.password == login.password.expose() => Ok(account.info.clone()),
-            _ => Err(Mt5Error::LoginRefused("sai số tài khoản, mật khẩu hoặc server".to_owned())),
+            _ => Err(Mt5Error::LoginRefused(crate::tr!("mt5.memory.wrong_login"))),
         }
     }
 
@@ -167,7 +167,8 @@ impl Broker {
             return Err(Mt5Error::Unreachable(why));
         }
         let accounts = self.accounts();
-        let account = accounts.get(login).ok_or_else(|| Mt5Error::Unreachable("tài khoản không còn".to_owned()))?;
+        let account =
+            accounts.get(login).ok_or_else(|| Mt5Error::Unreachable(crate::tr!("mt5.memory.account_gone")))?;
         let from = since_msc.map_or(i64::MIN, |since| since.saturating_sub(SLACK_MS));
         Ok(Poll {
             account: account.info.clone(),
@@ -178,16 +179,16 @@ impl Broker {
 
     fn close(&self, login: &str, ticket: i64, volume: Option<f64>) -> Result<(), Mt5Error> {
         let mut accounts = self.accounts();
-        let account = accounts.get_mut(login).ok_or_else(|| refused("tài khoản không còn"))?;
+        let account = accounts.get_mut(login).ok_or_else(|| refused(&crate::tr!("mt5.memory.account_gone")))?;
         let index = account
             .positions
             .iter()
             .position(|p| p.ticket == ticket)
-            .ok_or_else(|| refused(&format!("không còn lệnh {ticket} đang mở")))?;
+            .ok_or_else(|| refused(&crate::tr!("mt5.memory.position_gone", ticket = ticket)))?;
         let open = account.positions[index].volume;
         let lots = volume.unwrap_or(open);
         if lots <= 0.0 || lots > open + 1e-9 {
-            return Err(refused(&format!("khối lượng đóng {lots} không hợp lệ (lệnh đang có {open})")));
+            return Err(refused(&crate::tr!("mt5.memory.bad_volume", lots = lots, open = open)));
         }
         let position = account.positions[index].clone();
         let share = lots / open;
@@ -210,7 +211,7 @@ impl Broker {
         let position = accounts
             .get_mut(login)
             .and_then(|account| account.positions.iter_mut().find(|p| p.ticket == ticket))
-            .ok_or_else(|| refused(&format!("không còn lệnh {ticket} đang mở")))?;
+            .ok_or_else(|| refused(&crate::tr!("mt5.memory.position_gone", ticket = ticket)))?;
         position.sl = levels.sl.unwrap_or(0.0);
         position.tp = levels.tp.unwrap_or(0.0);
         Ok(())
@@ -261,7 +262,7 @@ struct MemoryTerminal {
 
 impl MemoryTerminal {
     fn login(&self) -> Result<&str, Mt5Error> {
-        self.login.as_deref().ok_or_else(|| Mt5Error::Unreachable("chưa đăng nhập MT5".to_owned()))
+        self.login.as_deref().ok_or_else(|| Mt5Error::Unreachable(crate::tr!("mt5.memory.not_signed_in")))
     }
 }
 
