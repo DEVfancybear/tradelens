@@ -17,8 +17,9 @@ use crate::{
     nav::{self, Route},
     snapshot::Range,
     store::{Store, store},
+    trade_list::Filter,
     ui::{
-        breakdown::{BreakdownRow, breakdown_table},
+        breakdown::{BreakdownRow, breakdown_table, breakdown_table_pickable},
         charts::{BarItem, HeatGrid, HeatValue, heatmap, histogram, mistake_cost_bar},
         chips::pnl_text,
         controls::{link, segmented},
@@ -97,7 +98,7 @@ fn content(tab: Tab, cx: Cx) -> impl IntoElement {
         )
         .into_element(),
         Tab::Symbol => columns(
-            view().gap_6().child(table_card("Theo symbol", "Symbol", cx, |a| &a.by_symbol)),
+            view().gap_6().child(picked_card("Theo symbol", "Symbol", cx, |a| &a.by_symbol, Pick::Symbol)),
             view().gap_6().child(table_card("Buy so với Sell", "Chiều", cx, |a| &a.by_side)),
         )
         .into_element(),
@@ -107,8 +108,8 @@ fn content(tab: Tab, cx: Cx) -> impl IntoElement {
         )
         .into_element(),
         Tab::Setup => columns(
-            view().gap_6().child(table_card("Theo setup", "Setup", cx, |a| &a.by_setup)),
-            view().gap_6().child(table_card("Theo tag", "Tag", cx, |a| &a.by_tag)),
+            view().gap_6().child(picked_card("Theo setup", "Setup", cx, |a| &a.by_setup, Pick::Setup)),
+            view().gap_6().child(picked_card("Theo tag", "Tag", cx, |a| &a.by_tag, Pick::Tag)),
         )
         .into_element(),
         Tab::Mistakes => columns(
@@ -197,6 +198,49 @@ fn table_card(
             move || cx.result_title(),
             move || cx.a.with(|a| rows_of(pick(a), &cx.currency(), a.unit())),
             "Chưa có lệnh nào trong khoảng này",
+        ),
+    )
+}
+
+/// What a pressed line of a breakdown names, to open the trades under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pick {
+    Symbol,
+    Setup,
+    Tag,
+}
+
+impl Pick {
+    /// The trades list filter that shows the trades under `name`: the symbol and setup filters of
+    /// the list, and a tag as the list's search text (the list has no tag filter of its own).
+    fn filter(self, name: &str) -> Filter {
+        match self {
+            Self::Symbol => Filter { symbol: Some(name.to_owned()), ..Filter::default() },
+            Self::Setup => Filter { setup: Some(name.to_owned()), ..Filter::default() },
+            Self::Tag => Filter { text: name.to_owned(), ..Filter::default() },
+        }
+    }
+}
+
+/// A [`table_card`] whose lines open the trades list on the trades under them.
+fn picked_card(
+    title: &'static str,
+    name_title: &'static str,
+    cx: Cx,
+    pick: fn(&Analysis) -> &Vec<Group>,
+    kind: Pick,
+) -> impl IntoElement {
+    card(
+        title,
+        breakdown_table_pickable(
+            name_title,
+            move || cx.result_title(),
+            move || cx.a.with(|a| rows_of(pick(a), &cx.currency(), a.unit())),
+            "Chưa có lệnh nào trong khoảng này",
+            move |name| {
+                store().trade_filter.set(kind.filter(name));
+                nav::go(Route::Trades);
+            },
         ),
     )
 }
