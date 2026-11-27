@@ -40,8 +40,9 @@ pub(crate) struct TableSort {
 
 /// What the journal column says of a trade the trader wrote about.
 pub(crate) const JOURNALED: &str = "Đã ghi";
-/// …and of one they did not.
-pub(crate) const NOT_JOURNALED: &str = "Chưa ghi";
+/// …and of one they did not: a dash, not "Chưa ghi", which read as "the trade is not saved yet"
+/// for trades the MT5 sync had stored already.
+pub(crate) const NOT_JOURNALED: &str = "—";
 
 const ROW_HEIGHT: f32 = 44.0;
 const HEADER_HEIGHT: f32 = 40.0;

@@ -319,7 +319,7 @@ fn summary_strip(summary: Memo<Summary>) -> impl IntoElement {
         )
         .child(figure("Win rate", move || summary.with(|s| s.win_rate.clone()), || Tone::Neutral))
         .child(figure("PF", move || summary.with(|s| s.profit_factor.clone()), || Tone::Neutral))
-        .child(figure("Chưa ghi nhật ký", move || summary.with(|s| s.unjournaled.to_string()), || Tone::Neutral))
+        .child(figure("Chưa viết nhật ký", move || summary.with(|s| s.unjournaled.to_string()), || Tone::Neutral))
 }
 
 /// What is under the list: how many trades show, and the bar of what the trader ticked.
