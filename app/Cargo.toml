@@ -27,20 +27,20 @@ thiserror.workspace = true
 serde_json.workspace = true
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nsh-platform-linux = { version = "=0.7.1", default-features = false, features = ["plot", "svg", "net"] }
+nsh-platform-linux = { version = "=0.7.2", default-features = false, features = ["plot", "svg", "net"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nsh-platform-macos = { version = "=0.7.1", default-features = false, features = ["plot", "svg"] }
+nsh-platform-macos = { version = "=0.7.2", default-features = false, features = ["plot", "svg"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-nsh-platform-windows = { version = "=0.7.1", default-features = false, features = ["plot", "svg", "net"] }
+nsh-platform-windows = { version = "=0.7.2", default-features = false, features = ["plot", "svg", "net"] }
 # NSH puts a copied image on the Windows clipboard only as "PNG", which Paint and most chat apps do not
 # read; arboard adds the bitmap (CF_DIBV5) they paste.
 arboard = "3.7"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
 [dev-dependencies]
-nsh-engine = "=0.7.1"
-nsh-testing = { version = "=0.7.1", features = ["live"] }
+nsh-engine = "=0.7.2"
+nsh-testing = { version = "=0.7.2", features = ["live"] }
 tempfile = "3"
 tiny_http = "0.12"

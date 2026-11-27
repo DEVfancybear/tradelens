@@ -12,7 +12,7 @@ workspace = true
 
 [dependencies]
 # NSH is 0.x: pin exactly, as the other nsh crates are.
-nsh-updater = "=0.7.1"
+nsh-updater = "=0.7.2"
 ureq = "3.5"
 log.workspace = true
 thiserror.workspace = true
