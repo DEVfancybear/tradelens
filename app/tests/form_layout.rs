@@ -1,7 +1,7 @@
 //! Layout fixes found on the real window, pinned on the boxes the engine lays out: the breakdown
 //! tables of the analysis keep their figures whole and apart, the edit form of a trade fills the page
-//! like the new-entry form does with fields wide enough for their digits, and what is wrong with a
-//! field of the form is said under that field.
+//! like the new-entry form does with fields wide enough for their digits, what is wrong with a
+//! field of the form is said under that field, and the two columns of the settings are balanced.
 
 use nsh_core::{ApproxTextEngine, TextEngine};
 use nsh_testing::{Headless, LayoutNode};
@@ -343,4 +343,54 @@ fn a_missing_field_is_said_under_that_field_and_not_in_the_column_of_images() {
     app.type_text("label:Symbol", "EURUSD").expect("a symbol");
     app.wait_for_gone("text:/Nhập mã giao dịch/", WAIT).expect("the message goes when the field is edited");
     app.wait_for("text:/^Khối lượng phải là số/").expect("the others stay");
+}
+
+/// The box of the card whose title is `title` (right of the sidebar): the view the title is in.
+fn card_of<'a>(nodes: &'a [LayoutNode], title: &str) -> &'a LayoutNode {
+    let heading = texts_of(nodes, &[title])
+        .into_iter()
+        .find(|n| n.bounds.origin.x.0 > 250.0)
+        .unwrap_or_else(|| panic!("the card {title:?}"));
+    nodes.iter().find(|n| n.id == heading.parent).unwrap_or_else(|| panic!("the box of {title:?}"))
+}
+
+#[test]
+fn the_settings_columns_are_balanced_and_fit_a_maximised_window_without_scrolling() {
+    let fixture = Fixture::new();
+    // The maximised window the user reported and the same less a title bar fit the page; the default
+    // window only keeps its columns balanced (its height is a little short of the page).
+    for (width, height, fits) in [(1685.0_f32, 1017.0_f32, true), (1685.0, 985.0, true), (1280.0, 800.0, false)] {
+        let mut app = fixture.start(width, height, |_| {});
+        app.press("role:button[Cài đặt]").expect("the settings row");
+        app.wait_for_within("text:/tradelens.db/", WAIT).expect("the data file is read");
+        let nodes = app.screen().layout_nodes();
+        let column = |titles: &[&str]| {
+            let cards: Vec<_> = titles.iter().map(|t| card_of(&nodes, t).bounds).collect();
+            let x = cards[0].origin.x.0;
+            assert!(
+                cards.iter().all(|c| (c.origin.x.0 - x).abs() < 1.0),
+                "{width}x{height}: {titles:?} stand in one column: {cards:?}"
+            );
+            (x, cards.iter().map(|c| c.origin.y.0 + c.size.height.0).fold(0.0_f32, f32::max))
+        };
+        let (left_x, left_end) = column(&["Giao diện", "Thời gian", "Phím tắt"]);
+        let (right_x, right_end) = column(&["Dữ liệu", "Về TradeLens"]);
+        assert!(right_x > left_x + 400.0, "{width}x{height}: two columns side by side");
+        assert!(
+            (left_end - right_end).abs() <= 120.0,
+            "{width}x{height}: neither column is far longer: the left ends at {left_end}, the right at {right_end}"
+        );
+        let page = nodes
+            .iter()
+            .filter(|n| n.scroll.as_ref().is_some_and(|s| !s.horizontal) && n.bounds.origin.x.0 > 200.0)
+            .max_by(|a, b| a.bounds.size.height.0.total_cmp(&b.bounds.size.height.0))
+            .expect("the page's scroll view");
+        let content = page.scroll.as_ref().and_then(|s| s.content_size).expect("its content is laid out");
+        assert!(
+            !fits || content.height.0 <= page.bounds.size.height.0 + 0.5,
+            "{width}x{height}: the page has nothing to scroll: {} points in {}",
+            content.height.0,
+            page.bounds.size.height.0
+        );
+    }
 }
