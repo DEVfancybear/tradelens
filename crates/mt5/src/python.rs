@@ -186,24 +186,42 @@ pub fn find(chosen: Option<&Path>, private: Option<&Path>) -> Option<Python> {
     first
 }
 
-/// Installs the `MetaTrader5` package for the user (`pip install --user`). Blocks for as long as
-/// pip takes: call it off the UI thread.
+/// Installs the `MetaTrader5` package for the user (`pip install --user`), or into the virtual
+/// environment when `python` runs in one (pip refuses `--user` there). Blocks for as long as pip
+/// takes: call it off the UI thread.
 ///
 /// # Errors
 ///
 /// [`Mt5Error::Setup`] with the end of pip's output when it fails.
 pub fn install_package(python: &Python) -> Result<(), Mt5Error> {
-    let mut run = python.command();
-    run.args(["-m", "pip", "install", "--user", "--upgrade", "--disable-pip-version-check", PACKAGE])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let output = output_within(run, Duration::from_mins(10))
-        .map_err(|error| Mt5Error::Setup(format!("không chạy được pip: {error}")))?;
+    let mut output = pip_install(python, &["--user"])?;
+    if !output.status.success() && refuses_user_install(&output.stderr) {
+        output = pip_install(python, &[])?;
+    }
     if output.status.success() {
         return Ok(());
     }
     Err(Mt5Error::Setup(format!("pip không cài được {PACKAGE}: {}", tail(&output.stderr))))
+}
+
+/// Runs `pip install` of the package with `extra` arguments (`--user`), up to ten minutes.
+fn pip_install(python: &Python, extra: &[&str]) -> Result<std::process::Output, Mt5Error> {
+    let mut run = python.command();
+    run.args(["-m", "pip", "install"])
+        .args(extra)
+        .args(["--upgrade", "--disable-pip-version-check", PACKAGE])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    output_within(run, Duration::from_mins(10))
+        .map_err(|error| Mt5Error::Setup(format!("không chạy được pip: {error}")))
+}
+
+/// Whether pip refused `--user` because it runs in a virtual environment, whose own site-packages
+/// is where the package goes then.
+fn refuses_user_install(stderr: &[u8]) -> bool {
+    let said = String::from_utf8_lossy(stderr);
+    said.contains("--user") && said.contains("virtualenv")
 }
 
 /// The last lines of what a program printed, on one line: what pip says when it fails.
@@ -491,6 +509,14 @@ mod tests {
             let Err(Mt5Error::Uncertain(message)) = &reply else { panic!("code {code}: {reply:?}") };
             assert!(message.starts_with("MT5 chỉ khớp 0.05 trên 0.2 lot"), "{message}");
         }
+    }
+
+    #[test]
+    fn pip_refusing_a_user_install_in_a_virtual_environment_is_recognised() {
+        let said =
+            b"ERROR: Can not perform a '--user' install. User site-packages are not visible in this virtualenv.\n";
+        assert!(refuses_user_install(said));
+        assert!(!refuses_user_install(b"ERROR: No matching distribution found for MetaTrader5\n"));
     }
 
     #[test]
