@@ -44,11 +44,11 @@ pub struct Feed {
 /// Why a feed could not be read.
 #[derive(Debug, thiserror::Error)]
 pub enum FeedError {
-    #[error("lịch tin không đúng định dạng: {0}")]
+    #[error("{}", crate::tr!("core.news.bad_format", error = .0))]
     Json(#[from] serde_json::Error),
-    #[error("lịch tin có giờ không đọc được: {0}")]
+    #[error("{}", crate::tr!("core.news.bad_time", error = .0))]
     Time(String),
-    #[error("lịch tin không có tin nào")]
+    #[error("{}", crate::tr!("core.news.empty"))]
     Empty,
 }
 
@@ -110,7 +110,7 @@ fn sunday_before(at: DateTime<FixedOffset>) -> Result<i64, FeedError> {
     day.and_hms_opt(0, 0, 0)
         .and_then(|midnight| midnight.and_local_timezone(*at.offset()).single())
         .map(|start| start.timestamp_millis())
-        .ok_or_else(|| FeedError::Time(format!("không tính được đầu tuần của {at}")))
+        .ok_or_else(|| FeedError::Time(crate::tr!("core.news.no_week_start", at = at)))
 }
 
 /// `None` for an empty value, else the value trimmed.

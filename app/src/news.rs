@@ -1,6 +1,6 @@
 //! The red news, from the app's side: Forex Factory's week is fetched on a blocking thread when the
 //! app opens (unless the last fetch is newer than [`EVERY`]), every [`EVERY`] after that, and when
-//! the trader presses "Tải lại". A feed is stored, a failure is recorded next to the last feed, and
+//! the trader presses "Reload". A feed is stored, a failure is recorded next to the last feed, and
 //! the pages read again.
 //!
 //! Nothing here touches a signal off the UI thread: the fetch runs in `blocking`, the write through
@@ -113,7 +113,7 @@ impl News {
                 })
             })
             .await
-            .unwrap_or_else(|error| Err(format!("luồng tải lịch tin bị dừng: {error}")));
+            .unwrap_or_else(|error| Err(format!("{STOPPED}{error}")));
             let at_ms = Utc::now().timestamp_millis();
             self.write.run(
                 move |db| match &fetched {
@@ -131,12 +131,36 @@ impl News {
     }
 }
 
-/// Why a fetch failed, for the trader: what to do about it rather than the operating system's words.
+/// What is stored for a fetch that could not reach the server.
+const NETWORK: &str = "network";
+/// What is stored before the status of a server that answered with an error.
+const SERVICE: &str = "service:";
+/// What is stored before the words of a fetch task that stopped.
+const STOPPED: &str = "stopped:";
+
+/// Why a fetch failed, as it is stored next to the last feed: a code, not words, so that the page
+/// says it in the language chosen when it is shown ([`failure_text`]), not the one of the fetch (it runs
+/// on a blocking thread, which cannot read the app's text). Any other failure is kept as its own words.
 fn explain(error: &CloudError) -> String {
     match error {
-        CloudError::Network(_) => "không kết nối được máy chủ lịch tin, hãy kiểm tra mạng".to_owned(),
-        CloudError::Service { status, .. } => format!("máy chủ lịch tin trả lỗi {status}"),
+        CloudError::Network(_) => NETWORK.to_owned(),
+        CloudError::Service { status, .. } => format!("{SERVICE}{status}"),
         other => other.to_string(),
+    }
+}
+
+/// The words for a failure as [`explain`] stored it, for the trader, in what to do about it rather
+/// than the operating system's words; call it on the UI thread. What is not a code (a failure stored
+/// by an earlier version, in words) is shown as it is.
+pub(crate) fn failure_text(stored: &str) -> String {
+    if stored == NETWORK {
+        t!("news.failed.network")
+    } else if let Some(status) = stored.strip_prefix(SERVICE) {
+        t!("news.failed.service", status = status)
+    } else if let Some(error) = stored.strip_prefix(STOPPED) {
+        t!("news.failed.stopped", error = error)
+    } else {
+        stored.to_owned()
     }
 }
 
@@ -182,11 +206,20 @@ mod tests {
     }
 
     #[test]
-    fn a_failure_is_told_in_the_traders_words() {
+    fn a_failure_is_stored_as_a_code_and_told_in_the_traders_words_when_shown() {
+        use crate::i18n::{Lang, with_text};
         let refused = CloudError::Network("io: No connection could be made (os error 10061)".into());
-        assert_eq!(explain(&refused), "không kết nối được máy chủ lịch tin, hãy kiểm tra mạng");
         let denied = CloudError::Service { status: 403, message: "Request Denied".into() };
-        assert_eq!(explain(&denied), "máy chủ lịch tin trả lỗi 403");
+        let (stored_refused, stored_denied) = (explain(&refused), explain(&denied));
+        assert_eq!((stored_refused.as_str(), stored_denied.as_str()), ("network", "service:403"));
+        let (a, b, c) = with_text(Lang::Vi, move || {
+            (failure_text(&stored_refused), failure_text(&stored_denied), failure_text("mất mạng"))
+        });
+        assert_eq!(a, "không kết nối được máy chủ lịch tin, hãy kiểm tra mạng");
+        assert_eq!(b, "máy chủ lịch tin trả lỗi 403");
+        assert_eq!(c, "mất mạng", "words stored by an earlier version are shown as they are");
+        let english = with_text(Lang::En, || failure_text("service:403"));
+        assert_eq!(english, "the news server answered 403");
     }
 
     #[test]

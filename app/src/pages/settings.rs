@@ -1,17 +1,17 @@
-//! Cài đặt: appearance, the clock times are shown on, where the data lives, the keyboard shortcuts and updates. Design: `docs/design/screens/settings.html`.
+//! Cài đặt: appearance, the clock times are shown on, the language, where the data lives, the keyboard shortcuts and updates. Design: `docs/design/screens/settings.html`.
 //!
 //! Every choice is a setting of the database (`Db::set_setting`), so it survives restarts and
 //! travels with the data file.
 
 use nsh_base::theme;
 use nsh_core::prelude::*;
-use tradelens_core::{Db, DbError, catalog::FieldScope, time::TimeDisplay};
+use tradelens_core::{Db, DbError, catalog::FieldScope, i18n::Lang, time::TimeDisplay};
 
 use crate::{
-    nav,
+    i18n, nav,
     store::{Reading, query, writer},
     ui::{
-        controls::{Variant, action, action_when, link, segmented},
+        controls::{Choice, Variant, action, action_when, link, segmented, select_value},
         forms::{setting_row, switch_row},
         parts::{card, error_line, page},
     },
@@ -22,14 +22,14 @@ use crate::{
 /// The settings key of the look the trader chose.
 const APPEARANCE_KEY: &str = "appearance";
 
-/// The keys of the app, as the design lists them: what they do and the chord.
+/// The keys of the app, as the design lists them: the key of what they do in `locales/`, and the chord.
 const SHORTCUTS: &[(&str, &str)] = &[
-    ("Tìm lệnh, symbol, ngày", "Ctrl+K"),
-    ("Nhập lệnh thủ công", "Ctrl+N"),
-    ("Lệnh sau / trước trong chi tiết", "J / K"),
-    ("Lưu form", "Ctrl+Enter"),
-    ("Chuyển trang trong nhóm Giao dịch", "Ctrl+1…5"),
-    ("Sync ngay", "Ctrl+Shift+S"),
+    ("settings.shortcuts.search", "Ctrl+K"),
+    ("settings.shortcuts.manual_entry", "Ctrl+N"),
+    ("settings.shortcuts.next_trade", "J / K"),
+    ("settings.shortcuts.save_form", "Ctrl+Enter"),
+    ("settings.shortcuts.switch_page", "Ctrl+1…5"),
+    ("settings.shortcuts.sync_now", "Ctrl+Shift+S"),
 ];
 
 /// The three looks the trader picks from.
@@ -38,11 +38,11 @@ const APPEARANCES: &[Appearance] = &[Appearance::Dark, Appearance::Light, Appear
 /// The two clocks the trader picks from.
 const CLOCKS: &[TimeDisplay] = &[TimeDisplay::Local, TimeDisplay::Server];
 
-fn appearance_label(appearance: Appearance) -> &'static str {
+fn appearance_label(appearance: Appearance) -> String {
     match appearance {
-        Appearance::Dark => "Tối",
-        Appearance::Light => "Sáng",
-        Appearance::System => "Theo hệ thống",
+        Appearance::Dark => t!("settings.look.dark"),
+        Appearance::Light => t!("settings.look.light"),
+        Appearance::System => t!("settings.look.system"),
     }
 }
 
@@ -63,10 +63,10 @@ fn parse_appearance(text: &str) -> Appearance {
     }
 }
 
-fn clock_label(clock: TimeDisplay) -> &'static str {
+fn clock_label(clock: TimeDisplay) -> String {
     match clock {
-        TimeDisplay::Local => "Giờ của bạn",
-        TimeDisplay::Server => "Giờ server",
+        TimeDisplay::Local => t!("settings.clock.local"),
+        TimeDisplay::Server => t!("settings.clock.server"),
     }
 }
 
@@ -133,8 +133,8 @@ pub(crate) fn settings() -> impl IntoElement {
     // not built yet, and with the shortcuts on the right that column was three times as tall as the
     // left one and the page scrolled in a maximised window (see the design README's table).
     page(
-        "Cài đặt",
-        "Giao diện, giờ hiển thị và dữ liệu",
+        t!("settings.title"),
+        t!("settings.summary"),
         view().gap_6().child(dynamic(move || error.get().or_else(|| stored.error()).map(error_line))).child(
             view()
                 .flex_row()
@@ -168,12 +168,12 @@ fn appearance_card(
     remember: impl Fn(&'static str, String) + Copy + 'static,
 ) -> impl IntoElement {
     card(
-        "Giao diện",
+        t!("settings.appearance"),
         setting_row(
-            "Chế độ màu",
-            Some("Theo hệ thống tự đổi theo Windows, macOS hoặc Linux"),
+            t!("settings.color_mode"),
+            Some(t!("settings.color_mode.hint")),
             segmented(
-                "Chế độ màu",
+                t!("settings.color_mode"),
                 APPEARANCES,
                 appearance_label,
                 move || looks.get(),
@@ -187,23 +187,37 @@ fn appearance_card(
     )
 }
 
+/// The clock times are shown on, and the language of the app's text (the design's "Ngôn ngữ").
 fn time_card(clock: Signal<TimeDisplay>, remember: impl Fn(&'static str, String) + Copy + 'static) -> impl IntoElement {
+    let language = i18n::picker();
     card(
-        "Thời gian",
-        setting_row(
-            "Giờ hiển thị",
-            Some("Lịch, nhật ký ngày và quy tắc theo ngày tính theo giờ này; giờ server là giờ MT5 báo"),
-            segmented(
-                "Giờ hiển thị",
-                CLOCKS,
-                clock_label,
-                move || clock.get(),
-                move |next| {
-                    clock.set(next);
-                    remember(TIME_DISPLAY_KEY, next.key().to_owned());
-                },
-            ),
-        ),
+        t!("settings.time"),
+        view()
+            .child(setting_row(
+                t!("settings.clock"),
+                Some(t!("settings.clock.hint")),
+                segmented(
+                    t!("settings.clock"),
+                    CLOCKS,
+                    clock_label,
+                    move || clock.get(),
+                    move |next| {
+                        clock.set(next);
+                        remember(TIME_DISPLAY_KEY, next.key().to_owned());
+                    },
+                ),
+            ))
+            .child(setting_row(
+                t!("settings.language"),
+                Some(t!("settings.language.hint")),
+                // Each language is named in itself, whatever the window's language.
+                select_value(
+                    t!("settings.language"),
+                    || Lang::ALL.iter().map(|lang| Choice::new(lang.key(), lang.name())).collect(),
+                    || i18n::language().key().into(),
+                    move |next| language.choose(Lang::parse(&next)),
+                ),
+            )),
     )
 }
 
@@ -211,25 +225,22 @@ fn time_card(clock: Signal<TimeDisplay>, remember: impl Fn(&'static str, String)
 fn data_card(stored: Reading<Stored>) -> impl IntoElement {
     let file = move || stored.value().and_then(|s| s.file.clone());
     card(
-        "Dữ liệu",
+        t!("settings.data"),
         view()
             .gap_3()
             .child(
-                view()
-                    .gap_1()
-                    .child(text("File dữ liệu").text_sm().font_weight(FontWeight::MEDIUM))
-                    .child(
-                        text(move || match file() {
-                            Some((path, size)) => format!("{path} · {}", size_text(size)),
-                            None => "Dữ liệu đang nằm trong bộ nhớ, sẽ mất khi đóng ứng dụng.".to_owned(),
-                        })
-                        .text_xs()
-                        .font_family(crate::ui::theme::mono)
-                        .text_color(move || theme().muted_foreground),
-                    ),
+                view().gap_1().child(text(t!("settings.data.file")).text_sm().font_weight(FontWeight::MEDIUM)).child(
+                    text(move || match file() {
+                        Some((path, size)) => format!("{path} · {}", size_text(size)),
+                        None => t!("settings.data.in_memory"),
+                    })
+                    .text_xs()
+                    .font_family(crate::ui::theme::mono)
+                    .text_color(move || theme().muted_foreground),
+                ),
             )
             .child(action_when(
-                "Mở thư mục",
+                t!("settings.data.open_folder"),
                 Variant::Secondary,
                 move || file().is_some(),
                 move || {
@@ -245,21 +256,19 @@ fn data_card(stored: Reading<Stored>) -> impl IntoElement {
                 view()
                     .gap_1()
                     .pt_3()
-                    .child(text("Tuỳ biến form").text_sm().font_weight(FontWeight::MEDIUM))
-                    .child(
-                        text("Đổi tên, sắp xếp, ẩn, thêm thuộc tính riêng và đổi kiểu cho từng form: nhật ký lệnh, kế hoạch lúc vào, nhật ký ngày, lệnh bỏ lỡ và tổng kết tuần/tháng. Giá trị đã ghi ở các lệnh cũ được giữ lại.")
-                            .text_xs()
-                            .text_color(move || theme().muted_foreground),
-                    )
-                    .child(view().flex_row().child(action("Mở Tuỳ biến form", Variant::Secondary, || nav::open_form_editor(FieldScope::Trade)))),
+                    .child(text(t!("settings.forms")).text_sm().font_weight(FontWeight::MEDIUM))
+                    .child(text(t!("settings.forms.hint")).text_xs().text_color(move || theme().muted_foreground))
+                    .child(view().flex_row().child(action(t!("settings.forms.open"), Variant::Secondary, || {
+                        nav::open_form_editor(FieldScope::Trade);
+                    }))),
             ),
     )
 }
 
 fn shortcuts_card() -> impl IntoElement {
     card(
-        "Phím tắt",
-        view().children(SHORTCUTS.iter().map(|(what, keys)| {
+        t!("settings.shortcuts"),
+        view().children(SHORTCUTS.iter().map(|&(what, keys)| {
             view()
                 .flex_row()
                 .items_center()
@@ -268,9 +277,9 @@ fn shortcuts_card() -> impl IntoElement {
                 .py_2()
                 .border_b_1()
                 .border_color(move || theme().border)
-                .child(text(*what).text_sm())
+                .child(text(t!(what)).text_sm())
                 .child(
-                    text(*keys)
+                    text(keys)
                         .text_xs()
                         .font_family(crate::ui::theme::mono)
                         .text_color(move || theme().muted_foreground),
@@ -288,7 +297,7 @@ fn about_card() -> impl IntoElement {
     let ready = computed(move || matches!(state.get().phase, Phase::Ready(_)));
     let from_source = computed(move || state.get().install == Install::FromSource);
     card(
-        "Về TradeLens",
+        t!("settings.about"),
         view()
             .gap_3()
             .child(
@@ -298,15 +307,15 @@ fn about_card() -> impl IntoElement {
                     .child(text(move || state.get().status()).text_xs().text_color(move || theme().muted_foreground))
                     .child(dynamic(move || {
                         from_source.get().then(|| {
-                            text("Chỉ bản cài đặt tự tải và cài bản mới; bản chạy từ mã nguồn chỉ kiểm tra.")
+                            text(t!("settings.about.from_source"))
                                 .text_xs()
                                 .text_color(move || theme().muted_foreground)
                         })
                     })),
             )
             .child(switch_row(
-                "Tự động cập nhật",
-                Some("Tải bản mới khi có, cài khi khởi động lại"),
+                t!("settings.about.auto_update"),
+                Some(t!("settings.about.auto_update.hint")),
                 move || state.get().settings.auto(),
                 move |on| update.set_auto(if on { Auto::On } else { Auto::Off }),
             ))
@@ -316,14 +325,14 @@ fn about_card() -> impl IntoElement {
                     .flex_wrap()
                     .gap_2()
                     .child(action_when(
-                        "Kiểm tra cập nhật",
+                        t!("settings.about.check"),
                         Variant::Secondary,
                         move || !busy.get(),
                         move || update.check(),
                     ))
                     .child(dynamic(move || {
                         ready.get().then(|| {
-                            action("Khởi động lại để cập nhật", Variant::Primary, move || {
+                            action(t!("settings.about.restart"), Variant::Primary, move || {
                                 update.restart();
                             })
                         })
@@ -334,9 +343,11 @@ fn about_card() -> impl IntoElement {
                     .flex_row()
                     .flex_wrap()
                     .gap_3()
-                    .child(link("Mã nguồn", || drop(open_url(repository_url()))))
-                    .child(link("Ghi chú phát hành", move || drop(open_url(state.get_untracked().notes_page()))))
-                    .child(link("Báo lỗi", || drop(open_url(format!("{}/issues", repository_url()))))),
+                    .child(link(t!("settings.about.source"), || drop(open_url(repository_url()))))
+                    .child(link(t!("settings.about.notes"), move || drop(open_url(state.get_untracked().notes_page()))))
+                    .child(link(t!("settings.about.report_bug"), || {
+                        drop(open_url(format!("{}/issues", repository_url())));
+                    })),
             ),
     )
 }

@@ -12,21 +12,22 @@ use super::{
     icons::Icon,
 };
 
-/// The lines of `lines`, named `label` (`"Điều kiện vào"`) for screen readers: the fields read
-/// "label 1", "label 2", the buttons "Xoá label 1" and `add_label`. Rows are made again only
+/// The lines of `lines`, named `label` (`"Entry conditions"`) for screen readers: the fields read
+/// "label 1", "label 2", the buttons "Remove label 1" and `add_label`. Rows are made again only
 /// when the number of lines changes, never when a line is typed in, so the caret stays put.
 pub fn line_list(
-    label: &'static str,
-    add_label: &'static str,
+    label: impl Into<SharedString>,
+    add_label: impl IntoReactive<SharedString>,
     lines: impl Fn() -> Vec<String> + Copy + 'static,
     on_change: impl Fn(Vec<String>) + Copy + 'static,
 ) -> impl IntoElement {
+    let label: SharedString = label.into();
     let count = computed(move || lines().len());
     view()
         .gap_2()
         .child(dynamic(move || {
             let count = count.get();
-            untracked(|| view().gap_2().children((0..count).map(|index| line_row(label, index, lines, on_change))))
+            untracked(|| view().gap_2().children((0..count).map(|index| line_row(&label, index, lines, on_change))))
         }))
         .child(view().flex_row().child(action_icon(Icon::Plus, add_label, Variant::Secondary, move || {
             let mut next = lines();
@@ -37,7 +38,7 @@ pub fn line_list(
 
 /// One line: its field and the button that removes it.
 fn line_row(
-    label: &'static str,
+    label: &str,
     index: usize,
     lines: impl Fn() -> Vec<String> + Copy + 'static,
     on_change: impl Fn(Vec<String>) + Copy + 'static,
@@ -54,7 +55,7 @@ fn line_row(
             move || lines().get(index).cloned().unwrap_or_default(),
             move |typed| on_change(replaced(&lines(), index, typed)),
         )))
-        .child(icon_action(Icon::Close, format!("Xoá {name}"), Variant::Ghost, move || {
+        .child(icon_action(Icon::Close, t!("ui.lines.remove", name = name), Variant::Ghost, move || {
             on_change(without(&lines(), index));
         }))
 }

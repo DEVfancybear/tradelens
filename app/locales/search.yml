@@ -1,0 +1,34 @@
+_version: 2
+
+# Tìm kiếm: the palette of Ctrl+K (pages/search.rs).
+
+search.filter_group:
+  vi: "Loại kết quả"
+  en: "Result type"
+search.filter_all:
+  vi: "Tất cả · %{n}"
+  en: "All · %{n}"
+search.meta.day:
+  vi: "Nhật ký ngày"
+  en: "Daily journal"
+search.meta.review_week:
+  vi: "Tổng kết tuần"
+  en: "Week review"
+search.meta.review_month:
+  vi: "Tổng kết tháng"
+  en: "Month review"
+search.meta.review:
+  vi: "Tổng kết"
+  en: "Review"
+search.meta.missed:
+  vi: "Lệnh bỏ lỡ"
+  en: "Missed trade"
+search.hint:
+  vi: "Gõ để tìm trong lệnh, nhật ký ngày, tổng kết, lệnh bỏ lỡ và playbook — không cần gõ dấu."
+  en: "Type to search trades, daily journals, reviews, missed trades and playbooks — no need to type accents."
+search.searching:
+  vi: "Đang tìm…"
+  en: "Searching…"
+search.no_results:
+  vi: "Không có kết quả cho “%{query}”."
+  en: "No results for “%{query}”."

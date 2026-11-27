@@ -1,0 +1,97 @@
+_version: 2
+
+# The news fetch: what a failed fetch says (news.rs).
+news.failed.network:
+  vi: "không kết nối được máy chủ lịch tin, hãy kiểm tra mạng"
+  en: "could not reach the news server, check your network"
+news.failed.service:
+  vi: "máy chủ lịch tin trả lỗi %{status}"
+  en: "the news server answered %{status}"
+news.failed.stopped:
+  vi: "luồng tải lịch tin bị dừng: %{error}"
+  en: "the news download task stopped: %{error}"
+
+# The page (pages/news.rs).
+news.title:
+  vi: "Tin quan trọng"
+  en: "Key news"
+news.summary:
+  vi: "Tin đỏ trong lịch tuần của Forex Factory · giờ theo máy này"
+  en: "Red-folder news from the Forex Factory weekly calendar · times on this computer's clock"
+news.reload:
+  vi: "Tải lại"
+  en: "Reload"
+news.reloading:
+  vi: "Đang tải…"
+  en: "Loading…"
+news.never.loading:
+  vi: "Đang tải lịch tin lần đầu…"
+  en: "Loading the news calendar for the first time…"
+news.never.none:
+  vi: "Chưa tải lịch tin lần nào."
+  en: "The news calendar has not been loaded yet."
+news.reading:
+  vi: "Đang đọc lịch tin…"
+  en: "Reading the news calendar…"
+news.empty.title:
+  vi: "Tuần này không có tin đỏ"
+  en: "No red news this week"
+news.empty.hint:
+  vi: "Lịch được tải lại mỗi 30 phút."
+  en: "The calendar reloads every 30 minutes."
+news.unloaded.title:
+  vi: "Chưa có lịch tin"
+  en: "No news calendar yet"
+news.unloaded.hint:
+  vi: "Bấm Tải lại khi máy đã có mạng."
+  en: "Press Reload once this computer is online."
+news.week_title:
+  vi: "Tuần này · %{first} – %{last}"
+  en: "This week · %{first} – %{last}"
+news.updated:
+  vi: "Cập nhật %{when}"
+  en: "Updated %{when}"
+news.failed.with_copy:
+  vi: "Không tải được lịch tin %{failed} (%{why}). Đang hiện bản tải %{fetched}."
+  en: "Could not load the news calendar %{failed} (%{why}). Showing the copy loaded %{fetched}."
+news.failed.without_copy:
+  vi: "Không tải được lịch tin %{failed} (%{why}). Chưa có bản nào trên máy."
+  en: "Could not load the news calendar %{failed} (%{why}). There is no copy on this computer."
+news.next.title:
+  vi: "Sắp tới"
+  en: "Up next"
+news.next.none:
+  vi: "Tuần này không còn tin đỏ nào. Lịch tuần sau có từ Chủ nhật."
+  en: "No red news left this week. The calendar for next week is out from Sunday."
+news.forecast:
+  vi: "Dự báo"
+  en: "Forecast"
+news.previous:
+  vi: "Trước"
+  en: "Previous"
+news.today:
+  vi: "Hôm nay · %{day}"
+  en: "Today · %{day}"
+# When something happened: the English says `at 14:02 today`, `at 14:02 on 24/11`.
+news.when.today:
+  vi: "lúc %{time} hôm nay"
+  en: "at %{time} today"
+news.when.date:
+  vi: "lúc %{time} ngày %{date}"
+  en: "at %{time} on %{date}"
+# The countdown; the English units are abbreviated so no count needs a plural.
+news.left.minutes:
+  vi: "còn %{mins} phút"
+  en: "in %{mins} min"
+news.left.hours:
+  vi: "còn %{hours} giờ"
+  en: "in %{hours}h"
+news.left.hours_minutes:
+  vi: "còn %{hours} giờ %{mins} phút"
+  en: "in %{hours}h %{mins}m"
+news.left.days:
+  vi: "còn %{days} ngày"
+  en: "in %{days}d"
+news.left.days_hours:
+  vi: "còn %{days} ngày %{hours} giờ"
+  en: "in %{days}d %{hours}h"

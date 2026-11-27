@@ -4,6 +4,7 @@ use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_cloud::Provider;
 
+use crate::i18n::plural;
 use crate::{
     cloud::{self, Phase, State},
     nav::{self, Route, SECTIONS},
@@ -67,7 +68,7 @@ fn sidebar() -> impl IntoElement {
             view()
                 .gap_1()
                 .child(
-                    text(section.title)
+                    text(t!(section.title))
                         .px_3()
                         .pb_1()
                         .text_xs()
@@ -122,30 +123,30 @@ fn status() -> impl IntoElement {
 /// `MT5: chưa kết nối`, or how many of the accounts signed in to are connected.
 fn mt5_line(state: &crate::mt5::State) -> String {
     match (state.accounts.len(), state.connected()) {
-        (0, _) => "MT5: chưa kết nối".to_owned(),
-        (1, 1) => "MT5 · đã kết nối".to_owned(),
-        (_, 0) => "MT5 · mất kết nối".to_owned(),
-        (total, connected) => format!("MT5 · {connected}/{total} tài khoản kết nối"),
+        (0, _) => t!("shell.mt5.not_connected"),
+        (1, 1) => t!("shell.mt5.connected"),
+        (_, 0) => t!("shell.mt5.lost"),
+        (total, connected) => plural!(total, "shell.mt5.accounts", connected = connected, total = total),
     }
 }
 
 /// `Cloud: chưa đăng nhập`, or the account's drive and how the last sync went.
 fn status_line(state: &State) -> String {
-    let Some(provider) = state.active() else { return "Cloud: chưa đăng nhập".to_owned() };
+    let Some(provider) = state.active() else { return t!("shell.cloud.signed_out") };
     let drive = match provider {
         Provider::Google => "Google Drive",
         Provider::Microsoft => "OneDrive",
     };
     let last = state.last.as_ref().map(|outcome| outcome.at).or(state.last_sync);
     match (state.phase, &state.last, last) {
-        (Phase::Syncing, ..) => format!("{drive} · đang sync…"),
-        (Phase::Restoring, ..) => format!("{drive} · đang khôi phục…"),
-        (_, Some(cloud::Outcome { result: Err(_), .. }), _) => format!("{drive} · sync lỗi"),
+        (Phase::Syncing, ..) => t!("shell.cloud.syncing", drive = drive),
+        (Phase::Restoring, ..) => t!("shell.cloud.restoring", drive = drive),
+        (_, Some(cloud::Outcome { result: Err(_), .. }), _) => t!("shell.cloud.failed", drive = drive),
         (_, _, Some(at)) => {
             let at = chrono::DateTime::from_timestamp_millis(at).map(|t| t.with_timezone(&chrono::Local));
-            at.map_or_else(|| drive.to_owned(), |t| format!("{drive} · đã sync {}", t.format("%H:%M")))
+            at.map_or_else(|| drive.to_owned(), |at| t!("shell.cloud.synced", drive = drive, at = at.format("%H:%M")))
         }
-        (_, _, None) => format!("{drive} · chưa sync"),
+        (_, _, None) => t!("shell.cloud.never", drive = drive),
     }
 }
 
@@ -157,6 +158,10 @@ mod tests {
 
     #[test]
     fn the_sidebar_says_who_is_signed_in_and_how_the_sync_went() {
+        crate::i18n::with_text(crate::i18n::Lang::Vi, sidebar_lines);
+    }
+
+    fn sidebar_lines() {
         let mut state = State::default();
         assert_eq!(status_line(&state), "Cloud: chưa đăng nhập");
         state.accounts = vec![Identity { provider: Provider::Google, email: "a@b.c".into(), name: String::new() }];

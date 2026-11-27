@@ -39,6 +39,10 @@ nsh-platform-windows = { version = "=0.7.2", default-features = false, features 
 arboard = "3.7"
 image = { version = "0.25", default-features = false, features = ["png"] }
 
+[build-dependencies]
+# Reads `locales/` for `cargo` builds, as the `nsh` tool does for its own.
+nsh-i18n = { version = "=0.7.2", features = ["build"] }
+
 [dev-dependencies]
 nsh-engine = "=0.7.2"
 nsh-testing = { version = "=0.7.2", features = ["live"] }

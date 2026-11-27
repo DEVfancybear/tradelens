@@ -2660,6 +2660,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "jiff-tzdb"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12e71a1b68a875a44a33bb7a1dd84392cb77145a3367a552a3cfe6a4f5cf3afc"
+
+[[package]]
 name = "jni"
 version = "0.22.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3122,6 +3128,7 @@ dependencies = [
  "nsh-base",
  "nsh-core",
  "nsh-engine",
+ "nsh-i18n",
  "nsh-platform-linux",
  "nsh-platform-macos",
  "nsh-platform-windows",
@@ -3235,6 +3242,11 @@ name = "nsh-i18n"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a8959043bedc9eaae7420e68251ece0ce133c345724da4e9515890607e781ae"
+dependencies = [
+ "jiff-tzdb",
+ "rust-i18n-support",
+ "serde_json",
+]
 
 [[package]]
 name = "nsh-js"
@@ -5752,6 +5764,7 @@ dependencies = [
  "keyring",
  "log",
  "percent-encoding",
+ "rust-i18n",
  "serde",
  "serde_json",
  "sha2 0.11.1",
@@ -5775,6 +5788,7 @@ dependencies = [
  "lopdf",
  "resvg 0.50.0",
  "rusqlite",
+ "rust-i18n",
  "rust_xlsxwriter",
  "serde",
  "serde_json",
@@ -5790,6 +5804,7 @@ name = "tradelens-mt5"
 version = "0.3.0"
 dependencies = [
  "log",
+ "rust-i18n",
  "serde",
  "serde_json",
  "sha2 0.11.1",

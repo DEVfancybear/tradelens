@@ -11,6 +11,7 @@ use tradelens_core::{
 };
 
 use super::account_trades::{self, AccountTrades};
+use crate::i18n::plural;
 use crate::{
     format::{self, Sign},
     store::{Reading, Writer, query, writer},
@@ -44,7 +45,27 @@ const DEFAULT_TARGET: f64 = 150.0;
 struct ViolationLine {
     day: NaiveDate,
     text: String,
-    place: String,
+    place: Option<Place>,
+}
+
+/// Where a violation happened. It carries the facts, not words: the page reads on a reading thread,
+/// which cannot make the app's text, so [`Place::text`] makes it where it is shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Place {
+    /// A trade: its symbol and, when it has one, the time it opened.
+    Trade { symbol: String, time: Option<String> },
+    /// A rule about the day as a whole: how many trades it had.
+    Day { trades: u32 },
+}
+
+impl Place {
+    fn text(&self) -> String {
+        match self {
+            Self::Trade { symbol, time: Some(time) } => format!("{symbol} · {time}"),
+            Self::Trade { symbol, time: None } => symbol.clone(),
+            Self::Day { trades } => format::trade_count(usize::try_from(*trades).unwrap_or(usize::MAX)),
+        }
+    }
 }
 
 /// One account with its rules, today's status and recent violations.
@@ -115,16 +136,13 @@ fn entry_of(
         .rev()
         .map(|v| {
             let place = if let Some(key) = &v.trade {
-                own.trades.iter().find(|t| t.key == *key).map_or_else(String::new, |t| {
+                own.trades.iter().find(|t| t.key == *key).map(|t| Place::Trade {
+                    symbol: t.symbol.clone(),
                     // A trade that was only dated has no time to give: the symbol stands alone.
-                    if t.time_known() {
-                        format!("{} · {}", t.symbol, own.clock.local(t.open_time).format("%H:%M"))
-                    } else {
-                        t.symbol.clone()
-                    }
+                    time: t.time_known().then(|| own.clock.local(t.open_time).format("%H:%M").to_string()),
                 })
             } else {
-                format!("{} lệnh", rules::day_status(&samples, own.clock, v.day).trades)
+                Some(Place::Day { trades: rules::day_status(&samples, own.clock, v.day).trades })
             };
             ViolationLine { day: v.day, text: v.kind.label(), place }
         })
@@ -161,10 +179,10 @@ fn unit_of(currency: &str) -> Option<&'static str> {
 fn ago(now_ms: i64, then_ms: i64) -> String {
     let minutes = (now_ms - then_ms).max(0) / 60_000;
     match minutes {
-        0 => "vừa xong".to_owned(),
-        1..=59 => format!("{minutes} phút trước"),
-        60..=1_439 => format!("{} giờ trước", minutes / 60),
-        _ => format!("{} ngày trước", minutes / 1_440),
+        0 => t!("accounts.ago.now"),
+        1..=59 => t!("accounts.ago.minutes", n = minutes),
+        60..=1_439 => t!("accounts.ago.hours", n = minutes / 60),
+        _ => t!("accounts.ago.days", n = minutes / 1_440),
     }
 }
 
@@ -177,7 +195,7 @@ fn offset_title(minutes: i32) -> String {
 
 /// The offsets the server can be at, plus the one the account has when it is none of them.
 fn offset_choices(current: Option<i32>) -> Vec<Choice> {
-    let mut choices = vec![Choice::new("", "Chưa biết (giữ giờ server)")];
+    let mut choices = vec![Choice::new("", t!("accounts.offset.unknown"))];
     let mut minutes: Vec<i32> = (-12..=14).map(|h| h * 60).collect();
     if let Some(now) = current.filter(|m| !minutes.contains(m)) {
         minutes.push(now);
@@ -201,12 +219,19 @@ pub(crate) fn accounts() -> impl IntoElement {
     let notice = signal(None::<String>);
     let summary = move || {
         data.value().map_or_else(
-            || SharedString::from("Các tài khoản giao dịch, quy tắc rủi ro và checklist trước lệnh"),
-            |d| SharedString::from(format!("{} tài khoản · quy tắc rủi ro và checklist trước lệnh", d.accounts.len())),
+            || SharedString::from(t!("accounts.summary.loading")),
+            |d| {
+                let n = d.accounts.len();
+                SharedString::from(if n == 1 {
+                    t!("accounts.summary.one", n = n)
+                } else {
+                    t!("accounts.summary.other", n = n)
+                })
+            },
         )
     };
     page_with(
-        "Tài khoản & kỷ luật",
+        t!("nav.accounts"),
         summary,
         view(),
         view()
@@ -217,11 +242,7 @@ pub(crate) fn accounts() -> impl IntoElement {
                 let none = data.value().is_some_and(|d| d.accounts.is_empty());
                 untracked(|| {
                     if none {
-                        empty_state(
-                            "Chưa có tài khoản nào",
-                            "Tài khoản xuất hiện khi bạn import báo cáo MT5, file Notion hoặc thêm lệnh tay.",
-                        )
-                        .into_element()
+                        empty_state(t!("accounts.empty"), t!("accounts.empty_hint")).into_element()
                     } else {
                         account_cards(data, chosen, current).into_element()
                     }
@@ -248,15 +269,16 @@ fn account_cards(
         let money = |value: Option<f64>| {
             value.map_or_else(|| "—".to_owned(), |v| format::money(v, Sign::OnlyNegative, &account.currency))
         };
-        let name = if account.name.trim().is_empty() { account.login.clone() } else { account.name.clone() };
-        let identity = format!("{} · {}", account.login, account.server);
-        let synced =
-            account.last_sync.map_or_else(|| "Chưa đồng bộ".to_owned(), |t| format!("Đồng bộ {}", ago(now, t)));
+        let name = if account.name.trim().is_empty() { account.login.clone() } else { account.shown_name() };
+        let identity = format!("{} · {}", account.login, account.shown_server());
+        let synced = account
+            .last_sync
+            .map_or_else(|| t!("accounts.card.not_synced"), |t| t!("accounts.card.synced", ago = ago(now, t)));
         let loss_line = rules.max_daily_loss.map(|limit| {
-            format!(
-                "Lỗ hôm nay {} / giới hạn {}",
-                format::money(today.loss(), Sign::OnlyNegative, &account.currency),
-                format::money(limit, Sign::OnlyNegative, &account.currency)
+            t!(
+                "accounts.card.loss_line",
+                loss = format::money(today.loss(), Sign::OnlyNegative, &account.currency),
+                limit = format::money(limit, Sign::OnlyNegative, &account.currency)
             )
         });
         let (balance, equity) = (money(account.last_balance), money(account.last_equity));
@@ -283,7 +305,7 @@ fn account_cards(
             .child(text(synced).text_xs().text_color(move || theme().muted_foreground))
             .child(loss_line.map(|line| text(line).text_xs().text_color(move || theme().muted_foreground)));
         view().w(px(264.0)).child(selectable_card(
-            format!("Tài khoản {name}"),
+            t!("accounts.card.label", name = name),
             move || current.get() == Some(id),
             move || chosen.set(Some(id)),
             body,
@@ -370,14 +392,14 @@ fn rules_card(
 ) -> impl IntoElement {
     let saved = read(data, id, |a| a.rules.clone());
     let currency = read(data, id, |a| a.account.currency.clone());
-    let unit = unit_of(&currency);
+    let unit = unit_of(&currency).map(SharedString::from);
     let draft = RuleDraft::of(&saved);
     let everywhere = signal(false);
     let status = signal(String::new());
     let save = move || {
         let rules = draft.rules();
         let all = everywhere.get_untracked();
-        status.set("Đang lưu…".to_owned());
+        status.set(t!("common.saving"));
         write.run(
             move |db: &mut Db| {
                 if all {
@@ -392,82 +414,85 @@ fn rules_card(
             move |result| match result {
                 Ok(()) => {
                     notice.set(None);
-                    status.set("Đã lưu quy tắc".to_owned());
+                    status.set(t!("accounts.rules.saved"));
                 }
                 Err(error) => status.set(error),
             },
         );
     };
+    card(
+        t!("accounts.rules.title"),
+        view().child(rules_account_row(data, id, chosen)).child(rule_rows(draft, unit)).child(
+            view()
+                .flex_row()
+                .flex_wrap()
+                .items_center()
+                .justify_end()
+                .gap_4()
+                .pt_4()
+                .child(save_status(move || status.get()).text_sm())
+                .child(
+                    check_box(t!("accounts.rules.everywhere"), move || everywhere.get(), move |v| everywhere.set(v))
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(text(t!("accounts.rules.everywhere")).text_sm()),
+                )
+                .child(action(t!("accounts.rules.save"), Variant::Primary, save)),
+        ),
+    )
+}
+
+/// The five rules, each with its limit and a switch.
+fn rule_rows(draft: RuleDraft, unit: Option<SharedString>) -> impl IntoElement {
     let money_range = NumberRange::between(0.0, 100_000_000.0).stepping(10.0);
     let count_range = NumberRange::between(1.0, 1_000.0);
-    card(
-        "Quy tắc kỷ luật",
-        view()
-            .child(rules_account_row(data, id, chosen))
-            .child(rule_row(
-                "Lỗ tối đa trong ngày",
-                "Chạm ngưỡng: thanh trạng thái chuyển đỏ và các lệnh vi phạm được ghi lại",
-                unit,
-                money_range,
-                DEFAULT_LOSS,
-                move || draft.loss.get(),
-                move |v| draft.loss.set(v),
-            ))
-            .child(rule_row(
-                "Số lệnh tối đa mỗi ngày",
-                "Tính lệnh mở trong ngày, theo giờ chọn ở Cài đặt",
-                Some("lệnh"),
-                count_range,
-                DEFAULT_TRADES,
-                move || draft.trades.get(),
-                move |v| draft.trades.set(v),
-            ))
-            .child(rule_row(
-                "Risk tối đa mỗi lệnh",
-                "Theo balance trước lệnh; cần lệnh có SL hoặc risk dự định để tính risk",
-                Some("%"),
-                NumberRange::between(0.1, 100.0).stepping(0.1),
-                DEFAULT_RISK_PCT,
-                move || draft.risk.get(),
-                move |v| draft.risk.set(v),
-            ))
-            .child(rule_row(
-                "Thua liên tiếp thì nghỉ",
-                "Lệnh vào sau chuỗi thua trong cùng ngày bị đánh dấu vi phạm",
-                Some("lệnh"),
-                count_range,
-                DEFAULT_STREAK,
-                move || draft.streak.get(),
-                move |v| draft.streak.set(v),
-            ))
-            .child(rule_row(
-                "Mục tiêu ngày",
-                "Đạt mục tiêu: gợi ý dừng giao dịch",
-                unit,
-                money_range,
-                DEFAULT_TARGET,
-                move || draft.target.get(),
-                move |v| draft.target.set(v),
-            ))
-            .child(
-                view()
-                    .flex_row()
-                    .flex_wrap()
-                    .items_center()
-                    .justify_end()
-                    .gap_4()
-                    .pt_4()
-                    .child(save_status(move || status.get()).text_sm())
-                    .child(
-                        check_box("Áp dụng cho mọi tài khoản", move || everywhere.get(), move |v| everywhere.set(v))
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            .child(text("Áp dụng cho mọi tài khoản").text_sm()),
-                    )
-                    .child(action("Lưu quy tắc", Variant::Primary, save)),
-            ),
-    )
+    view()
+        .child(rule_row(
+            t!("accounts.rules.loss"),
+            t!("accounts.rules.loss_hint"),
+            unit.clone(),
+            money_range,
+            DEFAULT_LOSS,
+            move || draft.loss.get(),
+            move |v| draft.loss.set(v),
+        ))
+        .child(rule_row(
+            t!("accounts.rules.trades"),
+            t!("accounts.rules.trades_hint"),
+            Some(t!("accounts.rules.trades_unit").into()),
+            count_range,
+            DEFAULT_TRADES,
+            move || draft.trades.get(),
+            move |v| draft.trades.set(v),
+        ))
+        .child(rule_row(
+            t!("accounts.rules.risk"),
+            t!("accounts.rules.risk_hint"),
+            Some("%".into()),
+            NumberRange::between(0.1, 100.0).stepping(0.1),
+            DEFAULT_RISK_PCT,
+            move || draft.risk.get(),
+            move |v| draft.risk.set(v),
+        ))
+        .child(rule_row(
+            t!("accounts.rules.streak"),
+            t!("accounts.rules.streak_hint"),
+            Some(t!("accounts.rules.trades_unit").into()),
+            count_range,
+            DEFAULT_STREAK,
+            move || draft.streak.get(),
+            move |v| draft.streak.set(v),
+        ))
+        .child(rule_row(
+            t!("accounts.rules.target"),
+            t!("accounts.rules.target_hint"),
+            unit,
+            money_range,
+            DEFAULT_TARGET,
+            move || draft.target.get(),
+            move |v| draft.target.set(v),
+        ))
 }
 
 /// Which account the rules below belong to, as a select: the cards above choose it too, but they
@@ -486,14 +511,15 @@ fn rules_account_row(data: Reading<AccountsData>, id: i64, chosen: Signal<Option
         .gap_4()
         .pb_2()
         .child(
-            view().gap_1().child(text("Áp dụng cho tài khoản").text_sm().font_weight(FontWeight::MEDIUM)).child(
-                text("Mỗi tài khoản có quy tắc riêng; tài khoản mới nhận quy tắc đang dùng")
-                    .text_xs()
-                    .text_color(move || theme().muted_foreground),
-            ),
+            view()
+                .gap_1()
+                .child(text(t!("accounts.rules.for_account")).text_sm().font_weight(FontWeight::MEDIUM))
+                .child(
+                    text(t!("accounts.rules.for_account_hint")).text_xs().text_color(move || theme().muted_foreground),
+                ),
         )
         .child(view().min_w(px(240.0)).child(select_value(
-            "Tài khoản áp dụng quy tắc",
+            t!("accounts.rules.account_label"),
             move || choices.get(),
             move || SharedString::from(id.to_string()),
             move |next| {
@@ -522,49 +548,61 @@ fn info_card(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signal
         account.currency = currency.get_untracked().trim().to_uppercase();
         account.initial_balance = initial.get_untracked();
         account.server_offset_min = offset.get_untracked().parse().ok();
-        status.set("Đang lưu…".to_owned());
+        status.set(t!("common.saving"));
         write.run(
             move |db: &mut Db| db.update_account(&account),
             move |result| match result {
                 Ok(()) => {
                     notice.set(None);
-                    status.set("Đã lưu thông tin".to_owned());
+                    status.set(t!("accounts.info.saved"));
                 }
                 Err(error) => status.set(error),
             },
         );
     };
     card(
-        "Thông tin tài khoản",
+        t!("accounts.info.title"),
         view()
             .gap_2()
             .child(text(title).text_xs().text_color(move || theme().muted_foreground))
             .child(property_row(
-                "Tên hiển thị",
-                text_field("Tên hiển thị", None, "Tên gợi nhớ", move || name.get(), move |t| name.set(t.to_owned())),
+                t!("accounts.info.name"),
+                text_field(
+                    t!("accounts.info.name"),
+                    None,
+                    t!("accounts.info.name_placeholder"),
+                    move || name.get(),
+                    move |t| name.set(t.to_owned()),
+                ),
             ))
             .child(property_row(
                 "Broker",
                 text_field("Broker", None, "Broker", move || broker.get(), move |t| broker.set(t.to_owned())),
             ))
             .child(property_row(
-                "Tiền tệ",
-                text_field("Tiền tệ", None, "USD", move || currency.get(), move |t| currency.set(t.to_owned())),
+                t!("accounts.info.currency"),
+                text_field(
+                    t!("accounts.info.currency"),
+                    None,
+                    "USD",
+                    move || currency.get(),
+                    move |t| currency.set(t.to_owned()),
+                ),
             ))
             .child(property_row(
-                "Balance ban đầu",
+                t!("accounts.info.initial"),
                 number_field(
-                    "Balance ban đầu",
-                    unit_of(&currency.get_untracked()),
+                    t!("accounts.info.initial"),
+                    unit_of(&currency.get_untracked()).map(Into::into),
                     NumberRange::between(0.0, 1_000_000_000.0).stepping(100.0),
                     move || initial.get(),
                     move |v| initial.set(v),
                 ),
             ))
             .child(property_row(
-                "Giờ server MT5",
+                t!("accounts.info.server_time"),
                 select_value(
-                    "Giờ server MT5",
+                    t!("accounts.info.server_time"),
                     move || offset_choices(offsets),
                     move || SharedString::from(offset.get()),
                     move |v| offset.set(v.to_string()),
@@ -579,7 +617,7 @@ fn info_card(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signal
                     .gap_4()
                     .pt_2()
                     .child(save_status(move || status.get()).text_sm())
-                    .child(action("Lưu thông tin", Variant::Secondary, save)),
+                    .child(action(t!("accounts.info.save"), Variant::Secondary, save)),
             ),
     )
 }
@@ -602,15 +640,15 @@ fn checklist_card(
         );
     };
     card(
-        "Checklist trước lệnh",
+        t!("accounts.checklist.title"),
         view()
             .gap_4()
             .child(
                 view()
                     .gap_2()
-                    .child(text("Dùng chung cho mọi tài khoản").text_xs().text_color(move || theme().muted_foreground))
+                    .child(text(t!("accounts.checklist.shared")).text_xs().text_color(move || theme().muted_foreground))
                     .child(checklist_editor(
-                        "Checklist dùng chung",
+                        t!("accounts.checklist.shared_label"),
                         move || data.value().map_or_default(|d| d.shared_checklist.clone()),
                         move |items| save(None, items),
                     )),
@@ -618,9 +656,9 @@ fn checklist_card(
             .child(
                 view()
                     .gap_2()
-                    .child(text("Riêng tài khoản này").text_xs().text_color(move || theme().muted_foreground))
+                    .child(text(t!("accounts.checklist.own")).text_xs().text_color(move || theme().muted_foreground))
                     .child(checklist_editor(
-                        "Checklist của tài khoản",
+                        t!("accounts.checklist.own_label"),
                         move || read(data, id, |a| a.own_checklist.clone()),
                         move |items| save(Some(id), items),
                     )),
@@ -640,20 +678,16 @@ fn today_card(data: Reading<AccountsData>, id: i64) -> impl IntoElement {
     let target_on = computed(move || rules.get().daily_target.is_some());
     let any = computed(move || loss_on.get() || trades_on.get() || streak_on.get() || target_on.get());
     card(
-        "Hôm nay",
+        t!("common.today"),
         view()
             .gap_4()
             .child(when(
                 move || !any.get(),
-                || {
-                    text("Chưa bật quy tắc nào: bật ở khối Quy tắc kỷ luật.")
-                        .text_sm()
-                        .text_color(move || theme().muted_foreground)
-                },
+                || text(t!("accounts.today.none")).text_sm().text_color(move || theme().muted_foreground),
             ))
             .child(when(loss_on, move || {
                 progress_rule(
-                    "Lỗ trong ngày",
+                    t!("accounts.today.loss"),
                     move || {
                         let limit = rules.get().max_daily_loss.unwrap_or_default();
                         let loss = status().loss();
@@ -664,14 +698,14 @@ fn today_card(data: Reading<AccountsData>, id: i64) -> impl IntoElement {
             }))
             .child(when(trades_on, move || {
                 progress_rule(
-                    "Số lệnh trong ngày",
+                    t!("accounts.today.trades"),
                     move || format!("{} / {}", status().trades, rules.get().max_daily_trades.unwrap_or_default()),
                     move || ratio(f64::from(status().trades), real(rules.get().max_daily_trades)),
                 )
             }))
             .child(when(streak_on, move || {
                 progress_rule(
-                    "Thua liên tiếp",
+                    t!("accounts.today.streak"),
                     move || {
                         format!(
                             "{} / {}",
@@ -688,7 +722,7 @@ fn today_card(data: Reading<AccountsData>, id: i64) -> impl IntoElement {
                     .items_center()
                     .justify_between()
                     .gap_3()
-                    .child(text("Mục tiêu ngày").text_sm().font_weight(FontWeight::MEDIUM))
+                    .child(text(t!("accounts.rules.target")).text_sm().font_weight(FontWeight::MEDIUM))
                     .child(
                         figure_text(move || {
                             let limit = rules.get().daily_target.unwrap_or_default();
@@ -711,7 +745,7 @@ fn violations_card(data: Reading<AccountsData>, id: i64) -> impl IntoElement {
     let lines = move || read(data, id, |a| a.violations.clone());
     let compliance = move || read(data, id, |a| a.compliance);
     card(
-        "Vi phạm 30 ngày",
+        t!("accounts.violations.title"),
         view()
             .gap_3()
             .child(
@@ -728,8 +762,10 @@ fn violations_card(data: Reading<AccountsData>, id: i64) -> impl IntoElement {
                     )
                     .child(
                         text(move || match compliance() {
-                            Some(rate) => format!("vi phạm · tuân thủ {} số ngày", format::percent(rate)),
-                            None => "vi phạm · chưa có ngày giao dịch nào".to_owned(),
+                            Some(rate) => {
+                                plural!(lines().len(), "accounts.violations.compliance", rate = format::percent(rate))
+                            }
+                            None => t!("accounts.violations.no_days"),
                         })
                         .text_sm()
                         .text_color(move || theme().muted_foreground),
@@ -739,7 +775,7 @@ fn violations_card(data: Reading<AccountsData>, id: i64) -> impl IntoElement {
                 let all = lines();
                 untracked(|| {
                     if all.is_empty() {
-                        return text("Không có vi phạm nào trong 30 ngày qua.")
+                        return text(t!("accounts.violations.none"))
                             .text_sm()
                             .text_color(move || theme().muted_foreground)
                             .into_element();
@@ -748,7 +784,7 @@ fn violations_card(data: Reading<AccountsData>, id: i64) -> impl IntoElement {
                     view()
                         .child(view().children(all.into_iter().take(LISTED).map(|line| violation_row(&line))))
                         .child((more > 0).then(|| {
-                            text(format!("…và {more} vi phạm cũ hơn"))
+                            text(plural!(more, "accounts.violations.more", n = more))
                                 .pt_2()
                                 .text_xs()
                                 .text_color(move || theme().muted_foreground)
@@ -776,12 +812,11 @@ fn violation_row(line: &ViolationLine) -> impl IntoElement + use<> {
             .text_color(move || theme().muted_foreground),
         )
         .child(
-            view()
-                .flex_1()
-                .min_w(px(0.0))
-                .gap_1()
-                .child(text(line.text.clone()).text_sm().text_color(loss))
-                .child(text(line.place.clone()).text_xs().text_color(move || theme().muted_foreground)),
+            view().flex_1().min_w(px(0.0)).gap_1().child(text(line.text.clone()).text_sm().text_color(loss)).child(
+                text(line.place.as_ref().map_or_default(Place::text))
+                    .text_xs()
+                    .text_color(move || theme().muted_foreground),
+            ),
         )
 }
 
@@ -802,10 +837,13 @@ mod tests {
 
     #[test]
     fn card_text_helpers() {
-        assert_eq!(ago(10 * 60_000, 10 * 60_000), "vừa xong");
-        assert_eq!(ago(10 * 60_000, 4 * 60_000), "6 phút trước");
-        assert_eq!(ago(5 * 3_600_000, 0), "5 giờ trước");
-        assert_eq!(ago(3 * 86_400_000, 0), "3 ngày trước");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            assert_eq!(ago(10 * 60_000, 10 * 60_000), "vừa xong");
+            assert_eq!(ago(10 * 60_000, 4 * 60_000), "6 phút trước");
+            assert_eq!(ago(5 * 3_600_000, 0), "5 giờ trước");
+            assert_eq!(ago(3 * 86_400_000, 0), "3 ngày trước");
+        });
+        assert_eq!(crate::i18n::with_text(crate::i18n::Lang::En, || ago(5 * 3_600_000, 0)), "5h ago");
         assert_eq!(offset_title(120), "UTC+2");
         assert_eq!(offset_title(-330), "UTC-5:30");
         assert_eq!(unit_of(" usd "), Some("USD"));
@@ -816,7 +854,11 @@ mod tests {
 
     #[test]
     fn an_odd_server_offset_stays_a_choice() {
-        let titles = |current| offset_choices(current).into_iter().map(|c| c.title.to_string()).collect::<Vec<_>>();
+        let titles = |current| {
+            crate::i18n::with_text(crate::i18n::Lang::Vi, move || {
+                offset_choices(current).into_iter().map(|c| c.title.to_string()).collect::<Vec<_>>()
+            })
+        };
         assert!(titles(Some(330)).contains(&"UTC+5:30".to_owned()));
         assert!(!titles(Some(120)).contains(&"UTC+2:00".to_owned()));
         assert_eq!(titles(None)[0], "Chưa biết (giữ giờ server)");
@@ -882,7 +924,8 @@ mod tests {
         assert!((entry.today.loss() - 210.0).abs() < 1e-9);
         assert_eq!(entry.today.trades, 2);
         assert_eq!(entry.compliance, Some(0.0), "the only day traded was broken");
-        assert!(entry.violations.iter().any(|v| v.place == "2 lệnh"));
+        assert!(entry.violations.iter().any(|v| v.place == Some(Place::Day { trades: 2 })));
+        assert_eq!(crate::i18n::with_text(crate::i18n::Lang::Vi, || Place::Day { trades: 2 }.text()), "2 lệnh");
     }
 
     #[test]

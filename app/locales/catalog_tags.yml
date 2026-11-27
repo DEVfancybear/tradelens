@@ -1,0 +1,17 @@
+_version: 2
+
+# A pick from one of the trader's catalogs (pages/catalog_tags.rs). The group's own name ("tag",
+# "mistake") is given by the page that uses it, in lower case.
+
+catalog_tags.add:
+  vi: "Thêm %{name}"
+  en: "Add %{name}"
+catalog_tags.remove_title:
+  vi: "Xoá «%{label}» khỏi danh sách %{list}?"
+  en: "Remove “%{label}” from the %{list} list?"
+catalog_tags.remove_said:
+  vi: "Không còn để chọn nữa; những gì đã ghi vẫn giữ nó."
+  en: "It can no longer be picked; what was already recorded keeps it."
+catalog_tags.remove:
+  vi: "Xoá"
+  en: "Remove"

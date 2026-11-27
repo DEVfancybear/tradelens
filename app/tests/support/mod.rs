@@ -59,7 +59,8 @@ impl Fixture {
     }
 
     /// Starts the app on a window of `width` x `height` with this fixture as its data directory;
-    /// `tweak` may change the rest of the engine's configuration. Returns once the app has opened.
+    /// `tweak` may change the rest of the engine's configuration. Returns once the app has opened,
+    /// in the language the database has chosen.
     pub(crate) fn start(&self, width: f32, height: f32, tweak: impl FnOnce(&mut EngineConfig)) -> Headless {
         let mut config = EngineConfig {
             viewport: Size::new(px(width), px(height)),
@@ -69,8 +70,9 @@ impl Fixture {
         tweak(&mut config);
         let mut app = Headless::start(config).expect("the app starts");
         // Not `wait_for` (a fixed 5 s): on a loaded machine the first frame alone took longer, and
-        // every test of a binary failed with an empty screen.
-        app.wait_for_within("Tổng quan", WAIT).expect("the app opens");
+        // every test of a binary failed with an empty screen. Either language may be set.
+        app.wait_until("the app opening", WAIT, |screen| screen.shows("Tổng quan") || screen.shows("Overview"))
+            .expect("the app opens");
         app
     }
 }

@@ -1,0 +1,69 @@
+_version: 2
+
+# Popup ghi kế hoạch: the dialog that writes the plan of a trade (pages/entry_plan.rs).
+
+entry_plan.title:
+  vi: "Kế hoạch vào lệnh"
+  en: "Entry plan"
+entry_plan.origin_mt5:
+  vi: "%{account} · lệnh %{ticket}"
+  en: "%{account} · trade %{ticket}"
+entry_plan.waiting:
+  vi: "còn %{n} lệnh đang chờ ghi kế hoạch"
+  en: "%{n} more waiting for a plan"
+entry_plan.not_chosen:
+  vi: "Chưa chọn"
+  en: "Not chosen"
+entry_plan.not_linked:
+  vi: "Chưa gắn"
+  en: "Not linked"
+entry_plan.timeframe:
+  vi: "Khung vào lệnh"
+  en: "Entry timeframe"
+entry_plan.grade:
+  vi: "Hạng setup"
+  en: "Setup grade"
+entry_plan.emotion:
+  vi: "Cảm xúc trước lệnh"
+  en: "Emotion before the trade"
+entry_plan.checklist:
+  vi: "Checklist trước lệnh"
+  en: "Pre-trade checklist"
+entry_plan.thesis_caption:
+  vi: "Lý do vào lệnh (viết ngay, trước khi biết kết quả)"
+  en: "Reason for entering (write it now, before you know the result)"
+entry_plan.thesis:
+  vi: "Lý do vào lệnh"
+  en: "Reason for entering"
+entry_plan.thesis_placeholder:
+  vi: "Setup thấy gì, chờ xác nhận gì…"
+  en: "What the setup shows, what confirmation you wait for…"
+entry_plan.entry:
+  vi: "Giá vào"
+  en: "Entry price"
+entry_plan.planned_rr:
+  vi: "R:R dự kiến %{rr}"
+  en: "Planned R:R %{rr}"
+entry_plan.footer_note:
+  vi: "Entry, SL, TP lấy từ lệnh · ảnh chart thêm ở chi tiết lệnh"
+  en: "Entry, SL and TP come from the trade · add chart images on the trade's page"
+entry_plan.save:
+  vi: "Lưu kế hoạch"
+  en: "Save plan"
+
+# What a broken rule says (the account's rules the plan would break).
+entry_plan.warn.risk:
+  vi: "Risk %{percent}% vượt quy tắc %{limit}% của tài khoản %{account}."
+  en: "Risk %{percent}% exceeds the %{limit}% rule of account %{account}."
+entry_plan.warn.daily_trades:
+  vi: "Lệnh thứ %{count} trong ngày vượt quy tắc %{limit} lệnh/ngày của tài khoản %{account}."
+  en: "Trade %{count} of the day exceeds the rule of %{limit} a day of account %{account}."
+entry_plan.warn.daily_loss:
+  vi: "Lỗ trong ngày %{loss} đã vượt quy tắc %{limit} của tài khoản %{account}."
+  en: "The day's loss of %{loss} has exceeded the rule of %{limit} of account %{account}."
+entry_plan.warn.streak.one:
+  vi: "Vào lệnh sau %{streak} lệnh thua liên tiếp, vượt quy tắc %{limit} của tài khoản %{account}."
+  en: "Trading after %{streak} loss in a row exceeds the rule of %{limit} of account %{account}."
+entry_plan.warn.streak.other:
+  vi: "Vào lệnh sau %{streak} lệnh thua liên tiếp, vượt quy tắc %{limit} của tài khoản %{account}."
+  en: "Trading after %{streak} losses in a row exceeds the rule of %{limit} of account %{account}."

@@ -89,7 +89,7 @@ fn load_parts(conn: &Connection, key: &TradeKey) -> Result<Option<Parts>> {
     if deals.is_empty() {
         return Ok(None);
     }
-    let many = || DbError::Invalid("lệnh này gồm nhiều deal (chốt từng phần hoặc đảo chiều), không sửa được".into());
+    let many = || DbError::Invalid(crate::tr!("core.manual.many_deals"));
     let [first, second] = deals.as_slice() else { return Err(many()) };
     let (entry, exit) = match (first.0.entry, second.0.entry) {
         (DealEntry::In | DealEntry::None, DealEntry::Out | DealEntry::OutBy) => (first, second),
@@ -115,29 +115,34 @@ fn load_parts(conn: &Connection, key: &TradeKey) -> Result<Option<Parts>> {
 fn checked(trade: &ManualTrade) -> Result<ManualTrade> {
     let symbol = symbol::normalise(&trade.symbol);
     if symbol.is_empty() {
-        return Err(DbError::Invalid("thiếu mã giao dịch".into()));
+        return Err(DbError::Invalid(crate::tr!("core.manual.no_symbol")));
     }
-    for (label, value) in [("khối lượng", trade.volume), ("giá vào", trade.open_price), ("giá ra", trade.close_price)]
-    {
+    for (label, value) in [
+        ("core.manual.volume", trade.volume),
+        ("core.manual.open_price", trade.open_price),
+        ("core.manual.close_price", trade.close_price),
+    ] {
         if value.is_some_and(|v| !(v.is_finite() && v > 0.0)) {
-            return Err(DbError::Invalid(format!("{label} phải là số dương")));
+            return Err(DbError::Invalid(crate::tr!("core.manual.must_be_positive", label = crate::tr!(label))));
         }
     }
-    for (label, value) in
-        [("stop loss", Some(trade.sl)), ("take profit", Some(trade.tp)), ("kết quả R", trade.result_r)]
-    {
+    for (label, value) in [
+        ("core.manual.stop_loss", Some(trade.sl)),
+        ("core.manual.take_profit", Some(trade.tp)),
+        ("core.manual.result_r", trade.result_r),
+    ] {
         if value.is_some_and(|v| !v.is_finite()) {
-            return Err(DbError::Invalid(format!("{label} phải là một số")));
+            return Err(DbError::Invalid(crate::tr!("core.manual.must_be_number", label = crate::tr!(label))));
         }
     }
     if [trade.profit, Some(trade.commission), Some(trade.swap)].iter().flatten().any(|v| !v.is_finite()) {
-        return Err(DbError::Invalid("lãi/lỗ và phí phải là số".into()));
+        return Err(DbError::Invalid(crate::tr!("core.manual.money_must_be_numbers")));
     }
     if trade.profit.is_none() && trade.result_r.is_none() {
-        return Err(DbError::Invalid("nhập lãi/lỗ hoặc kết quả R của lệnh".into()));
+        return Err(DbError::Invalid(crate::tr!("core.manual.need_profit_or_r")));
     }
     if trade.close_time < trade.open_time {
-        return Err(DbError::Invalid("thời gian ra phải sau thời gian vào".into()));
+        return Err(DbError::Invalid(crate::tr!("core.manual.close_before_open")));
     }
     // A result in R next to a profit of exactly 0 is a trade kept in R: it has no money to count.
     let profit = trade.profit.filter(|profit| *profit != 0.0 || trade.result_r.is_none());
@@ -244,9 +249,9 @@ impl Db {
     pub fn update_manual_trade(&mut self, key: &TradeKey, trade: &ManualTrade) -> Result<()> {
         let trade = checked(trade)?;
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let parts = load_parts(&tx, key)?.ok_or_else(|| DbError::Invalid("không tìm thấy lệnh".into()))?;
+        let parts = load_parts(&tx, key)?.ok_or_else(|| DbError::Invalid(crate::tr!("core.manual.not_found")))?;
         if !parts.origin.is_editable() {
-            return Err(DbError::Invalid("lệnh này do MT5 báo cáo nên không sửa số liệu được".into()));
+            return Err(DbError::Invalid(crate::tr!("core.manual.from_mt5")));
         }
         let (entry, exit) = deals_of(&trade, parts.entry.ticket, parts.exit.ticket);
         // What the trader never typed (the title a journal import gave, the magic number) stays.

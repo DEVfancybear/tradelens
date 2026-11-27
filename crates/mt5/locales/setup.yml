@@ -1,0 +1,74 @@
+_version: 2
+
+mt5.write_failed:
+  vi: "Không ghi được %{path}: %{error}"
+  en: "Cannot write %{path}: %{error}"
+
+mt5.install.not_found:
+  vi: "không thấy %{path}"
+  en: "%{path} was not found"
+
+mt5.installer.open_failed:
+  vi: "Không mở được trình cài MetaTrader 5 đã tải: %{error}"
+  en: "Cannot open the downloaded MetaTrader 5 installer: %{error}"
+mt5.installer.no_folder:
+  vi: "Không biết thư mục của %{path} để chép MetaTrader 5."
+  en: "Cannot tell the folder of %{path} to copy MetaTrader 5 from."
+mt5.installer.copy_failed:
+  vi: "MetaTrader 5 đã được cài vào %{from} nhưng không chép được vào thư mục của TradeLens (%{to}): %{error}"
+  en: "MetaTrader 5 was installed in %{from} but could not be copied into TradeLens's folder (%{to}): %{error}"
+mt5.installer.launch_failed:
+  vi: "Không chạy được trình cài MetaTrader 5: %{error}"
+  en: "Cannot run the MetaTrader 5 installer: %{error}"
+mt5.installer.stopped:
+  vi: "Trình cài MetaTrader 5 đã dừng mà chưa cài xong: có thể Windows chưa được cho phép cài (hãy bấm \"Có\" khi Windows hỏi), hoặc trình cài đã bị đóng. Hãy thử lại."
+  en: "The MetaTrader 5 installer stopped before it finished: Windows may not have been allowed to install (click \"Yes\" when Windows asks), or the installer was closed. Please try again."
+mt5.installer.too_long:
+  vi: "Cài MetaTrader 5 quá %{minutes} phút mà chưa xong: hãy xem cửa sổ trình cài của MetaQuotes, rồi bấm \"Kiểm tra lại\"."
+  en: "Installing MetaTrader 5 took more than %{minutes} minutes: look at MetaQuotes's installer window, then click \"Check again\"."
+mt5.installer.left_behind:
+  vi: "Đã chép MetaTrader 5 vào thư mục của TradeLens, nhưng bản MetaQuotes cài trong %{folder} chưa gỡ được (%{why}). TradeLens không cần bản đó nữa: có thể gỡ \"MetaTrader 5\" trong Cài đặt Windows › Ứng dụng."
+  en: "MetaTrader 5 was copied into TradeLens's folder, but the copy MetaQuotes installed in %{folder} could not be removed (%{why}). TradeLens no longer needs it: you can uninstall \"MetaTrader 5\" in Windows Settings › Apps."
+mt5.installer.uninstaller_missing:
+  vi: "không thấy uninstall.exe"
+  en: "uninstall.exe was not found"
+mt5.installer.uninstaller_launch_failed:
+  vi: "không chạy được trình gỡ: %{error}"
+  en: "the uninstaller could not be run: %{error}"
+mt5.installer.uninstaller_stopped:
+  vi: "trình gỡ đã dừng, có thể Windows chưa được cho phép gỡ"
+  en: "the uninstaller stopped, Windows may not have been allowed to uninstall"
+mt5.installer.uninstaller_too_long:
+  vi: "trình gỡ chạy quá lâu"
+  en: "the uninstaller ran for too long"
+mt5.installer.no_terminal:
+  vi: "không có %{file}"
+  en: "there is no %{file}"
+mt5.installer.signature_check_failed:
+  vi: "Không kiểm tra được chữ ký của trình cài MetaTrader 5: %{error}"
+  en: "Cannot check the signature of the MetaTrader 5 installer: %{error}"
+mt5.installer.signature_unreadable:
+  vi: "không đọc được chữ ký"
+  en: "the signature could not be read"
+mt5.installer.signature_invalid:
+  vi: "Trình cài MetaTrader 5 tải về không mang chữ ký hợp lệ của %{signer} (%{shown}): TradeLens không chạy nó."
+  en: "The downloaded MetaTrader 5 installer does not carry a valid signature of %{signer} (%{shown}): TradeLens will not run it."
+
+mt5.runtime.pip_launch_failed:
+  vi: "không chạy được pip của Python riêng: %{error}"
+  en: "cannot run the pip of the private Python: %{error}"
+mt5.runtime.pip_failed:
+  vi: "pip không cài được gói MetaTrader5: %{tail}"
+  en: "pip could not install the MetaTrader5 package: %{tail}"
+mt5.runtime.wrong_download:
+  vi: "File tải về không đúng (%{url}): %{size} byte, SHA-256 %{sha256}; cần %{want_size} byte, %{want_sha256}."
+  en: "The downloaded file is wrong (%{url}): %{size} bytes, SHA-256 %{sha256}; expected %{want_size} bytes, %{want_sha256}."
+mt5.runtime.download_failed:
+  vi: "Không tải được %{url}: %{error}"
+  en: "Cannot download %{url}: %{error}"
+mt5.runtime.odd_path:
+  vi: "đường dẫn lạ trong gói: mục %{index}"
+  en: "odd path in the package: entry %{index}"
+mt5.runtime.no_pth:
+  vi: "gói Python không có file ._pth"
+  en: "the Python package has no ._pth file"

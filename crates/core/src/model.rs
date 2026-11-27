@@ -22,6 +22,25 @@ pub struct Account {
     pub last_sync: Option<i64>,
 }
 
+/// The login of the account the app files hand-entered trades under.
+pub const MANUAL_LOGIN: &str = "manual";
+/// The name (and server) the app stores for the account of hand-entered trades.
+pub const MANUAL_NAME: &str = "Nhập tay";
+/// The login of the account a Notion journal is imported into when the trader names none.
+pub const NOTION_LOGIN: &str = "notion";
+/// The name the app stores for the account of a Notion journal.
+pub const NOTION_NAME: &str = "Nhật ký Notion";
+
+/// The text shown for `stored`, a name or server of the account `login`: the language's own words
+/// when it is what the app stored for an account it made itself, else `stored` as it is.
+fn shown(login: &str, stored: &str) -> String {
+    match (login, stored) {
+        (MANUAL_LOGIN, MANUAL_NAME) => crate::tr!("core.account.manual"),
+        (NOTION_LOGIN, NOTION_NAME) => crate::tr!("core.account.notion"),
+        _ => stored.to_owned(),
+    }
+}
+
 impl Account {
     /// What the screens call the account: its name and, for a terminal's account, its login
     /// (`Demo (12345)`). The login of a journal's account (`notion`) is only a key the importer
@@ -29,12 +48,34 @@ impl Account {
     pub fn title(&self) -> String {
         let terminal_login = !self.login.is_empty() && self.login.chars().all(|c| c.is_ascii_digit());
         if self.name.trim().is_empty() {
-            format!("{} · {}", self.login, self.server)
+            format!("{} · {}", self.login, self.shown_server())
         } else if terminal_login {
             format!("{} ({})", self.name, self.login)
         } else {
-            self.name.clone()
+            self.shown_name()
         }
+    }
+
+    /// The name as the screens show it: the stored one, except that the names the app gave the
+    /// accounts it made (`Nhập tay`, `Nhật ký Notion`) are said in the language of the process
+    /// until the trader renames them. What is stored is not changed.
+    #[must_use]
+    pub fn shown_name(&self) -> String {
+        shown(&self.login, &self.name)
+    }
+
+    /// What the screens call an account with no row of its own, by its id (`Tài khoản 3`), in the
+    /// language of the process.
+    #[must_use]
+    pub fn unknown_title(id: i64) -> String {
+        crate::tr!("core.account.unknown", id = id)
+    }
+
+    /// The server as the screens show it, said in the language of the process for the account of
+    /// hand-entered trades, as [`Account::shown_name`].
+    #[must_use]
+    pub fn shown_server(&self) -> String {
+        shown(&self.login, &self.server)
     }
 }
 
@@ -337,11 +378,11 @@ pub enum Origin {
 
 impl Origin {
     /// What the screens call it.
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::Mt5 => "MT5",
-            Self::Manual => "Nhập tay",
-            Self::Notion => "Notion",
+            Self::Mt5 => "MT5".to_owned(),
+            Self::Manual => crate::tr!("core.origin.manual"),
+            Self::Notion => "Notion".to_owned(),
         }
     }
 
@@ -639,5 +680,30 @@ impl ManualTrade {
             gaps = gaps.with(Gaps::TIME);
         }
         gaps
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_account_the_app_made_is_named_in_the_language_until_renamed() {
+        let manual = Account {
+            login: MANUAL_LOGIN.into(),
+            server: MANUAL_NAME.into(),
+            name: MANUAL_NAME.into(),
+            ..Account::default()
+        };
+        // The process speaks Vietnamese in the tests: the stored words.
+        assert_eq!(manual.title(), "Nhập tay");
+        assert_eq!(rust_i18n::t!("core.account.manual", locale = "en"), "Manual entry");
+        let notion = Account { login: NOTION_LOGIN.into(), name: NOTION_NAME.into(), ..Account::default() };
+        assert_eq!(notion.shown_name(), "Nhật ký Notion");
+        assert_eq!(rust_i18n::t!("core.account.notion", locale = "en"), "Notion journal");
+        let renamed = Account { name: "Sổ tay".into(), ..manual };
+        assert_eq!(renamed.title(), "Sổ tay", "a name the trader gave is shown as written");
+        let terminal = Account { login: "12345".into(), name: MANUAL_NAME.into(), ..Account::default() };
+        assert_eq!(terminal.title(), "Nhập tay (12345)", "only the app's own accounts are named for it");
     }
 }

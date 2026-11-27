@@ -62,18 +62,18 @@ pub type Slides = Rc<dyn Fn() -> Vec<Slide>>;
 /// What a gallery asks the viewer to show.
 #[derive(Clone)]
 pub struct Request {
-    label: &'static str,
+    label: SharedString,
     slides: Slides,
     start: usize,
     restore: Rc<dyn Fn(usize)>,
 }
 
 impl Request {
-    /// A viewer of `slides` (read live), named `label` (`"Ảnh chart"`), opening on the picture
+    /// A viewer of `slides` (read live), named `label` (`"Chart pictures"`), opening on the picture
     /// at `start`. When it closes it calls `restore` with the index of the picture it was on, to
     /// put the keyboard focus back on that picture's tile.
-    pub fn new(label: &'static str, slides: Slides, start: usize, restore: Rc<dyn Fn(usize)>) -> Self {
-        Self { label, slides, start, restore }
+    pub fn new(label: impl Into<SharedString>, slides: Slides, start: usize, restore: Rc<dyn Fn(usize)>) -> Self {
+        Self { label: label.into(), slides, start, restore }
     }
 }
 
@@ -345,7 +345,7 @@ fn layer() -> View {
     let zoom_in = move || frame.zoom_to(actual_zoom_of(frame), (0.0, 0.0));
     let outside = move |how: Outside| {
         let Some(path) = current.get_untracked().and_then(|slide| slide.file) else {
-            frame.notice.set(Some("Không tìm thấy file ảnh.".to_owned()));
+            frame.notice.set(Some(t!("ui.viewer.no_file")));
             return;
         };
         spawn(async move {
@@ -353,7 +353,7 @@ fn layer() -> View {
                 Outside::Open => open_path(path).await,
                 Outside::Reveal => reveal_path(path).await,
             };
-            frame.notice.try_set(done.err().map(|error| format!("Không mở được ảnh: {error}")));
+            frame.notice.try_set(done.err().map(|error| t!("ui.viewer.open_failed", error = error)));
         });
     };
     let fit = move || frame.zoom.get() <= FIT_LIMIT;
@@ -384,7 +384,7 @@ fn layer() -> View {
             button()
                 .cursor_pointer()
                 .on_press(close)
-                .accessibility_label("Đóng trình xem ảnh")
+                .accessibility_label(t!("ui.viewer.close_scrim"))
                 .absolute()
                 .inset_0()
                 .bg(move || theme().background)
@@ -402,7 +402,7 @@ fn actual_zoom_of(frame: Frame) -> f32 {
 
 /// The bar above the picture: what it is, where it stands, zoom, and the way out.
 fn header(
-    label: &'static str,
+    label: SharedString,
     frame: Frame,
     count: impl Fn() -> usize + Copy + 'static,
     fit: impl Fn() -> bool + Copy + 'static,
@@ -424,7 +424,9 @@ fn header(
                 .text_color(move || theme().muted_foreground),
         )
         .child(view().flex_1().min_w(px(0.0)))
-        .child(icon_action(Icon::Minus, "Thu nhỏ", Variant::Secondary, move || frame.zoom_by(-1.0, (0.0, 0.0))))
+        .child(icon_action(Icon::Minus, t!("ui.viewer.zoom_out"), Variant::Secondary, move || {
+            frame.zoom_by(-1.0, (0.0, 0.0));
+        }))
         .child(
             text(move || format!("{:.0}%", frame.percent()))
                 .text_sm()
@@ -432,15 +434,21 @@ fn header(
                 .text_center()
                 .text_color(move || theme().muted_foreground),
         )
-        .child(icon_action(Icon::Plus, "Phóng to", Variant::Secondary, move || frame.zoom_by(1.0, (0.0, 0.0))))
-        .child(action(move || if fit() { "100%" } else { "Vừa khung" }, Variant::Secondary, move || frame.toggle()))
-        .child(action_icon(Icon::Share, "Mở bằng ứng dụng khác", Variant::Secondary, move || {
+        .child(icon_action(Icon::Plus, t!("ui.viewer.zoom_in"), Variant::Secondary, move || {
+            frame.zoom_by(1.0, (0.0, 0.0));
+        }))
+        .child(action(
+            move || if fit() { "100%".to_owned() } else { t!("ui.viewer.fit") },
+            Variant::Secondary,
+            move || frame.toggle(),
+        ))
+        .child(action_icon(Icon::Share, t!("ui.viewer.open_with"), Variant::Secondary, move || {
             outside(Outside::Open);
         }))
-        .child(action_icon(Icon::Folder, "Hiện trong thư mục", Variant::Secondary, move || {
+        .child(action_icon(Icon::Folder, t!("ui.viewer.reveal"), Variant::Secondary, move || {
             outside(Outside::Reveal);
         }))
-        .child(icon_action(Icon::Close, "Đóng ảnh", Variant::Secondary, close))
+        .child(icon_action(Icon::Close, t!("ui.viewer.close"), Variant::Secondary, close))
 }
 
 /// The area the picture fills, with the arrows at its sides.
@@ -452,7 +460,7 @@ fn stage(
     step: impl Fn(Way) + Copy + 'static,
     zoom_in: impl Fn() + Copy + 'static,
 ) -> impl IntoElement {
-    let arrow = move |glyph: Icon, label: &'static str, way: Way| {
+    let arrow = move |glyph: Icon, label: String, way: Way| {
         // A strip over the whole side that takes no clicks itself: the scrim behind still hears them.
         let strip = view().absolute().top_0().bottom_0().justify_center().pointer_events(PointerEvents::BoxNone);
         let strip = match way {
@@ -461,7 +469,7 @@ fn stage(
         };
         when(
             move || count() > 1,
-            move || strip.clone().child(icon_action(glyph, label, Variant::Secondary, move || step(way))),
+            move || strip.clone().child(icon_action(glyph, label.clone(), Variant::Secondary, move || step(way))),
         )
     };
     view()
@@ -492,8 +500,8 @@ fn stage(
                     untracked(|| slide.map(|slide| picture(&slide, frame, fit, zoom_in)))
                 })),
         )
-        .child(arrow(Icon::ChevronLeft, "Ảnh trước", Way::Previous))
-        .child(arrow(Icon::ChevronRight, "Ảnh sau", Way::Next))
+        .child(arrow(Icon::ChevronLeft, t!("ui.viewer.previous"), Way::Previous))
+        .child(arrow(Icon::ChevronRight, t!("ui.viewer.next"), Way::Next))
 }
 
 /// The picture at its place: the box it fits, moved by the pan, scaled by the zoom, with the
@@ -505,7 +513,7 @@ fn picture(
     zoom_in: impl Fn() + Copy + 'static,
 ) -> View {
     let fitted = move || fit_box(frame.stage.get().holder(), frame.natural.get());
-    let name: SharedString = format!("Ảnh {}", slide.caption).into();
+    let name: SharedString = t!("ui.viewer.picture", caption = slide.caption).into();
     let url = slide.file.as_deref().and_then(file_url);
     let last = signal(None::<(f32, f32)>);
     view()
@@ -562,11 +570,7 @@ fn footer(frame: Frame, current: Memo<Option<Slide>>) -> impl IntoElement {
         .child(text(line(|s| &s.caption)).text_sm().font_weight(FontWeight::MEDIUM))
         .child(text(line(|s| &s.detail)).text_xs().text_color(move || theme().muted_foreground))
         .child(dynamic(move || frame.notice.get().map(error_note)))
-        .child(
-            text("← → chuyển ảnh   + − phóng to / thu nhỏ   0 vừa khung   Esc đóng")
-                .text_xs()
-                .text_color(move || theme().muted_foreground),
-        )
+        .child(text(t!("ui.viewer.keys")).text_xs().text_color(move || theme().muted_foreground))
 }
 
 #[cfg(test)]

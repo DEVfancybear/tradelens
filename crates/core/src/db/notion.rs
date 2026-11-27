@@ -322,7 +322,7 @@ fn store_row(
         rows.collect::<rusqlite::Result<_>>()?
     };
     if sources.iter().any(|source| source != NOTION_SOURCE) {
-        return Ok(Stored::Skipped("trùng mã lệnh nội bộ với một lệnh khác trong tài khoản".to_owned()));
+        return Ok(Stored::Skipped(crate::tr!("core.notion.duplicate_ticket")));
     }
     let matched = if sources.is_empty() { find_mt5_trade(conn, account_id, row)? } else { None };
     let key = TradeKey { account_id, position_id: matched.unwrap_or(row.position_id), segment: 0 };

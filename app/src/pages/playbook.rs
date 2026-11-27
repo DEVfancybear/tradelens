@@ -61,12 +61,12 @@ pub(crate) fn playbook() -> impl IntoElement {
     let groups = computed(move || setup_groups(&store.snapshot()));
     let is_editing = computed(move || editing.with(Option::is_some));
     page_with(
-        "Playbook",
-        "Mỗi setup một bộ quy tắc, checklist và ảnh mẫu, kèm số liệu thật.",
+        t!("playbook.title"),
+        t!("playbook.summary"),
         dynamic(move || {
             (!is_editing.get()).then(|| {
                 untracked(|| {
-                    action_icon(Icon::Plus, "Thêm playbook", Variant::Primary, move || {
+                    action_icon(Icon::Plus, t!("playbook.add"), Variant::Primary, move || {
                         editing.set(Some(Draft::default()));
                     })
                 })
@@ -117,16 +117,15 @@ fn group_of<'g>(groups: &'g [Group], setup: &Playbook) -> Option<&'g Group> {
 }
 
 /// The trades of setup `id` by their setup grade, in the order of the grade catalog; trades
-/// with no grade come last as "Chưa chấm".
+/// with no grade come last as "Not graded".
 fn grade_groups(snapshot: &Snapshot, id: i64, catalog: &[CatalogItem]) -> Vec<Group> {
-    const UNGRADED: &str = "Chưa chấm";
     let mine: Vec<Sample<'_>> = samples(snapshot).into_iter().filter(|x| linked(snapshot, x) == Some(id)).collect();
     let mut groups = metrics::breakdown(
         &mine,
         |x| vec![snapshot.journals.get(&x.trade.key).and_then(|j| j.setup_grade.clone()).unwrap_or_default()],
         |key: &String| {
             catalog.iter().find(|item| item.key == *key).map_or_else(
-                || if key.is_empty() { UNGRADED.to_owned() } else { key.clone() },
+                || if key.is_empty() { t!("playbook.ungraded") } else { key.clone() },
                 |item| item.label.clone(),
             )
         },
@@ -145,7 +144,7 @@ fn list_card(
 ) -> impl IntoElement {
     let store = store();
     view().w(px(320.0)).child(card(
-        "Playbook của bạn",
+        t!("playbook.list.title"),
         view()
             .gap_3()
             .child(dynamic(move || {
@@ -155,10 +154,10 @@ fn list_card(
                 let currency = snapshot.currency.clone();
                 untracked(|| {
                     if snapshot.playbooks.is_empty() {
-                        return empty_state("Chưa có playbook nào", "Bấm “Thêm playbook” để ghi setup đầu tiên.")
-                            .into_element();
+                        return empty_state(t!("playbook.list.empty"), t!("playbook.list.empty_hint")).into_element();
                     }
-                    let unlinked = groups.iter().find(|g| g.label == "Chưa gắn setup").cloned();
+                    let no_setup = playbook::no_setup_label();
+                    let unlinked = groups.iter().find(|g| g.label == no_setup).cloned();
                     view()
                         .gap_3()
                         .children(snapshot.playbooks.iter().enumerate().map(|(index, setup)| {
@@ -168,11 +167,7 @@ fn list_card(
                         .into_element()
                 })
             }))
-            .child(
-                text("“Chưa gắn setup” là các lệnh chưa có playbook — gắn trong nhật ký của từng lệnh.")
-                    .text_xs()
-                    .text_color(move || theme().muted_foreground),
-            ),
+            .child(text(t!("playbook.list.unlinked_hint")).text_xs().text_color(move || theme().muted_foreground)),
     ))
 }
 
@@ -189,7 +184,7 @@ fn setup_item(
     let net = group.map_or_else(|| "—".to_owned(), |g| format::money(g.net, Sign::Always, currency));
     let counts = counts_line(group);
     list_item(
-        format!("Playbook {}", setup.name),
+        t!("playbook.item.label", name = setup.name),
         move || chosen == Some(id),
         move || {
             batch(|| {
@@ -212,20 +207,23 @@ fn setup_item(
                             .text_sm()
                             .font_weight(FontWeight::SEMIBOLD),
                     )
-                    .when(setup.archived, |row| row.child(chip("Đã lưu trữ", Tone::Neutral)))
+                    .when(setup.archived, |row| row.child(chip(t!("playbook.archived"), Tone::Neutral)))
                     .child(pnl_text(move || net.clone())),
             )
             .child(text(counts).text_xs().text_color(move || theme().muted_foreground)),
     )
 }
 
-/// `42 lệnh · 62% thắng · Kỳ vọng +0.58R`.
+/// `42 trades · 62% won · Expectancy +0.58R`.
 fn counts_line(group: Option<&Group>) -> String {
     match group {
-        None => "Chưa có lệnh".to_owned(),
-        Some(g) => {
-            format!("{} lệnh · {:.0}% thắng · Kỳ vọng {}", g.trades, g.win_rate() * 100.0, format::r_average(g.avg_r()))
-        }
+        None => t!("playbook.counts.none"),
+        Some(g) => t!(
+            "playbook.counts.some",
+            trades = format::trade_count(g.trades),
+            win = format!("{:.0}", g.win_rate() * 100.0),
+            expectancy = format::r_average(g.avg_r())
+        ),
     }
 }
 
@@ -243,7 +241,7 @@ fn unlinked_row(group: &Group, currency: &str) -> impl IntoElement + use<> {
                 .flex_row()
                 .items_center()
                 .gap_2()
-                .child(text("Chưa gắn setup").flex_1().text_sm().font_weight(FontWeight::SEMIBOLD))
+                .child(text(playbook::no_setup_label()).flex_1().text_sm().font_weight(FontWeight::SEMIBOLD))
                 .child(pnl_text(move || net.clone())),
         )
         .child(text(counts_line(Some(group))).text_xs().text_color(move || theme().muted_foreground))
@@ -291,13 +289,16 @@ fn detail(
                         .gap_3()
                         .child(
                             text(move || {
-                                format!("Ảnh mẫu · {}", current.with(|p| p.as_ref().map_or(0, |p| p.examples.len())))
+                                t!(
+                                    "playbook.examples.count",
+                                    n = current.with(|p| p.as_ref().map_or(0, |p| p.examples.len()))
+                                )
                             })
                             .text_xs()
                             .text_color(move || theme().muted_foreground),
                         )
                         .child(gallery(
-                            "Ảnh mẫu",
+                            t!("playbook.examples"),
                             move || current.with(|p| p.as_ref().map_or_else(Vec::new, |p| p.examples.clone())),
                             move |list| {
                                 write.run(move |db| set_examples(db, id, list), move |result| notice.set(result.err()));
@@ -368,7 +369,7 @@ fn title_row(
             view()
                 .flex_row()
                 .gap_2()
-                .child(action_icon(Icon::Edit, "Sửa", Variant::Secondary, move || {
+                .child(action_icon(Icon::Edit, t!("common.edit"), Variant::Secondary, move || {
                     // The form opens from the setup as stored now, not from the copy this row was
                     // built with.
                     if let Some(stored) = current.get_untracked() {
@@ -377,7 +378,7 @@ fn title_row(
                 }))
                 .child(action_icon(
                     Icon::Download,
-                    if archived { "Bỏ lưu trữ" } else { "Lưu trữ" },
+                    if archived { t!("playbook.unarchive") } else { t!("playbook.archive") },
                     Variant::Ghost,
                     move || {
                         let Some(mut next) = current.get_untracked() else { return };
@@ -396,7 +397,7 @@ fn title_row(
 
 /// The setup's sentence and its usual risk.
 fn description_line(setup: &Playbook) -> String {
-    let risk = setup.risk_pct.map_or_default(|r| format!("Risk mặc định {r}%."));
+    let risk = setup.risk_pct.map_or_default(|r| t!("playbook.risk_line", risk = r));
     [setup.description.trim(), risk.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(" ")
 }
 
@@ -414,30 +415,30 @@ fn stat_row(id: i64, groups: Memo<Vec<Group>>) -> impl IntoElement {
         .flex_wrap()
         .gap_3()
         .child(stat_tile(
-            "Lệnh",
+            t!("playbook.stat.trades"),
             move || (group().map_or(0, |g| g.trades).to_string(), Tone::Neutral),
-            || "tất cả thời gian".to_owned(),
+            || t!("playbook.stat.trades_note"),
         ))
         .child(stat_tile(
-            "Thắng",
+            t!("playbook.stat.win"),
             move || (group().map_or("—".to_owned(), |g| format!("{:.0}%", g.win_rate() * 100.0)), Tone::Neutral),
             move || group().map_or_else(String::new, |g| format!("{} / {}", g.wins, g.trades)),
         ))
         .child(stat_tile(
-            "Kỳ vọng",
+            t!("playbook.stat.expectancy"),
             move || {
                 let r = group().and_then(|g| g.avg_r());
                 (format::r_average(r), r.map_or(Tone::Neutral, |r| if r >= 0.0 { Tone::Profit } else { Tone::Loss }))
             },
-            || "trung bình mỗi lệnh".to_owned(),
+            || t!("playbook.stat.expectancy_note"),
         ))
         .child(stat_tile(
-            "Net",
+            t!("playbook.stat.net"),
             move || {
                 let net = group().map_or(0.0, |g| g.net);
                 (money(net), if net >= 0.0 { Tone::Profit } else { Tone::Loss })
             },
-            || "sau phí".to_owned(),
+            || t!("playbook.stat.net_note"),
         ))
 }
 
@@ -455,20 +456,16 @@ fn rules_columns(setup: &Playbook) -> impl IntoElement {
                 .flex_1()
                 .min_w(px(240.0))
                 .gap_4()
-                .child(numbered("Điều kiện vào", &setup.entry_rules))
-                .child(numbered("Thoát lệnh", &setup.exit_rules))
-                .child(numbered("Huỷ setup khi", &invalidation)),
+                .child(numbered(t!("playbook.rules.entry"), &setup.entry_rules))
+                .child(numbered(t!("playbook.rules.exit"), &setup.exit_rules))
+                .child(numbered(t!("playbook.rules.invalidation"), &invalidation)),
         )
         .child(
             view()
                 .flex_1()
                 .min_w(px(240.0))
                 .gap_2()
-                .child(
-                    text("Checklist — hiện khi chọn playbook này lúc vào lệnh")
-                        .text_xs()
-                        .text_color(move || theme().muted_foreground),
-                )
+                .child(text(t!("playbook.checklist.hint")).text_xs().text_color(move || theme().muted_foreground))
                 .children(setup.checklist.iter().map(|item| {
                     view()
                         .flex_row()
@@ -486,13 +483,13 @@ fn rules_columns(setup: &Playbook) -> impl IntoElement {
                         .child(text(item.clone()).text_sm().flex_1())
                 }))
                 .when(setup.checklist.is_empty(), |v| {
-                    v.child(text("Chưa có mục nào.").text_sm().text_color(move || theme().muted_foreground))
+                    v.child(text(t!("playbook.checklist.empty")).text_sm().text_color(move || theme().muted_foreground))
                 }),
         )
 }
 
 /// A heading over lines numbered from 1; nothing at all when there are none.
-fn numbered(heading: &'static str, lines: &[String]) -> impl IntoElement {
+fn numbered(heading: String, lines: &[String]) -> impl IntoElement {
     view().gap_1().when(!lines.is_empty(), |v| {
         v.child(text(heading).text_xs().text_color(move || theme().muted_foreground)).children(
             lines.iter().enumerate().map(|(at, line)| {
@@ -506,7 +503,7 @@ fn numbered(heading: &'static str, lines: &[String]) -> impl IntoElement {
     })
 }
 
-/// "Theo hạng setup": the setup's trades by the grade they were given.
+/// "By setup grade": the setup's trades by the grade they were given.
 fn grade_table(rows: Memo<Vec<Group>>, name: &str, groups: Memo<Vec<Group>>) -> impl IntoElement {
     let store = store();
     let name = name.to_owned();
@@ -517,13 +514,13 @@ fn grade_table(rows: Memo<Vec<Group>>, name: &str, groups: Memo<Vec<Group>>) -> 
                 .flex_row()
                 .items_center()
                 .justify_between()
-                .child(text("Theo hạng setup").text_xs().text_color(move || theme().muted_foreground))
+                .child(text(t!("playbook.grades.title")).text_xs().text_color(move || theme().muted_foreground))
                 .child(dynamic({
                     move || {
                         let trades = groups.with(|g| g.iter().find(|x| x.label == name).map_or(0, |x| x.trades));
                         let name = name.clone();
                         untracked(|| {
-                            link(format!("Xem {trades} lệnh"), move || {
+                            link(t!("playbook.grades.view", trades = format::trade_count(trades)), move || {
                                 store.trade_filter.set(Filter { setup: Some(name.clone()), ..Filter::default() });
                                 nav::go(Route::Trades);
                             })
@@ -536,18 +533,18 @@ fn grade_table(rows: Memo<Vec<Group>>, name: &str, groups: Memo<Vec<Group>>) -> 
             let currency = store.snapshot().currency.clone();
             untracked(|| {
                 if groups.is_empty() {
-                    return text("Chưa có lệnh nào gắn setup này.")
+                    return text(t!("playbook.grades.empty"))
                         .text_sm()
                         .text_color(move || theme().muted_foreground)
                         .into_element();
                 }
                 mini_table(
                     vec![
-                        Column::start("Hạng"),
-                        Column::end("Lệnh"),
-                        Column::end("Thắng"),
-                        Column::end("Kỳ vọng"),
-                        Column::end("Net"),
+                        Column::start(t!("playbook.grades.grade")),
+                        Column::end(t!("playbook.grades.trades")),
+                        Column::end(t!("playbook.grades.win")),
+                        Column::end(t!("playbook.grades.expectancy")),
+                        Column::end(t!("playbook.grades.net")),
                     ],
                     groups
                         .iter()
@@ -589,13 +586,18 @@ fn name_taken(playbooks: &[Playbook], name: &str, own_id: i64) -> bool {
     playbooks.iter().any(|p| p.id != own_id && p.name.trim().to_lowercase() == wanted)
 }
 
-/// Why a setup cannot take `name` (in Vietnamese): another setup has it.
+/// Why a setup cannot take `name`: another setup has it. Made on the UI thread.
 fn name_taken_message(name: &str) -> String {
-    format!("Đã có playbook tên “{}”.", name.trim())
+    t!("playbook.name_taken", name = name.trim())
 }
 
+/// The name a write found in use by another setup; the words are made where the failure is shown
+/// (the write runs on a blocking thread, which cannot read the app's text).
+#[derive(Debug)]
+struct NameTaken(String);
+
 /// A label over a control.
-fn labelled(label: &'static str, control: impl IntoElement) -> impl IntoElement {
+fn labelled(label: String, control: impl IntoElement) -> impl IntoElement {
     view().gap_1().child(text(label).text_xs().text_color(move || theme().muted_foreground)).child(control)
 }
 
@@ -628,12 +630,12 @@ impl Fields {
         }
     }
 
-    /// The fields laid over `base`; why not (in Vietnamese) when the name is empty or another
+    /// The fields laid over `base`; why not (in words) when the name is empty or another
     /// setup has it.
     fn collect(&self, base: &Playbook, others: &[Playbook]) -> Result<Playbook, String> {
         let name = self.name.get_untracked();
         if name.trim().is_empty() {
-            return Err("Tên playbook không được để trống.".to_owned());
+            return Err(t!("playbook.name_empty"));
         }
         if name_taken(others, &name, base.id) {
             return Err(name_taken_message(&name));
@@ -673,18 +675,19 @@ fn edit_form(base: Draft, editing: Signal<Option<Draft>>, timeframes: Reading<Ve
                 // The list on screen may not be read yet when Save is pressed: the stored setups
                 // decide whether the name is free.
                 if name_taken(&all, &setup.name, setup.id) {
-                    return Ok(Err(name_taken_message(&setup.name)));
+                    return Ok(Err(NameTaken(setup.name.clone())));
                 }
                 let at = all.iter().position(|p| p.id == setup.id).unwrap_or(all.len());
-                save_indexed(db, &setup, at).map(Ok)
+                save_indexed(db, &setup, at).map(Ok::<_, NameTaken>)
             },
             move |result| {
                 busy.set(false);
-                match result.flatten() {
-                    Ok(saved) => batch(|| {
+                match result {
+                    Ok(Ok(saved)) => batch(|| {
                         global::<Selected>().set(Selected(Some(saved)));
                         editing.set(None);
                     }),
+                    Ok(Err(NameTaken(name))) => error.set(Some(name_taken_message(&name))),
                     Err(message) => error.set(Some(message)),
                 }
             },
@@ -695,9 +698,9 @@ fn edit_form(base: Draft, editing: Signal<Option<Draft>>, timeframes: Reading<Ve
     let remove = move || {
         confirm_then(
             asker,
-            "Xoá playbook?",
-            "Các lệnh đã gắn setup này sẽ thành “Setup đã xoá” trong thống kê. Không hoàn tác được.",
-            "Xoá hẳn",
+            t!("playbook.delete.title"),
+            t!("playbook.delete.body"),
+            t!("playbook.delete.confirm"),
             move || {
                 write.run(
                     move |db| db.delete_playbook(id),
@@ -719,7 +722,11 @@ fn edit_form(base: Draft, editing: Signal<Option<Draft>>, timeframes: Reading<Ve
         .border_1()
         .border_color(move || theme().border)
         .bg(move || theme().card)
-        .child(text(if id == 0 { "Playbook mới" } else { "Sửa playbook" }).text_xl().font_weight(FontWeight::SEMIBOLD))
+        .child(
+            text(if id == 0 { t!("playbook.form.new") } else { t!("playbook.form.edit") })
+                .text_xl()
+                .font_weight(FontWeight::SEMIBOLD),
+        )
         .child(form_fields(fields, timeframes))
         .child(dynamic(move || error.get().map(error_line)))
         .child(
@@ -728,13 +735,21 @@ fn edit_form(base: Draft, editing: Signal<Option<Draft>>, timeframes: Reading<Ve
                 .items_center()
                 .justify_between()
                 .gap_3()
-                .child(view().flex_row().when(id != 0, |v| v.child(action("Xoá playbook", Variant::Ghost, remove))))
+                .child(
+                    view().flex_row().when(id != 0, |v| v.child(action(t!("playbook.delete"), Variant::Ghost, remove))),
+                )
                 .child(
                     view()
                         .flex_row()
                         .gap_2()
-                        .child(action("Huỷ", Variant::Ghost, move || editing.set(None)))
-                        .child(action_icon_when(Icon::Check, "Lưu", Variant::Primary, move || !busy.get(), save)),
+                        .child(action(t!("common.cancel"), Variant::Ghost, move || editing.set(None)))
+                        .child(action_icon_when(
+                            Icon::Check,
+                            t!("common.save"),
+                            Variant::Primary,
+                            move || !busy.get(),
+                            save,
+                        )),
                 ),
         )
 }
@@ -743,8 +758,8 @@ fn edit_form(base: Draft, editing: Signal<Option<Draft>>, timeframes: Reading<Ve
 fn timeframe_field(frames: Signal<Vec<String>>, timeframes: Reading<Vec<CatalogItem>>) -> impl IntoElement {
     catalog_tags(
         CatalogKind::Timeframe,
-        "Khung thời gian",
-        "+ Thêm khung (vd. M30), rồi Enter",
+        t!("playbook.form.timeframe"),
+        t!("playbook.form.timeframe_placeholder"),
         move || timeframes.value().map_or_default(|all| all.to_vec()),
         move || frames.get(),
         move |key, on| {
@@ -764,11 +779,11 @@ fn form_fields(fields: Fields, timeframes: Reading<Vec<CatalogItem>>) -> impl In
     view()
         .gap_4()
         .child(labelled(
-            "Tên",
+            t!("playbook.form.name"),
             text_field(
-                "Tên playbook",
+                t!("playbook.form.name_label"),
                 None,
-                "Breakout phiên Á",
+                t!("playbook.form.name_placeholder"),
                 move || name.get(),
                 move |typed| {
                     name.set(typed.to_owned());
@@ -776,10 +791,10 @@ fn form_fields(fields: Fields, timeframes: Reading<Vec<CatalogItem>>) -> impl In
             ),
         ))
         .child(labelled(
-            "Mô tả",
+            t!("playbook.form.description"),
             textarea(
-                "Mô tả",
-                "Setup này là gì, trong một vài câu",
+                t!("playbook.form.description"),
+                t!("playbook.form.description_placeholder"),
                 3,
                 move || description.get(),
                 move |typed| {
@@ -793,9 +808,9 @@ fn form_fields(fields: Fields, timeframes: Reading<Vec<CatalogItem>>) -> impl In
                 .flex_wrap()
                 .gap_4()
                 .child(view().flex_1().min_w(px(240.0)).child(labelled(
-                    "Symbol áp dụng (bỏ trống: mọi symbol)",
+                    t!("playbook.form.symbols"),
                     text_field(
-                        "Symbol áp dụng",
+                        t!("playbook.form.symbols_label"),
                         None,
                         "XAUUSD, EURUSD",
                         move || symbols.get(),
@@ -805,30 +820,40 @@ fn form_fields(fields: Fields, timeframes: Reading<Vec<CatalogItem>>) -> impl In
                     ),
                 )))
                 .child(labelled(
-                    "Risk mặc định",
+                    t!("playbook.form.risk"),
                     number_field(
-                        "Risk mặc định",
-                        Some("%"),
+                        t!("playbook.form.risk"),
+                        Some("%".into()),
                         NumberRange::between(0.0, 100.0).stepping(0.25),
                         move || risk.get(),
                         move |next| risk.set(next),
                     ),
                 )),
         )
-        .child(labelled("Khung thời gian", timeframe_field(frames, timeframes)))
+        .child(labelled(t!("playbook.form.timeframe"), timeframe_field(frames, timeframes)))
         .child(labelled(
-            "Điều kiện vào",
-            line_list("Điều kiện vào", "Thêm điều kiện vào", move || entry.get(), move |next| entry.set(next)),
+            t!("playbook.form.entry"),
+            line_list(
+                t!("playbook.form.entry"),
+                t!("playbook.form.entry_add"),
+                move || entry.get(),
+                move |next| entry.set(next),
+            ),
         ))
         .child(labelled(
-            "Thoát lệnh",
-            line_list("Thoát lệnh", "Thêm quy tắc thoát", move || exit.get(), move |next| exit.set(next)),
+            t!("playbook.form.exit"),
+            line_list(
+                t!("playbook.form.exit"),
+                t!("playbook.form.exit_add"),
+                move || exit.get(),
+                move |next| exit.set(next),
+            ),
         ))
         .child(labelled(
-            "Huỷ setup khi (mỗi dòng một ý)",
+            t!("playbook.form.invalidation"),
             textarea(
-                "Huỷ setup khi",
-                "Có tin đỏ trong 30 phút",
+                t!("playbook.form.invalidation_label"),
+                t!("playbook.form.invalidation_placeholder"),
                 3,
                 move || invalidation.get(),
                 move |typed| {
@@ -837,8 +862,13 @@ fn form_fields(fields: Fields, timeframes: Reading<Vec<CatalogItem>>) -> impl In
             ),
         ))
         .child(labelled(
-            "Checklist trước khi vào lệnh",
-            line_list("Mục checklist", "Thêm mục checklist", move || checklist.get(), move |next| checklist.set(next)),
+            t!("playbook.form.checklist"),
+            line_list(
+                t!("playbook.form.checklist_label"),
+                t!("playbook.form.checklist_add"),
+                move || checklist.get(),
+                move |next| checklist.set(next),
+            ),
         ))
 }
 
@@ -867,13 +897,16 @@ mod tests {
     #[test]
     fn the_description_carries_the_risk() {
         let setup = Playbook { description: " Giá tích luỹ. ".into(), risk_pct: Some(1.5), ..Playbook::default() };
-        assert_eq!(description_line(&setup), "Giá tích luỹ. Risk mặc định 1.5%.");
-        assert_eq!(description_line(&Playbook::default()), "");
+        let (with_risk, none) = crate::i18n::with_text(crate::i18n::Lang::Vi, move || {
+            (description_line(&setup), description_line(&Playbook::default()))
+        });
+        assert_eq!(with_risk, "Giá tích luỹ. Risk mặc định 1.5%.");
+        assert_eq!(none, "");
     }
 
     #[test]
     fn counts_read_as_one_line() {
-        assert_eq!(counts_line(None), "Chưa có lệnh");
+        assert_eq!(crate::i18n::with_text(crate::i18n::Lang::Vi, || counts_line(None)), "Chưa có lệnh");
         let group = Group {
             label: "x".into(),
             trades: 4,
@@ -887,6 +920,13 @@ mod tests {
             r_loss: 0.0,
             keys: Vec::new(),
         };
-        assert_eq!(counts_line(Some(&group)), "4 lệnh · 75% thắng · Kỳ vọng +0.50R");
+        let counts = |lang| {
+            crate::i18n::with_text(lang, {
+                let group = group.clone();
+                move || counts_line(Some(&group))
+            })
+        };
+        assert_eq!(counts(crate::i18n::Lang::Vi), "4 lệnh · 75% thắng · Kỳ vọng +0.50R");
+        assert_eq!(counts(crate::i18n::Lang::En), "4 trades · 75% won · Expectancy +0.50R");
     }
 }

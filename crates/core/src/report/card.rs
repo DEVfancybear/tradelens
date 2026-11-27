@@ -50,7 +50,7 @@ pub fn render_png(card: &ShareCard) -> Result<Vec<u8>, ReportError> {
     }
     let tree = usvg::Tree::from_str(&svg, &options).map_err(|e| ReportError::Render(e.to_string()))?;
     let mut pixmap = tiny_skia::Pixmap::new(WIDTH, HEIGHT)
-        .ok_or_else(|| ReportError::Render("kích thước ảnh không hợp lệ".to_owned()))?;
+        .ok_or_else(|| ReportError::Render(crate::tr!("core.report.bad_image_size")))?;
     resvg::render(&tree, tiny_skia::Transform::identity(), &mut pixmap.as_mut());
     pixmap.encode_png().map_err(|e| ReportError::Render(e.to_string()))
 }
@@ -235,7 +235,7 @@ pub(super) fn card_svg(card: &ShareCard) -> String {
         svg.push_str(&text(MARGIN, 392.0, 44.0, FontFace::MonoSemiBold, color, secondary));
         caption_y = 440.0;
     }
-    svg.push_str(&text(MARGIN, caption_y, 24.0, FontFace::Regular, MUTED, headline.caption));
+    svg.push_str(&text(MARGIN, caption_y, 24.0, FontFace::Regular, MUTED, &headline.caption));
 
     if chart_svg.is_empty() {
         svg.push_str(&curve(&card.curve, card.outcome));

@@ -10,12 +10,17 @@ publish = false
 [lints]
 workspace = true
 
+[features]
+# The check every crate runs over its own `locales/` (see `i18n::testing`).
+test-util = []
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 log.workspace = true
 thiserror.workspace = true
+rust-i18n.workspace = true
 rusqlite = { version = "0.43", features = ["bundled"] }
 calamine = { version = "0.38", features = ["dates"] }
 csv = "1"

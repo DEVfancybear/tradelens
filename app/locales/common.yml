@@ -1,0 +1,35 @@
+_version: 2
+
+# Text many parts of the app share. Read only from the other files' owners: add a key here only
+# when it is the same word in the same role everywhere.
+
+common.cancel:
+  vi: "Huỷ"
+  en: "Cancel"
+common.save:
+  vi: "Lưu"
+  en: "Save"
+common.saving:
+  vi: "Đang lưu…"
+  en: "Saving…"
+common.delete:
+  vi: "Xoá"
+  en: "Delete"
+common.edit:
+  vi: "Sửa"
+  en: "Edit"
+common.close:
+  vi: "Đóng"
+  en: "Close"
+common.add:
+  vi: "Thêm"
+  en: "Add"
+common.loading:
+  vi: "Đang tải…"
+  en: "Loading…"
+common.all:
+  vi: "Tất cả"
+  en: "All"
+common.today:
+  vi: "Hôm nay"
+  en: "Today"

@@ -99,37 +99,39 @@ impl BuiltinField {
         }
     }
 
-    pub fn default_label(self) -> &'static str {
-        match self {
-            Self::Playbook => "Setup",
-            Self::SetupGrade => "Hạng setup",
-            Self::ExecutionRating => "Điểm thực thi",
-            Self::ExitReason => "Lý do thoát lệnh",
-            Self::Market => "Trạng thái thị trường",
-            Self::Tags => "Tag",
-            Self::Mistakes => "Lỗi",
-            Self::EmotionBefore => "Cảm xúc trước lệnh",
-            Self::EmotionAfter => "Cảm xúc sau lệnh",
-            Self::FollowedPlan => "Đúng kế hoạch",
-            Self::Checklist => "Checklist trước lệnh",
-            Self::Notes | Self::MissedNotes => "Ghi chú",
-            Self::Screenshots => "Ảnh chart",
-            Self::PlannedRisk | Self::PlanRisk => "Risk dự kiến",
-            Self::ReviewLater => "Xem lại sau",
-            Self::PlanThesis => "Lý do vào lệnh",
-            Self::PlanEntry => "Giá vào dự kiến",
-            Self::PlanStopLoss => "Stop loss dự kiến",
-            Self::PlanTakeProfit => "Take profit dự kiến",
-            Self::PlanTimeframe => "Khung thời gian",
-            Self::DayPlan => "Kế hoạch ngày",
-            Self::DayReview => "Tổng kết",
-            Self::DayMood => "Tâm trạng",
-            Self::MissedSymbol => "Symbol",
-            Self::MissedSide => "Chiều",
-            Self::MissedReason => "Lý do không vào",
-            Self::MissedPrices => "Entry / SL / TP dự kiến",
-            Self::MissedOutcome => "Giá đi tới",
-        }
+    /// The name a built-in property shows under until the trader renames it, in the language of the process.
+    pub fn default_label(self) -> String {
+        let key = match self {
+            Self::Playbook => "core.form.label.playbook",
+            Self::SetupGrade => "core.form.label.setup_grade",
+            Self::ExecutionRating => "core.form.label.execution_rating",
+            Self::ExitReason => "core.form.label.exit_reason",
+            Self::Market => "core.form.label.market",
+            Self::Tags => "core.form.label.tags",
+            Self::Mistakes => "core.form.label.mistakes",
+            Self::EmotionBefore => "core.form.label.emotion_before",
+            Self::EmotionAfter => "core.form.label.emotion_after",
+            Self::FollowedPlan => "core.form.label.followed_plan",
+            Self::Checklist => "core.form.label.checklist",
+            Self::Notes | Self::MissedNotes => "core.form.label.notes",
+            Self::Screenshots => "core.form.label.screenshots",
+            Self::PlannedRisk | Self::PlanRisk => "core.form.label.planned_risk",
+            Self::ReviewLater => "core.form.label.review_later",
+            Self::PlanThesis => "core.form.label.plan_thesis",
+            Self::PlanEntry => "core.form.label.plan_entry",
+            Self::PlanStopLoss => "core.form.label.plan_stop_loss",
+            Self::PlanTakeProfit => "core.form.label.plan_take_profit",
+            Self::PlanTimeframe => "core.form.label.plan_timeframe",
+            Self::DayPlan => "core.form.label.day_plan",
+            Self::DayReview => "core.form.label.day_review",
+            Self::DayMood => "core.form.label.day_mood",
+            Self::MissedSymbol => "core.form.label.missed_symbol",
+            Self::MissedSide => "core.form.label.missed_side",
+            Self::MissedReason => "core.form.label.missed_reason",
+            Self::MissedPrices => "core.form.label.missed_prices",
+            Self::MissedOutcome => "core.form.label.missed_outcome",
+        };
+        crate::tr!(key)
     }
 
     /// The option list a built-in picks from, which the trader edits in Settings.
@@ -200,11 +202,11 @@ pub struct Property {
 /// Why an edit of a form was refused.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FormError {
-    #[error("thuộc tính có sẵn không xoá được, chỉ ẩn được")]
+    #[error("{}", crate::tr!("core.form.error.builtin_cannot_be_deleted"))]
     BuiltinCannotBeDeleted,
-    #[error("không có thuộc tính này trong form")]
+    #[error("{}", crate::tr!("core.form.error.not_in_form"))]
     NotInForm,
-    #[error("tên thuộc tính không được để trống")]
+    #[error("{}", crate::tr!("core.form.error.empty_label"))]
     EmptyLabel,
 }
 
@@ -241,7 +243,7 @@ impl FormLayout {
             .into_iter()
             .filter_map(|item| match &item.field {
                 FieldRef::Builtin(b) => Some(Property {
-                    label: item.label.clone().unwrap_or_else(|| b.default_label().to_owned()),
+                    label: item.label.clone().unwrap_or_else(|| b.default_label()),
                     kind: None,
                     catalog: b.catalog(),
                     options: Vec::new(),

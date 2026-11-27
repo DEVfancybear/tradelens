@@ -1,4 +1,4 @@
-//! Chia sẻ kết quả: a dialog over any screen that draws the result of a trade, a week or a month
+//! Chia sẻ kết quả (share a result): a dialog over any screen that draws the result of a trade, a week or a month
 //! as a picture to save or copy, with the trader choosing how much of the money it shows. Opened
 //! from a trade's page and from the review screen. Also the one place a monthly report is saved as
 //! PDF ([`export_pdf`]). Design: `docs/design/screens/share-card.html`.
@@ -25,7 +25,7 @@ use tradelens_core::{
 };
 
 use crate::{
-    insight, month_report,
+    format, insight, month_report,
     snapshot::Snapshot,
     store::{query_with, store},
     ui::{
@@ -63,18 +63,18 @@ const MODAL_ID: &str = "share";
 /// outside the panel close it.
 pub(crate) fn open(target: ShareTarget) {
     modal::open(
-        Modal::new(MODAL_ID, "Chia sẻ kết quả", move || panel(&target).into_element(), || modal::close(MODAL_ID))
+        Modal::new(MODAL_ID, t!("share.title"), move || panel(&target).into_element(), || modal::close(MODAL_ID))
             .width(PANEL_WIDTH),
     );
 }
 
 pub(super) const PRIVACY_CHOICES: [Privacy; 3] = [Privacy::ShowMoney, Privacy::OnlyR, Privacy::NoFigures];
 
-pub(super) fn privacy_label(privacy: Privacy) -> &'static str {
+pub(super) fn privacy_label(privacy: Privacy) -> String {
     match privacy {
-        Privacy::ShowMoney => "Hiện tiền",
-        Privacy::OnlyR => "Chỉ R",
-        Privacy::NoFigures => "Ẩn số",
+        Privacy::ShowMoney => t!("share.privacy.show_money"),
+        Privacy::OnlyR => t!("share.privacy.only_r"),
+        Privacy::NoFigures => t!("share.privacy.no_figures"),
     }
 }
 
@@ -150,8 +150,12 @@ fn file_stem(snapshot: &Snapshot, target: &ShareTarget) -> String {
             let symbol = snapshot.row(key).map_or_else(String::new, |row| row.trade.symbol.to_lowercase());
             format!("tradelens-{symbol}-{}", key.position_id)
         }
-        ShareTarget::Period(Period::Week, start) => format!("tradelens-tuan-{}", start.format("%G-%V")),
-        ShareTarget::Period(Period::Month, start) => format!("tradelens-thang-{}", start.format("%Y-%m")),
+        ShareTarget::Period(Period::Week, start) => {
+            format!("tradelens-{}-{}", t!("share.file.week"), start.format("%G-%V"))
+        }
+        ShareTarget::Period(Period::Month, start) => {
+            format!("tradelens-{}-{}", t!("share.file.month"), start.format("%Y-%m"))
+        }
     }
 }
 
@@ -170,14 +174,34 @@ impl Drop for Rendered {
     }
 }
 
+/// Why a card could not be drawn: the text is made where the result is shown, as the thread that
+/// draws it has no language.
+#[derive(Debug)]
+enum RenderError {
+    /// The picture could not be drawn.
+    Draw(String),
+    /// The preview file could not be written.
+    Write(String),
+}
+
+impl RenderError {
+    /// What to tell the trader.
+    fn message(&self) -> String {
+        match self {
+            Self::Draw(error) => t!("share.error.draw", error = error),
+            Self::Write(error) => t!("share.error.write_preview", error = error),
+        }
+    }
+}
+
 /// Draws `card` and writes it where the preview can show it. Each preview has its own file name,
 /// as an image is cached by its address.
-fn render(card: &ShareCard) -> Result<Rendered, String> {
+fn render(card: &ShareCard) -> Result<Rendered, RenderError> {
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    let bytes = report::render_png(card).map_err(|error| format!("Không dựng được ảnh: {error}"))?;
+    let bytes = report::render_png(card).map_err(|error| RenderError::Draw(error.to_string()))?;
     let name = format!("tradelens-share-{}-{}.png", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed));
     let file = std::env::temp_dir().join(name);
-    std::fs::write(&file, &bytes).map_err(|error| format!("Không ghi được ảnh xem trước: {error}"))?;
+    std::fs::write(&file, &bytes).map_err(|error| RenderError::Write(error.to_string()))?;
     Ok(Rendered { bytes, file })
 }
 
@@ -191,23 +215,23 @@ fn data_uri(png: &[u8]) -> String {
 /// Asks where to save `report` and writes it as a PDF showing what `privacy` allows. `done` hears
 /// the line to tell the trader (a failure or the saved path); nothing when the dialog is cancelled.
 pub(crate) fn export_pdf(report: MonthlyReport, privacy: Privacy, done: impl Fn(Result<String, String>) + 'static) {
-    let name = format!("tradelens-bao-cao-{}.pdf", report.month.format("%Y-%m"));
+    let name = format!("tradelens-{}-{}.pdf", t!("share.file.report"), report.month.format("%Y-%m"));
     spawn(async move {
         let dialog = SaveDialog::new()
             .file_name(name)
-            .filter(FileFilter::new("Báo cáo PDF", ["pdf"]))
-            .title("Lưu báo cáo tháng")
-            .button_label("Lưu");
+            .filter(FileFilter::new(t!("share.pdf.filter"), ["pdf"]))
+            .title(t!("share.pdf.title"))
+            .button_label(t!("common.save"));
         let path = match pick_save_path(dialog).await {
             Ok(Some(path)) => path,
             Ok(None) => return,
-            Err(error) => return done(Err(format!("Không mở được hộp thoại lưu file: {error}"))),
+            Err(error) => return done(Err(t!("share.error.dialog", error = error))),
         };
         let shown = path.display().to_string();
         match blocking(move || report::write_pdf(&report, privacy, &path)).await {
-            Ok(Ok(())) => done(Ok(format!("Đã lưu báo cáo: {shown}"))),
-            Ok(Err(error)) => done(Err(format!("Không lưu được báo cáo: {error}"))),
-            Err(error) => done(Err(format!("Luồng ghi báo cáo bị dừng: {error}"))),
+            Ok(Ok(())) => done(Ok(t!("share.pdf.saved", path = shown))),
+            Ok(Err(error)) => done(Err(t!("share.pdf.not_saved", error = error))),
+            Err(error) => done(Err(t!("share.pdf.stopped", error = error))),
         }
     });
 }
@@ -278,7 +302,7 @@ fn keep_drawn(target: ShareTarget, state: State) {
             });
             let Some(card) = card else {
                 state.rendered.set(None);
-                return state.fail("Chỉ chia sẻ được lệnh đã đóng.".to_owned());
+                return state.fail(t!("share.error.closed_only"));
             };
             spawn(async move {
                 let drawn = blocking(move || render(&card)).await;
@@ -290,8 +314,8 @@ fn keep_drawn(target: ShareTarget, state: State) {
                         state.rendered.set(Some(Arc::new(picture)));
                         state.failure.set(None);
                     }),
-                    Ok(Err(message)) => state.fail(message),
-                    Err(error) => state.fail(format!("Luồng dựng ảnh bị dừng: {error}")),
+                    Ok(Err(error)) => state.fail(error.message()),
+                    Err(error) => state.fail(t!("share.error.draw_stopped", error = error)),
                 }
             });
         });
@@ -308,20 +332,20 @@ fn save_picture(target: ShareTarget, state: State) -> impl Fn() + Clone + 'stati
         spawn(async move {
             let dialog = SaveDialog::new()
                 .file_name(format!("{stem}.png"))
-                .filter(FileFilter::new("Ảnh PNG", ["png"]))
-                .title("Lưu ảnh chia sẻ")
-                .button_label("Lưu");
+                .filter(FileFilter::new(t!("share.png.filter"), ["png"]))
+                .title(t!("share.png.title"))
+                .button_label(t!("common.save"));
             let path = match pick_save_path(dialog).await {
                 Ok(Some(path)) => path,
                 Ok(None) => return,
-                Err(error) => return state.fail(format!("Không mở được hộp thoại lưu file: {error}")),
+                Err(error) => return state.fail(t!("share.error.dialog", error = error)),
             };
             let shown = path.display().to_string();
             let bytes = Arc::clone(&picture);
             match blocking(move || std::fs::write(&path, &bytes.bytes)).await {
-                Ok(Ok(())) => state.succeed(format!("Đã lưu ảnh: {shown}")),
-                Ok(Err(error)) => state.fail(format!("Không lưu được ảnh: {error}")),
-                Err(error) => state.fail(format!("Luồng ghi ảnh bị dừng: {error}")),
+                Ok(Ok(())) => state.succeed(t!("share.png.saved", path = shown)),
+                Ok(Err(error)) => state.fail(t!("share.png.not_saved", error = error)),
+                Err(error) => state.fail(t!("share.png.stopped", error = error)),
             }
         });
     }
@@ -347,9 +371,9 @@ fn put_on_clipboard(picture: &Arc<Rendered>, state: State) {
             let clipboard = Clipboard::from_setting(setting.ok().flatten().as_deref());
             spawn(async move {
                 match blocking(move || copy_png(&picture.bytes, clipboard)).await {
-                    Ok(Ok(())) => state.succeed("Đã sao chép ảnh vào clipboard.".to_owned()),
-                    Ok(Err(message)) => state.fail(message),
-                    Err(error) => state.fail(format!("Luồng sao chép ảnh bị dừng: {error}")),
+                    Ok(Ok(())) => state.succeed(t!("share.copied")),
+                    Ok(Err(message)) => state.fail(message.text()),
+                    Err(error) => state.fail(t!("share.error.copy_stopped", error = error)),
                 }
             });
         },
@@ -359,7 +383,7 @@ fn put_on_clipboard(picture: &Arc<Rendered>, state: State) {
 #[cfg(not(target_os = "windows"))]
 fn put_on_clipboard(picture: &Rendered, state: State) {
     set_clipboard_image(data_uri(&picture.bytes));
-    state.succeed("Đã sao chép ảnh vào clipboard.".to_owned());
+    state.succeed(t!("share.copied"));
 }
 
 /// "Xuất báo cáo PDF tháng": the PDF of the month shown, at the privacy level chosen here. The
@@ -376,7 +400,7 @@ fn export_month(month: Option<NaiveDate>, state: State) -> impl Fn() + Clone + '
     move || {
         let Some(start) = month else { return };
         let Some(Some(extras)) = extras.value().map(|read| read.as_ref().clone()) else {
-            return state.fail("Đang đọc dữ liệu của tháng, thử lại sau giây lát.".to_owned());
+            return state.fail(t!("share.error.reading"));
         };
         let report = month_report::build(&store.snapshot_now(), store.accounts.get_untracked().id(), start, &extras);
         export_pdf(report, state.privacy.get_untracked(), move |result| match result {
@@ -397,7 +421,7 @@ fn panel(target: &ShareTarget) -> impl IntoElement {
     view()
         .gap_4()
         .child(segmented(
-            "Quyền riêng tư",
+            t!("share.privacy"),
             &PRIVACY_CHOICES,
             privacy_label,
             move || state.privacy.get(),
@@ -417,7 +441,10 @@ fn panel(target: &ShareTarget) -> impl IntoElement {
                 .justify_between()
                 .gap_2()
                 .child(view().flex_row().when_some(month, |slot, start| {
-                    slot.child(link(format!("Xuất báo cáo PDF tháng {} →", start.format("%m")), export))
+                    slot.child(link(
+                        t!("share.export_month", month = start.format("%m"), name = format::month_name(start.month())),
+                        export,
+                    ))
                 }))
                 .child(
                     view()
@@ -425,14 +452,14 @@ fn panel(target: &ShareTarget) -> impl IntoElement {
                         .gap_2()
                         .child(action_icon_when(
                             Icon::Download,
-                            "Lưu ảnh",
+                            t!("share.save_image"),
                             Variant::Secondary,
                             move || state.rendered.get().is_some(),
                             save,
                         ))
                         .child(action_icon_when(
                             Icon::Copy,
-                            "Sao chép ảnh",
+                            t!("share.copy_image"),
                             Variant::Primary,
                             move || state.rendered.get().is_some(),
                             copy,
@@ -445,16 +472,21 @@ fn panel(target: &ShareTarget) -> impl IntoElement {
 fn toggles(state: State, target: &ShareTarget) -> impl IntoElement {
     view()
         .child(switch_row(
-            "Hiện tên tài khoản / broker",
-            None,
+            t!("share.toggle.account"),
+            None::<&str>,
             move || state.show_account.get(),
             move |on| state.show_account.set(on),
         ))
-        .child(switch_row("Hiện tên setup", None, move || state.show_setup.get(), move |on| state.show_setup.set(on)))
+        .child(switch_row(
+            t!("share.toggle.setup"),
+            None::<&str>,
+            move || state.show_setup.get(),
+            move |on| state.show_setup.set(on),
+        ))
         .when(matches!(target, ShareTarget::Trade(_)), |rows| {
             rows.child(switch_row(
-                "Kèm ảnh chart",
-                Some("Ảnh chụp chart có thể hiện số tiền: xem kỹ ảnh trước khi đăng."),
+                t!("share.toggle.chart"),
+                Some(t!("share.toggle.chart_hint")),
                 move || state.show_chart.get(),
                 move |on| state.show_chart.set(on),
             ))
@@ -477,10 +509,12 @@ fn preview(rendered: Signal<Option<Arc<Rendered>>>) -> impl IntoElement {
                     .w(px(PREVIEW_WIDTH))
                     .h(px(PREVIEW_HEIGHT))
                     .object_fit(ResizeMode::Contain)
-                    .label("Xem trước thẻ chia sẻ")
+                    .label(t!("share.preview"))
                     .into_element()
             }),
-            None => Some(text("Đang dựng ảnh…").text_sm().text_color(move || theme().muted_foreground).into_element()),
+            None => {
+                Some(text(t!("share.drawing")).text_sm().text_color(move || theme().muted_foreground).into_element())
+            }
         }))
 }
 
@@ -612,11 +646,27 @@ mod tests {
 
     #[test]
     fn files_are_named_for_what_they_show() {
-        let snap = snapshot();
-        assert_eq!(file_stem(&snap, &trade(7)), "tradelens-xauusd-7");
-        assert_eq!(file_stem(&snap, &ShareTarget::Period(Period::Week, day("2026-11-16"))), "tradelens-tuan-2026-47");
-        assert_eq!(file_stem(&snap, &ShareTarget::Period(Period::Month, day("2026-11-01"))), "tradelens-thang-2026-11");
-        assert_eq!(period_title(Period::Month, day("2026-11-01")), "Tháng 11/2026");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let snap = snapshot();
+            assert_eq!(file_stem(&snap, &trade(7)), "tradelens-xauusd-7");
+            assert_eq!(
+                file_stem(&snap, &ShareTarget::Period(Period::Week, day("2026-11-16"))),
+                "tradelens-tuan-2026-47"
+            );
+            assert_eq!(
+                file_stem(&snap, &ShareTarget::Period(Period::Month, day("2026-11-01"))),
+                "tradelens-thang-2026-11"
+            );
+            assert_eq!(period_title(Period::Month, day("2026-11-01")), "Tháng 11/2026");
+        });
+        crate::i18n::with_text(crate::i18n::Lang::En, || {
+            let snap = snapshot();
+            assert_eq!(
+                file_stem(&snap, &ShareTarget::Period(Period::Week, day("2026-11-16"))),
+                "tradelens-week-2026-47"
+            );
+            assert_eq!(privacy_label(Privacy::OnlyR), "R only");
+        });
     }
 
     #[test]

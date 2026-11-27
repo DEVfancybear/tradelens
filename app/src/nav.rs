@@ -26,13 +26,14 @@ pub(crate) enum Route {
 
 /// A group of routes in the sidebar.
 pub(crate) struct Section {
+    /// The key of its title in `locales/`.
     pub(crate) title: &'static str,
     pub(crate) routes: &'static [Route],
 }
 
 pub(crate) const SECTIONS: &[Section] = &[
     Section {
-        title: "Giao dịch",
+        title: "shell.section.trading",
         routes: &[
             Route::Dashboard,
             Route::Trades,
@@ -44,27 +45,28 @@ pub(crate) const SECTIONS: &[Section] = &[
             Route::Missed,
         ],
     },
-    Section { title: "Chiến lược", routes: &[Route::Playbook] },
-    Section { title: "Quản lý", routes: &[Route::Accounts, Route::DataSources, Route::Cloud] },
-    Section { title: "Hệ thống", routes: &[Route::Settings] },
+    Section { title: "shell.section.strategy", routes: &[Route::Playbook] },
+    Section { title: "shell.section.manage", routes: &[Route::Accounts, Route::DataSources, Route::Cloud] },
+    Section { title: "shell.section.system", routes: &[Route::Settings] },
 ];
 
 impl Route {
-    pub(crate) fn label(self) -> &'static str {
+    /// The route's name, as the sidebar shows it.
+    pub(crate) fn label(self) -> String {
         match self {
-            Self::Dashboard => "Tổng quan",
-            Self::Trades => "Lệnh",
-            Self::Calendar => "Lịch P/L",
-            Self::News => "Tin quan trọng",
-            Self::Analytics => "Phân tích",
-            Self::Journal => "Nhật ký ngày",
-            Self::Review => "Tổng kết & xem lại",
-            Self::Missed => "Lệnh bỏ lỡ",
-            Self::Playbook => "Playbook",
-            Self::Accounts => "Tài khoản & kỷ luật",
-            Self::DataSources => "Nguồn dữ liệu",
-            Self::Cloud => "Đăng nhập & sync",
-            Self::Settings => "Cài đặt",
+            Self::Dashboard => t!("nav.dashboard"),
+            Self::Trades => t!("nav.trades"),
+            Self::Calendar => t!("nav.calendar"),
+            Self::News => t!("nav.news"),
+            Self::Analytics => t!("nav.analytics"),
+            Self::Journal => t!("nav.journal"),
+            Self::Review => t!("nav.review"),
+            Self::Missed => t!("nav.missed"),
+            Self::Playbook => t!("nav.playbook"),
+            Self::Accounts => t!("nav.accounts"),
+            Self::DataSources => t!("nav.data_sources"),
+            Self::Cloud => t!("nav.cloud"),
+            Self::Settings => t!("nav.settings"),
         }
     }
 

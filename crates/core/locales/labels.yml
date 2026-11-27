@@ -1,0 +1,265 @@
+_version: 2
+
+core.catalog.kind.tag:
+  vi: "Tag"
+  en: "Tag"
+core.catalog.kind.mistake:
+  vi: "Lỗi"
+  en: "Mistake"
+core.catalog.kind.emotion:
+  vi: "Cảm xúc"
+  en: "Emotion"
+core.catalog.kind.exit_reason:
+  vi: "Lý do thoát lệnh"
+  en: "Exit reason"
+core.catalog.kind.setup_grade:
+  vi: "Hạng setup"
+  en: "Setup grade"
+core.catalog.kind.market_condition:
+  vi: "Trạng thái thị trường"
+  en: "Market condition"
+core.catalog.kind.timeframe:
+  vi: "Khung thời gian"
+  en: "Timeframe"
+core.catalog.kind.missed_reason:
+  vi: "Lý do không vào lệnh"
+  en: "Reason for not entering"
+
+core.form.label.playbook:
+  vi: "Setup"
+  en: "Setup"
+core.form.label.setup_grade:
+  vi: "Hạng setup"
+  en: "Setup grade"
+core.form.label.execution_rating:
+  vi: "Điểm thực thi"
+  en: "Execution score"
+core.form.label.exit_reason:
+  vi: "Lý do thoát lệnh"
+  en: "Exit reason"
+core.form.label.market:
+  vi: "Trạng thái thị trường"
+  en: "Market condition"
+core.form.label.tags:
+  vi: "Tag"
+  en: "Tags"
+core.form.label.mistakes:
+  vi: "Lỗi"
+  en: "Mistakes"
+core.form.label.emotion_before:
+  vi: "Cảm xúc trước lệnh"
+  en: "Emotion before the trade"
+core.form.label.emotion_after:
+  vi: "Cảm xúc sau lệnh"
+  en: "Emotion after the trade"
+core.form.label.followed_plan:
+  vi: "Đúng kế hoạch"
+  en: "Followed the plan"
+core.form.label.checklist:
+  vi: "Checklist trước lệnh"
+  en: "Pre-trade checklist"
+core.form.label.notes:
+  vi: "Ghi chú"
+  en: "Notes"
+core.form.label.screenshots:
+  vi: "Ảnh chart"
+  en: "Chart images"
+core.form.label.planned_risk:
+  vi: "Risk dự kiến"
+  en: "Planned risk"
+core.form.label.review_later:
+  vi: "Xem lại sau"
+  en: "Review later"
+core.form.label.plan_thesis:
+  vi: "Lý do vào lệnh"
+  en: "Reason for the trade"
+core.form.label.plan_entry:
+  vi: "Giá vào dự kiến"
+  en: "Planned entry"
+core.form.label.plan_stop_loss:
+  vi: "Stop loss dự kiến"
+  en: "Planned stop loss"
+core.form.label.plan_take_profit:
+  vi: "Take profit dự kiến"
+  en: "Planned take profit"
+core.form.label.plan_timeframe:
+  vi: "Khung thời gian"
+  en: "Timeframe"
+core.form.label.day_plan:
+  vi: "Kế hoạch ngày"
+  en: "Day plan"
+core.form.label.day_review:
+  vi: "Tổng kết"
+  en: "Day review"
+core.form.label.day_mood:
+  vi: "Tâm trạng"
+  en: "Mood"
+core.form.label.missed_symbol:
+  vi: "Symbol"
+  en: "Symbol"
+core.form.label.missed_side:
+  vi: "Chiều"
+  en: "Side"
+core.form.label.missed_reason:
+  vi: "Lý do không vào"
+  en: "Reason for not entering"
+core.form.label.missed_prices:
+  vi: "Entry / SL / TP dự kiến"
+  en: "Planned entry / SL / TP"
+core.form.label.missed_outcome:
+  vi: "Giá đi tới"
+  en: "Where price went"
+
+core.time.weekday.mon:
+  vi: "Thứ 2"
+  en: "Monday"
+core.time.weekday.tue:
+  vi: "Thứ 3"
+  en: "Tuesday"
+core.time.weekday.wed:
+  vi: "Thứ 4"
+  en: "Wednesday"
+core.time.weekday.thu:
+  vi: "Thứ 5"
+  en: "Thursday"
+core.time.weekday.fri:
+  vi: "Thứ 6"
+  en: "Friday"
+core.time.weekday.sat:
+  vi: "Thứ 7"
+  en: "Saturday"
+core.time.weekday.sun:
+  vi: "Chủ nhật"
+  en: "Sunday"
+core.time.session.asia:
+  vi: "Phiên Á (00–07 UTC)"
+  en: "Asia (00–07 UTC)"
+core.time.session.london:
+  vi: "Phiên Âu (07–12 UTC)"
+  en: "London (07–12 UTC)"
+core.time.session.overlap:
+  vi: "Âu–Mỹ giao thoa (12–16 UTC)"
+  en: "London–NY (12–16 UTC)"
+core.time.session.new_york:
+  vi: "Phiên Mỹ (16–21 UTC)"
+  en: "New York (16–21 UTC)"
+core.time.session.late:
+  vi: "Cuối ngày (21–24 UTC)"
+  en: "Late (21–24 UTC)"
+core.time.duration.days_hours:
+  vi: "%{d}n %{h}g"
+  en: "%{d}d %{h}h"
+core.time.duration.hours_minutes:
+  vi: "%{h}g %{m}p"
+  en: "%{h}h %{m}m"
+core.time.duration.minutes:
+  vi: "%{m}p"
+  en: "%{m}m"
+core.time.duration.seconds:
+  vi: "%{secs}s"
+  en: "%{secs}s"
+
+core.search.kind.trade:
+  vi: "Lệnh"
+  en: "Trades"
+core.search.kind.day:
+  vi: "Nhật ký ngày"
+  en: "Daily journal"
+core.search.kind.review:
+  vi: "Tổng kết"
+  en: "Reviews"
+core.search.kind.missed:
+  vi: "Lệnh bỏ lỡ"
+  en: "Missed trades"
+core.search.kind.playbook:
+  vi: "Playbook"
+  en: "Playbook"
+core.search.title.day:
+  vi: "Nhật ký ngày %{day}"
+  en: "Daily journal %{day}"
+core.search.title.missed:
+  vi: "Bỏ lỡ %{what}"
+  en: "Missed %{what}"
+core.search.title.trade:
+  vi: "Lệnh %{ticket}"
+  en: "Trade %{ticket}"
+
+core.rules.daily_loss:
+  vi: "Lỗ trong ngày %{loss} vượt giới hạn %{limit}"
+  en: "Loss of the day %{loss} exceeds the limit of %{limit}"
+core.rules.daily_trades:
+  vi: "%{n} lệnh trong ngày, giới hạn %{limit}"
+  en: "%{n} trades in the day, limit %{limit}"
+core.rules.risk_per_trade:
+  vi: "Rủi ro %{pct}% vượt %{limit}%/lệnh"
+  en: "Risk of %{pct}% exceeds %{limit}% per trade"
+core.rules.after_streak:
+  vi: "Vào lệnh sau %{n} lệnh thua liên tiếp (giới hạn %{limit})"
+  en: "Opened a trade after %{n} losses in a row (limit %{limit})"
+
+core.metrics.money_note:
+  vi: "Tiền tính trên %{money} lệnh có tiền, %{r_only} lệnh chỉ có R không tính"
+  en: "Money is counted over %{money} trades with money; %{r_only} trades with only R are not counted"
+
+core.review.week_title:
+  vi: "Tuần %{week} · %{from}–%{to}"
+  en: "Week %{week} · %{from}–%{to}"
+core.review.month_title:
+  vi: "Tháng %{month}"
+  en: "Month %{month}"
+core.review.week_prompt.good:
+  vi: "3 điều làm tốt tuần này"
+  en: "3 things done well this week"
+core.review.week_prompt.mistakes:
+  vi: "3 lỗi lặp lại và cái giá của chúng"
+  en: "3 repeated mistakes and what they cost"
+core.review.week_prompt.setups:
+  vi: "Setup nào hiệu quả nhất, setup nào nên tạm dừng"
+  en: "Which setup worked best, which one to pause"
+core.review.week_prompt.next:
+  vi: "Mục tiêu và quy tắc cho tuần sau"
+  en: "Goals and rules for next week"
+core.review.month_prompt.goal:
+  vi: "Kết quả so với mục tiêu tháng"
+  en: "Results against the month's goal"
+core.review.month_prompt.change:
+  vi: "Thay đổi lớn nhất trong cách giao dịch"
+  en: "The biggest change in how you trade"
+core.review.month_prompt.costly:
+  vi: "Lỗi tốn kém nhất và kế hoạch loại bỏ"
+  en: "The costliest mistake and the plan to remove it"
+core.review.month_prompt.rules:
+  vi: "Điều chỉnh playbook và quy tắc rủi ro"
+  en: "Adjustments to the playbook and the risk rules"
+core.review.month_prompt.next:
+  vi: "Mục tiêu tháng sau"
+  en: "Goals for next month"
+core.review.queue.flagged:
+  vi: "Bạn đánh dấu xem lại"
+  en: "You flagged it for review"
+core.review.queue.lost_more_than_risk:
+  vi: "Lỗ quá 1R"
+  en: "Lost more than 1R"
+core.review.queue.not_journalled:
+  vi: "Chưa ghi nhật ký"
+  en: "Not journalled yet"
+
+core.origin.manual:
+  vi: "Nhập tay"
+  en: "Manual entry"
+core.account.manual:
+  vi: "Nhập tay"
+  en: "Manual entry"
+core.account.unknown:
+  vi: "Tài khoản %{id}"
+  en: "Account %{id}"
+core.account.notion:
+  vi: "Nhật ký Notion"
+  en: "Notion journal"
+
+core.playbook.none:
+  vi: "Chưa gắn setup"
+  en: "No setup"
+core.playbook.deleted:
+  vi: "Setup đã xoá"
+  en: "Deleted setup"

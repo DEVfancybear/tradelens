@@ -30,6 +30,20 @@ const COLUMN_GAP_MIN: f32 = 6.0;
 /// The least room a name keeps beside the figures before it moves above them.
 const NAME_MIN: f32 = 96.0;
 
+/// The titles over the figure columns (the net title follows the data).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Titles {
+    trades: SharedString,
+    net: SharedString,
+    avg_r: SharedString,
+}
+
+impl Titles {
+    fn new(net: SharedString) -> Self {
+        Self { trades: t!("ui.breakdown.trades").into(), net, avg_r: t!("ui.breakdown.avg_r").into() }
+    }
+}
+
 /// The width of every figure column: what its widest figure or its title needs, so that nothing is cut.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Widths {
@@ -41,19 +55,19 @@ struct Widths {
 }
 
 impl Widths {
-    /// The widths the `rows` and the titles ask for; `net_title` heads the column of results.
-    fn of(rows: &[BreakdownRow], net_title: &str) -> Self {
+    /// The widths the `rows` and the `titles` ask for.
+    fn of(rows: &[BreakdownRow], titles: &Titles) -> Self {
         let glyphs = |count: usize, glyph: f32| f32::from(u16::try_from(count).unwrap_or(u16::MAX)) * glyph;
         let column = |title: &str, figure: fn(&BreakdownRow) -> &str| {
             let widest = rows.iter().map(|row| figure(row).chars().count()).max().unwrap_or(0);
             glyphs(widest, FIGURE_GLYPH).max(glyphs(title.chars().count(), TITLE_GLYPH) + 2.0).ceil()
         };
         Self {
-            trades: column("Lệnh", |row| &row.trades),
+            trades: column(&titles.trades, |row| &row.trades),
             win_rate: column("Win", |row| &row.win_rate),
-            net: column(net_title, |row| &row.net),
+            net: column(&titles.net, |row| &row.net),
             profit_factor: column("PF", |row| &row.profit_factor),
-            avg_r: column("R TB", |row| &row.avg_r),
+            avg_r: column(&titles.avg_r, |row| &row.avg_r),
         }
     }
 
@@ -97,9 +111,10 @@ fn line(name: Text, figures: View) -> View {
     view().flex_row().flex_wrap().items_center().content_center().gap_x(px(COLUMN_GAP_MIN)).child(name).child(figures)
 }
 
-/// The name column: one line, cut with an ellipsis only when the name is longer than the room.
+/// The name column: a name longer than the room (a session with its hours, in English) wraps onto a
+/// second line, which the row's height holds, and is cut with an ellipsis only beyond it.
 fn name_of(content: Text) -> Text {
-    content.flex_1().min_w(px(NAME_MIN)).truncate()
+    content.flex_1().min_w(px(NAME_MIN)).number_of_lines(2u32).text_overflow(nsh_core::EllipsizeMode::Tail)
 }
 
 fn cell(text_of: String, width: f32) -> Text {
@@ -113,7 +128,7 @@ fn cell(text_of: String, width: f32) -> Text {
         .number_of_lines(1)
 }
 
-fn heading(title: &'static str, width: f32) -> Text {
+fn heading(title: impl IntoReactive<SharedString>, width: f32) -> Text {
     text(title)
         .w(px(width))
         .flex_shrink_0()
@@ -128,33 +143,35 @@ fn heading(title: &'static str, width: f32) -> Text {
 /// columns are as wide as their widest figure or title, so none is cut, and the name takes the rest.
 /// Each line can be pressed: `on_pick` gets its name (a symbol, a setup, a tag, a session…), to open
 /// the trades under it.
-pub(crate) fn breakdown_table(
-    name_title: &'static str,
-    net_title: impl Fn() -> &'static str + 'static,
+pub(crate) fn breakdown_table<N: Into<SharedString>>(
+    name_title: impl IntoReactive<SharedString>,
+    net_title: impl Fn() -> N + 'static,
     rows: impl Fn() -> Vec<BreakdownRow> + 'static,
-    empty: &'static str,
+    empty: impl IntoReactive<SharedString>,
     on_pick: impl Fn(&str) + 'static,
 ) -> impl IntoElement {
+    let name_title = name_title.into_reactive();
+    let empty = empty.into_reactive();
     let on_pick: Rc<dyn Fn(&str)> = Rc::new(on_pick);
     dynamic(move || {
         let rows = rows();
-        let net_title = net_title();
+        let titles = Titles::new(net_title().into());
         untracked(|| {
-            let widths = Widths::of(&rows, net_title);
+            let widths = Widths::of(&rows, &titles);
             let header = line(
-                name_of(text(name_title).text_xs().text_color(move || theme().muted_foreground)),
+                name_of(text(name_title.clone()).text_xs().text_color(move || theme().muted_foreground)),
                 figures(widths)
-                    .child(heading("Lệnh", widths.trades))
+                    .child(heading(titles.trades.clone(), widths.trades))
                     .child(heading("Win", widths.win_rate))
-                    .child(heading(net_title, widths.net))
+                    .child(heading(titles.net.clone(), widths.net))
                     .child(heading("PF", widths.profit_factor))
-                    .child(heading("R TB", widths.avg_r)),
+                    .child(heading(titles.avg_r.clone(), widths.avg_r)),
             )
             .pb_2()
             .border_b_1()
             .border_color(move || theme().border);
             let body = if rows.is_empty() {
-                empty_state(empty, "").into_element()
+                empty_state(empty.clone(), "").into_element()
             } else {
                 view()
                     .children(rows.into_iter().map(|row| {
@@ -208,14 +225,15 @@ mod tests {
     #[test]
     fn a_column_is_as_wide_as_its_widest_figure_or_its_title() {
         let rows = [row("5", "100.0%", "+10.8R", "50+", "+1.54R"), row("12", "50.0%", "\u{2212}1.2R", "1.86", "-0.5R")];
-        let widths = Widths::of(&rows, "Tổng R");
+        let titles = Titles { trades: "Lệnh".into(), net: "Tổng R".into(), avg_r: "R TB".into() };
+        let widths = Widths::of(&rows, &titles);
         let glyphs = |n: f32| (n * FIGURE_GLYPH).ceil();
         assert!(widths.win_rate >= glyphs(6.0), "100.0% fits: {widths:?}");
         assert!(widths.net >= glyphs(6.0), "+10.8R fits: {widths:?}");
         assert!(widths.avg_r >= glyphs(6.0), "+1.54R fits: {widths:?}");
         assert!(widths.net >= (6.0_f32 * TITLE_GLYPH).ceil(), "the title Tổng R fits: {widths:?}");
         assert!(widths.profit_factor >= glyphs(4.0), "1.86 fits: {widths:?}");
-        let empty = Widths::of(&[], "Net");
+        let empty = Widths::of(&[], &Titles { net: "Net".into(), ..titles });
         assert!(empty.trades >= (4.0_f32 * TITLE_GLYPH).ceil(), "a table with no rows still fits its titles");
     }
 }

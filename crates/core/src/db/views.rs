@@ -46,7 +46,7 @@ const DAY_NOTE: Shape = Shape { sets: &[], lists: &[], maps: &["custom"], falsy_
 const ALL_ACCOUNTS: &str = "*";
 
 fn bad_key(entity: &str, key: &str) -> DbError {
-    DbError::Invalid(format!("khoá đồng bộ không hợp lệ ({entity}): {key}"))
+    DbError::Invalid(crate::tr!("core.sync.bad_key", entity = entity, key = key))
 }
 
 fn to_map(value: &impl Serialize) -> Result<Map<String, Value>> {
@@ -195,7 +195,7 @@ pub(super) fn load(conn: &Connection, kind: &str, key: &str) -> Result<Option<Fi
             .query_row("SELECT sha256 FROM sync_attachments WHERE path = ?1", [key], |r| r.get::<_, String>(0))
             .optional()?
             .map(|sha| Fields::from([("sha256".to_owned(), json!(sha))]))),
-        other => Err(DbError::Invalid(format!("loại đồng bộ không biết: {other}"))),
+        other => Err(DbError::Invalid(crate::tr!("core.sync.unknown_kind", kind = other))),
     }
 }
 
@@ -683,7 +683,7 @@ pub(super) fn store(conn: &Connection, kind: &str, key: &str, fields: &Fields) -
             )?;
             Ok(())
         }
-        other => Err(DbError::Invalid(format!("loại đồng bộ không biết: {other}"))),
+        other => Err(DbError::Invalid(crate::tr!("core.sync.unknown_kind", kind = other))),
     }
 }
 
@@ -818,7 +818,7 @@ pub(super) fn keys(conn: &Connection, kind: &str) -> Result<Vec<String>> {
                 .collect()
         }
         entity::ATTACHMENT => flat("SELECT path FROM sync_attachments", 1)?,
-        other => return Err(DbError::Invalid(format!("loại đồng bộ không biết: {other}"))),
+        other => return Err(DbError::Invalid(crate::tr!("core.sync.unknown_kind", kind = other))),
     };
     keys.sort();
     Ok(keys)

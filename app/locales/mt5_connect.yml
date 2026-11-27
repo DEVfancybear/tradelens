@@ -1,0 +1,126 @@
+_version: 2
+
+# The "MT5 connection" card of Data sources (pages/mt5_connect.rs).
+mt5_connect.title:
+  vi: "Kết nối MT5"
+  en: "MT5 connection"
+mt5_connect.intro:
+  vi: "Đăng nhập tài khoản MT5 ngay tại đây: TradeLens chạy một bản MetaTrader 5 riêng, ẩn cho mỗi tài khoản và tự đưa lệnh vào nhật ký trong vài giây, không cần mở MT5 hay cài EA. Mật khẩu được giữ trong Windows Credential Manager."
+  en: "Sign in to an MT5 account right here: TradeLens runs a separate, hidden copy of MetaTrader 5 for each account and puts trades into the journal within seconds, with no need to open MT5 or install an EA. The password is kept in Windows Credential Manager."
+mt5_connect.plan_switch:
+  vi: "Hỏi kế hoạch khi có lệnh mới"
+  en: "Ask for a plan on a new trade"
+mt5_connect.plan_hint:
+  vi: "Mở popup ghi kế hoạch khi một lệnh vừa vào trên tài khoản đang kết nối"
+  en: "Opens the plan pop-up when a trade has just been entered on a connected account"
+mt5_connect.demo:
+  vi: "Chế độ thử: tài khoản và lệnh là dữ liệu mẫu trong bộ nhớ."
+  en: "Demo mode: accounts and trades are sample data in memory."
+mt5_connect.ready:
+  vi: "Python %{version} · gói MetaTrader5 sẵn sàng (%{path})"
+  en: "Python %{version} · MetaTrader5 package ready (%{path})"
+mt5_connect.check_again:
+  vi: "Kiểm tra lại"
+  en: "Check again"
+mt5_connect.install_package:
+  vi: "Cài gói MetaTrader5"
+  en: "Install the MetaTrader5 package"
+mt5_connect.install_python:
+  vi: "Cài Python tự động"
+  en: "Install Python automatically"
+mt5_connect.install_terminal:
+  vi: "Cài MetaTrader 5 tự động"
+  en: "Install MetaTrader 5 automatically"
+mt5_connect.blocked.demo_busy:
+  vi: "Đang chuẩn bị, chờ một chút…"
+  en: "Getting ready, one moment…"
+mt5_connect.blocked.not_windows:
+  vi: "Kết nối MT5 chỉ chạy trên Windows."
+  en: "The MT5 connection only runs on Windows."
+mt5_connect.blocked.busy:
+  vi: "Đang cài đặt hoặc kiểm tra máy, chờ xong rồi đăng nhập."
+  en: "Installing or checking the machine; sign in once it is done."
+mt5_connect.blocked.checking:
+  vi: "Đang kiểm tra Python và MetaTrader 5 trên máy…"
+  en: "Checking Python and MetaTrader 5 on this machine…"
+mt5_connect.blocked.need_python:
+  vi: "Cần Python trước khi đăng nhập: bấm \"Cài Python tự động\" ở trên."
+  en: "Python is needed before signing in: press \"Install Python automatically\" above."
+mt5_connect.blocked.need_terminal:
+  vi: "Cần MetaTrader 5 trên máy: bấm \"Cài MetaTrader 5 tự động\" ở trên hoặc chọn terminal64.exe."
+  en: "MetaTrader 5 is needed on this machine: press \"Install MetaTrader 5 automatically\" above or pick terminal64.exe."
+mt5_connect.sign_in_title:
+  vi: "Đăng nhập tài khoản"
+  en: "Sign in to an account"
+mt5_connect.sign_in:
+  vi: "Đăng nhập"
+  en: "Sign in"
+mt5_connect.first_time:
+  vi: "Lần đầu app chép terminal MT5 cho tài khoản này (vài trăm MB), mất khoảng một phút."
+  en: "The first time, the app copies an MT5 terminal for this account (a few hundred MB); it takes about a minute."
+mt5_connect.login:
+  vi: "Số tài khoản"
+  en: "Account number"
+mt5_connect.server:
+  vi: "Server"
+  en: "Server"
+mt5_connect.password:
+  vi: "Mật khẩu"
+  en: "Password"
+mt5_connect.password_placeholder:
+  vi: "Mật khẩu giao dịch"
+  en: "Trading password"
+mt5_connect.terminal:
+  vi: "Terminal MT5"
+  en: "MT5 terminal"
+mt5_connect.no_terminal:
+  vi: "Chưa thấy MetaTrader 5 trên máy: bấm \"Cài MetaTrader 5 tự động\" ở trên (bản của MetaQuotes, đăng nhập được mọi broker), hoặc chọn terminal64.exe nếu đã cài ở chỗ khác."
+  en: "MetaTrader 5 was not found on this machine: press \"Install MetaTrader 5 automatically\" above (MetaQuotes’s version, which signs in to any broker), or pick terminal64.exe if it is installed elsewhere."
+mt5_connect.pick:
+  vi: "Chọn terminal64.exe…"
+  en: "Pick terminal64.exe…"
+mt5_connect.status.preparing:
+  vi: "Đang chuẩn bị terminal"
+  en: "Preparing the terminal"
+mt5_connect.status.connecting:
+  vi: "Đang kết nối"
+  en: "Connecting"
+mt5_connect.status.connected:
+  vi: "Đã kết nối"
+  en: "Connected"
+mt5_connect.status.retrying:
+  vi: "Đang thử lại"
+  en: "Retrying"
+mt5_connect.status.refused:
+  vi: "Đăng nhập lỗi"
+  en: "Sign-in failed"
+mt5_connect.status.stopped:
+  vi: "Đã ngắt"
+  en: "Disconnected"
+mt5_connect.updated:
+  vi: "cập nhật %{time}"
+  en: "updated %{time}"
+mt5_connect.no_accounts:
+  vi: "Chưa có tài khoản MT5 nào kết nối."
+  en: "No MT5 account is connected."
+mt5_connect.forget.title:
+  vi: "Đăng xuất tài khoản MT5?"
+  en: "Sign out of the MT5 account?"
+mt5_connect.forget.body:
+  vi: "Ngắt kết nối %{title}, xoá mật khẩu đã lưu và bản terminal riêng của tài khoản. Lệnh đã vào nhật ký vẫn giữ nguyên."
+  en: "Disconnect %{title}, delete the saved password and the account’s own terminal copy. Trades already in the journal are kept."
+mt5_connect.forget.confirm:
+  vi: "Đăng xuất"
+  en: "Sign out"
+mt5_connect.open_trades:
+  vi: "Lệnh đang mở (%{n})"
+  en: "Open trades (%{n})"
+mt5_connect.reconnect:
+  vi: "Kết nối lại"
+  en: "Reconnect"
+mt5_connect.sign_out:
+  vi: "Đăng xuất"
+  en: "Sign out"
+mt5_connect.manage:
+  vi: "Quản lý"
+  en: "Manage"

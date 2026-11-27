@@ -45,7 +45,7 @@ pub(crate) fn r_curve_chart(
         let at = hovered.get().and_then(|i| usize::try_from(i).ok());
         let all = points();
         let shown = at.and_then(|i| all.get(i)).or(all.last());
-        shown.map_or_else(String::new, |&total| format!("Tổng R {}", format::r_text(Some(total))))
+        shown.map_or_else(String::new, |&total| t!("ui.r_chart.total", r = format::r_text(Some(total))))
     };
     view()
         .gap_2()
@@ -64,7 +64,7 @@ pub(crate) fn r_curve_chart(
                 .x_scale(TRADE_SPACING)
                 .motion(motion)
                 .appear_generation(move || AppearKey::from(generation()))
-                .accessibility_label("Tổng R tích luỹ theo từng lệnh")
+                .accessibility_label(t!("ui.r_chart.label"))
                 .h(px(HEIGHT))
                 .ml(px(LABEL_GUTTER))
                 .on_hover_change(move |index: &Option<u32>| hovered.set(*index))

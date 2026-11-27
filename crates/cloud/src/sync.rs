@@ -484,7 +484,7 @@ impl<'drive> SyncEngine<'drive> {
         let pooled = run_pool(DOWNLOAD_WORKERS, MAX_IMAGE_FAILURES, jobs, |image| {
             let bytes = self.drive.download(&image.file)?;
             if sha256_hex(&bytes) != image.sha {
-                return Err(CloudError::Corrupt(format!("ảnh {} tải về không khớp mã băm", image.path)));
+                return Err(CloudError::Corrupt(crate::tr!("cloud.sync.image_hash", path = image.path)));
             }
             if let Some(parent) = image.local.parent() {
                 std::fs::create_dir_all(parent)?;

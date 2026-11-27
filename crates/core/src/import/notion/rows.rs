@@ -7,7 +7,9 @@ use chrono::{Duration, NaiveDate, NaiveDateTime};
 
 use crate::catalog::{CustomValues, FieldKind, FieldValue};
 use crate::import::ImportError;
-use crate::model::{AccountInfo, Deal, DealEntry, DealKind, Gaps, JOURNAL_TICKET_BASE, Side};
+use crate::model::{
+    AccountInfo, Deal, DealEntry, DealKind, Gaps, JOURNAL_TICKET_BASE, NOTION_LOGIN, NOTION_NAME, Side,
+};
 use crate::time::to_ms;
 
 use super::cells::{
@@ -18,9 +20,6 @@ use super::detect::Layout;
 use super::properties::value_of;
 use super::sheet::{Row, Sheet};
 use super::{Field, NotionMapping, NotionPlan, PlannedJournal, PlannedProperty, PlannedRow, RowIssue, Verdict};
-
-/// The login of the account Notion trades go to when the caller names none.
-const DEFAULT_LOGIN: &str = "notion";
 
 /// A trade's id is 40 bits of a hash.
 const ID_MASK: u64 = (1 << 40) - 1;
@@ -94,15 +93,15 @@ pub(super) fn build(
     }
     if rows.is_empty() {
         let why: Vec<String> = issues.iter().take(3).map(ToString::to_string).collect();
-        return Err(ImportError::Invalid(format!("không đọc được dòng nào trong file ({})", why.join("; "))));
+        return Err(ImportError::Invalid(crate::tr!("core.notion.no_rows", why = why.join("; "))));
     }
 
     let name_of = |column: usize| sheet.headers[column].clone();
     let account = if overrides.account_login.trim().is_empty() {
         AccountInfo {
-            login: DEFAULT_LOGIN.to_owned(),
+            login: NOTION_LOGIN.to_owned(),
             broker: "Notion".to_owned(),
-            name: "Nhật ký Notion".to_owned(),
+            name: NOTION_NAME.to_owned(),
             currency: "USD".to_owned(),
             ..AccountInfo::default()
         }
@@ -148,24 +147,24 @@ enum Unit {
 fn warnings(layout: &Layout, unit: Unit) -> Vec<String> {
     let mut notes = Vec::new();
     if unit == Unit::R {
-        notes.push(
-            "File ghi kết quả theo R, không có tiền: số tiền của các lệnh này hiện «—» và thống kê tính theo R."
-                .to_owned(),
-        );
+        notes.push(crate::tr!("core.notion.warn.r_only"));
     }
     // The lot and the prices a file lacks are recorded as gaps on the deals and show as a dash, so one
     // line says it for all of them.
-    let missing: Vec<&str> =
-        [(Field::Volume, "khối lượng"), (Field::OpenPrice, "giá vào"), (Field::ClosePrice, "giá ra")]
-            .into_iter()
-            .filter(|&(field, _)| layout.column(field).is_none())
-            .map(|(_, name)| name)
-            .collect();
+    let missing: Vec<String> = [
+        (Field::Volume, "core.notion.missing.volume"),
+        (Field::OpenPrice, "core.notion.missing.open_price"),
+        (Field::ClosePrice, "core.notion.missing.close_price"),
+    ]
+    .into_iter()
+    .filter(|&(field, _)| layout.column(field).is_none())
+    .map(|(_, key)| crate::tr!(key))
+    .collect();
     if !missing.is_empty() {
-        notes.push(format!("File không có {}: các ô này hiện «—».", missing.join(" / ")));
+        notes.push(crate::tr!("core.notion.warn.missing_columns", names = missing.join(" / ")));
     }
     if layout.column(Field::Profit).is_none() && unit != Unit::R {
-        notes.push(format!("File không có cột {}: lãi/lỗ để 0.", Field::Profit.label()));
+        notes.push(crate::tr!("core.notion.warn.no_profit", column = Field::Profit.label()));
     }
     notes
 }
@@ -293,7 +292,7 @@ fn gaps_of(volume: Option<f64>, prices: (Option<f64>, Option<f64>), time: Gaps) 
     gaps
 }
 
-/// Reads one row, or says in Vietnamese why it cannot be.
+/// Reads one row, or says why it cannot be.
 fn read_row(sheet: &Sheet, layout: &Layout, row: &Row) -> Result<Parsed, String> {
     let locale = sheet.locale;
     let text = |field: Field| layout.column(field).map_or("", |column| row.cell(column));
@@ -301,16 +300,20 @@ fn read_row(sheet: &Sheet, layout: &Layout, row: &Row) -> Result<Parsed, String>
         let cell = text(field);
         if cell.is_empty() {
             return match need {
-                Need::Required if layout.column(field).is_some() => Err(format!("thiếu {}", field.label())),
+                Need::Required if layout.column(field).is_some() => {
+                    Err(crate::tr!("core.notion.row.missing_field", field = field.label()))
+                }
                 _ => Ok(None),
             };
         }
-        parse_number(cell, locale.comma).map(Some).ok_or_else(|| format!("{} «{cell}» không phải là số", field.label()))
+        parse_number(cell, locale.comma)
+            .map(Some)
+            .ok_or_else(|| crate::tr!("core.notion.row.not_a_number", field = field.label(), cell = cell))
     };
     let positive = |field: Field| -> Result<Option<f64>, String> {
         match number(field, Need::Required)? {
             Some(value) if value <= 0.0 => {
-                Err(format!("{} phải là số dương, không phải «{}»", field.label(), text(field)))
+                Err(crate::tr!("core.notion.row.not_positive", field = field.label(), value = text(field)))
             }
             other => Ok(other),
         }
@@ -319,30 +322,31 @@ fn read_row(sheet: &Sheet, layout: &Layout, row: &Row) -> Result<Parsed, String>
     let open_cell = text(Field::OpenTime);
     let open = parse_datetime(open_cell, locale.dates).ok_or_else(|| {
         if open_cell.is_empty() {
-            "thiếu thời gian vào".to_owned()
+            crate::tr!("core.notion.row.no_open_time")
         } else {
-            format!("không đọc được thời gian vào «{open_cell}»")
+            crate::tr!("core.notion.row.bad_open_time", cell = open_cell)
         }
     })?;
     let close_cell = text(Field::CloseTime);
     let close = if close_cell.is_empty() {
         parse_range_end(open_cell, locale.dates).unwrap_or(open)
     } else {
-        parse_datetime(close_cell, locale.dates).ok_or_else(|| format!("không đọc được thời gian ra «{close_cell}»"))?
+        parse_datetime(close_cell, locale.dates)
+            .ok_or_else(|| crate::tr!("core.notion.row.bad_close_time", cell = close_cell))?
     };
     if close < open {
-        return Err("thời gian ra sớm hơn thời gian vào".to_owned());
+        return Err(crate::tr!("core.notion.row.close_before_open"));
     }
     let symbol = crate::symbol::normalise(text(Field::Symbol));
     if symbol.is_empty() {
-        return Err("thiếu symbol".to_owned());
+        return Err(crate::tr!("core.notion.row.no_symbol"));
     }
     let side_cell = text(Field::Side);
     let side = parse_side(side_cell).ok_or_else(|| {
         if side_cell.is_empty() {
-            "thiếu chiều lệnh (Buy/Sell)".to_owned()
+            crate::tr!("core.notion.row.no_side")
         } else {
-            format!("chiều lệnh «{side_cell}» không phải Buy/Sell hoặc Long/Short")
+            crate::tr!("core.notion.row.bad_side", cell = side_cell)
         }
     })?;
 

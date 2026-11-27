@@ -87,11 +87,11 @@ impl Outcome {
     }
 
     /// The word the card shows when it hides the figures.
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::Win => "Thắng",
-            Self::Loss => "Thua",
-            Self::Flat => "Hòa vốn",
+            Self::Win => crate::tr!("core.report.outcome.win"),
+            Self::Loss => crate::tr!("core.report.outcome.loss"),
+            Self::Flat => crate::tr!("core.report.outcome.flat"),
         }
     }
 }
@@ -191,7 +191,7 @@ pub struct Headline {
     /// A smaller second figure: the R under the money.
     pub secondary: Option<String>,
     /// The line under the result, saying what is and is not shown.
-    pub caption: &'static str,
+    pub caption: String,
 }
 
 impl ShareCard {
@@ -212,11 +212,11 @@ impl ShareCard {
             Side::Long => "Buy",
             Side::Short => "Sell",
         };
-        let mut stats = vec![("Chiều".to_owned(), side.to_owned())];
+        let mut stats = vec![(crate::tr!("core.report.stat.side"), side.to_owned())];
         if let Some(held) = trade.hold_secs() {
-            stats.push(("Thời gian giữ".to_owned(), time::format_duration(held)));
+            stats.push((crate::tr!("core.report.stat.held"), time::format_duration(held)));
         }
-        stats.extend(setup.filter(|s| !s.trim().is_empty()).map(|s| ("Setup".to_owned(), s)));
+        stats.extend(setup.filter(|s| !s.trim().is_empty()).map(|s| (crate::tr!("core.report.stat.setup"), s)));
         Self {
             title: format!("{} · {side}", trade.symbol),
             date: time::format_day(clock.day(trade.close_time.unwrap_or(trade.open_time))),
@@ -236,17 +236,23 @@ impl ShareCard {
         let privacy = privacy.for_unit(figures.unit);
         let mut stats = Vec::new();
         if privacy.shows_r() {
-            stats.push(("Lệnh".to_owned(), figures.trades.to_string()));
+            stats.push((crate::tr!("core.report.stat.trades"), figures.trades.to_string()));
             if figures.trades > 0 {
                 let rate = f64::from(u32::try_from(figures.wins).unwrap_or(u32::MAX))
                     / f64::from(u32::try_from(figures.trades).unwrap_or(u32::MAX));
-                stats.push(("Thắng".to_owned(), percent(rate)));
+                stats.push((crate::tr!("core.report.stat.wins"), percent(rate)));
             }
             if let Some(factor) = figures.profit_factor {
                 stats.push(("Profit factor".to_owned(), format!("{factor:.2}")));
             }
         }
-        stats.extend(figures.top_setup.clone().filter(|s| !s.trim().is_empty()).map(|s| ("Setup chính".to_owned(), s)));
+        stats.extend(
+            figures
+                .top_setup
+                .clone()
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| (crate::tr!("core.report.stat.top_setup"), s)),
+        );
         Self {
             title,
             date: String::new(),
@@ -276,20 +282,18 @@ impl ShareCard {
         let r = (!self.result_r.is_empty()).then(|| self.result_r.clone());
         match (self.privacy, &self.result_money, r) {
             (Privacy::ShowMoney, Some(money), r) => {
-                Headline { main: money.clone(), secondary: r, caption: "kết quả theo tiền và R" }
+                Headline { main: money.clone(), secondary: r, caption: crate::tr!("core.report.caption.money_and_r") }
             }
-            (Privacy::NoFigures, _, _) => {
-                Headline {
-                    main: self.outcome.label().to_owned(), secondary: None, caption: "không hiện số liệu"
-                }
-            }
-            (_, _, Some(r)) => {
-                Headline { main: r, secondary: None, caption: "kết quả theo R, không hiện số tiền" }
-            }
-            (_, _, None) => Headline {
-                main: self.outcome.label().to_owned(),
+            (Privacy::NoFigures, _, _) => Headline {
+                main: self.outcome.label(),
                 secondary: None,
-                caption: "chưa đo được R, không hiện số tiền",
+                caption: crate::tr!("core.report.caption.no_figures"),
+            },
+            (_, _, Some(r)) => Headline { main: r, secondary: None, caption: crate::tr!("core.report.caption.r_only") },
+            (_, _, None) => Headline {
+                main: self.outcome.label(),
+                secondary: None,
+                caption: crate::tr!("core.report.caption.no_r"),
             },
         }
     }
@@ -405,7 +409,7 @@ impl MonthlyReport {
             .by_reason
             .iter()
             .map(|(key, count, r)| {
-                let name = if key.is_empty() { "Không ghi lý do".to_owned() } else { reason_name(key) };
+                let name = if key.is_empty() { crate::tr!("core.report.no_reason") } else { reason_name(key) };
                 (name, *count, *r)
             })
             .collect();
@@ -424,9 +428,9 @@ impl MonthlyReport {
 /// Why a report could not be written.
 #[derive(Debug, thiserror::Error)]
 pub enum ReportError {
-    #[error("không ghi được file: {0}")]
+    #[error("{}", crate::tr!("core.report.io", error = .0))]
     Io(#[from] std::io::Error),
-    #[error("không dựng được báo cáo: {0}")]
+    #[error("{}", crate::tr!("core.report.render", error = .0))]
     Render(String),
 }
 

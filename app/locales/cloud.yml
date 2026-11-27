@@ -1,0 +1,189 @@
+_version: 2
+
+# The Sign-in & sync screen (pages/cloud.rs) and what the cloud says (cloud.rs).
+cloud.page.summary:
+  vi: "Dùng TradeLens trên nhiều máy và không lo mất nhật ký"
+  en: "Use TradeLens on several machines and never lose your journal"
+cloud.google.subtitle:
+  vi: "Tài khoản Google · thư mục riêng của app"
+  en: "Google account · the app’s own folder"
+cloud.microsoft.subtitle:
+  vi: "Tài khoản Microsoft · thư mục riêng của app"
+  en: "Microsoft account · the app’s own folder"
+cloud.google.sign_in:
+  vi: "Đăng nhập với Google"
+  en: "Sign in with Google"
+cloud.microsoft.sign_in:
+  vi: "Đăng nhập với Microsoft"
+  en: "Sign in with Microsoft"
+cloud.in_use:
+  vi: "Đang dùng"
+  en: "In use"
+cloud.sign_out:
+  vi: "Đăng xuất"
+  en: "Sign out"
+cloud.waiting:
+  vi: "Đang chờ bạn đồng ý trong trình duyệt…"
+  en: "Waiting for you to agree in the browser…"
+cloud.signed_out:
+  vi: "Chưa đăng nhập"
+  en: "Not signed in"
+cloud.today:
+  vi: "%{time} hôm nay"
+  en: "%{time} today"
+cloud.counts.moved:
+  vi: "đẩy %{pushed} thay đổi, nhận %{pulled}"
+  en: "changes pushed: %{pushed}, received: %{pulled}"
+cloud.counts.conflicts.one:
+  vi: "%{n} chỗ hai máy sửa khác nhau đã gộp theo lần sửa mới nhất"
+  en: "%{n} conflicting edit from two machines, resolved by the latest edit"
+cloud.counts.conflicts.other:
+  vi: "%{n} chỗ hai máy sửa khác nhau đã gộp theo lần sửa mới nhất"
+  en: "%{n} conflicting edits from two machines, resolved by the latest edit"
+cloud.counts.pictures:
+  vi: "ảnh: %{up} lên, %{down} xuống"
+  en: "images: %{up} up, %{down} down"
+cloud.counts.pictures_failed.one:
+  vi: "%{n} ảnh chưa chuyển được, lần sync sau sẽ thử lại"
+  en: "%{n} image not transferred yet, the next sync will try again"
+cloud.counts.pictures_failed.other:
+  vi: "%{n} ảnh chưa chuyển được, lần sync sau sẽ thử lại"
+  en: "%{n} images not transferred yet, the next sync will try again"
+cloud.counts.snapshot:
+  vi: "đã chụp bản sao tuần"
+  en: "weekly snapshot taken"
+cloud.headline.syncing:
+  vi: "Đang đồng bộ…"
+  en: "Syncing…"
+cloud.headline.syncing_detail:
+  vi: "Đẩy thay đổi của máy này và nhận thay đổi của máy khác"
+  en: "Pushes this machine’s changes and receives the other machines’ changes"
+cloud.headline.restoring:
+  vi: "Đang khôi phục…"
+  en: "Restoring…"
+cloud.headline.restoring_detail:
+  vi: "Tải bản sao lưu gần nhất rồi nhận các thay đổi sau đó"
+  en: "Downloads the latest backup, then receives the changes made since"
+cloud.headline.failed:
+  vi: "Sync lỗi"
+  en: "Sync failed"
+cloud.headline.failed_detail:
+  vi: "Lần thử %{when} · %{message}"
+  en: "Attempt %{when} · %{message}"
+cloud.headline.restored:
+  vi: "Đã khôi phục"
+  en: "Restored"
+cloud.headline.synced:
+  vi: "Đã đồng bộ"
+  en: "Synced"
+cloud.headline.last_counts:
+  vi: "Lần cuối %{when} · %{counts}"
+  en: "Last sync %{when} · %{counts}"
+cloud.headline.last:
+  vi: "Lần cuối %{when}"
+  en: "Last sync %{when}"
+cloud.headline.never:
+  vi: "Chưa đồng bộ"
+  en: "Not synced yet"
+cloud.headline.never_detail:
+  vi: "Bấm Sync ngay sau khi đăng nhập"
+  en: "Press Sync now after signing in"
+cloud.sync.title:
+  vi: "Đồng bộ"
+  en: "Sync"
+cloud.sync.now:
+  vi: "Sync ngay"
+  en: "Sync now"
+cloud.sync.sign_in_first:
+  vi: "Đăng nhập Google Drive hoặc OneDrive để đồng bộ"
+  en: "Sign in to Google Drive or OneDrive to sync"
+cloud.sync.demo:
+  vi: "Chế độ thử: ổ đĩa nằm trong bộ nhớ, không cần tài khoản"
+  en: "Demo mode: the drive is in memory, no account needed"
+cloud.sync.auto:
+  vi: "Tự động sync"
+  en: "Auto sync"
+cloud.sync.auto_hint:
+  vi: "Mỗi 15 phút và khi đóng app; chỉ áp dụng cho máy này"
+  en: "Every 15 minutes and when the app closes; applies to this machine only"
+cloud.restore.title:
+  vi: "Khôi phục & sao lưu"
+  en: "Restore & backup"
+cloud.restore.body:
+  vi: "Máy mới: đăng nhập cùng tài khoản rồi khôi phục từ bản chụp gần nhất của Drive (mỗi tuần một bản) và các thay đổi sau đó."
+  en: "New machine: sign in with the same account, then restore from the Drive’s latest snapshot (one a week) and the changes made since."
+cloud.restore.button:
+  vi: "Khôi phục sang máy này"
+  en: "Restore to this machine"
+cloud.devices.title:
+  vi: "Thiết bị dùng chung dữ liệu"
+  en: "Devices sharing the data"
+cloud.devices.empty:
+  vi: "Danh sách hiện sau lần sync đầu tiên."
+  en: "The list appears after the first sync."
+cloud.devices.this_one:
+  vi: "thiết bị này"
+  en: "this device"
+cloud.access.title:
+  vi: "Quyền truy cập"
+  en: "Access"
+cloud.access.folder:
+  vi: "Chỉ thư mục ẩn của TradeLens trên Drive (appDataFolder / approot); app không thấy file khác của bạn."
+  en: "Only TradeLens’s hidden folder on the Drive (appDataFolder / approot); the app cannot see your other files."
+cloud.access.no_server:
+  vi: "Không có server TradeLens: dữ liệu đi thẳng từ máy bạn lên Drive."
+  en: "There is no TradeLens server: the data goes straight from your machine to the Drive."
+cloud.access.token:
+  vi: "Token đăng nhập nằm trong kho khoá của hệ điều hành (Windows Credential Manager, macOS Keychain), không nằm trong file dữ liệu."
+  en: "The sign-in token is kept in the operating system’s credential store (Windows Credential Manager, macOS Keychain), not in the data file."
+cloud.confirm.sign_out_title:
+  vi: "Đăng xuất khỏi %{name}?"
+  en: "Sign out of %{name}?"
+cloud.confirm.sign_out_body:
+  vi: "Dữ liệu trên Drive vẫn còn; TradeLens chỉ ngừng sync trên máy này cho tới khi bạn đăng nhập lại."
+  en: "The data on the Drive stays; TradeLens only stops syncing on this machine until you sign in again."
+cloud.confirm.sign_out:
+  vi: "Đăng xuất"
+  en: "Sign out"
+cloud.confirm.restore_title:
+  vi: "Thay toàn bộ dữ liệu trên máy này?"
+  en: "Replace all the data on this machine?"
+cloud.confirm.restore_body:
+  vi: "Dữ liệu đang có trên máy này sẽ bị thay bằng bản sao lưu gần nhất trên Drive, cộng các thay đổi sau đó. Một bản của dữ liệu cũ được giữ cạnh file dữ liệu (tradelens.before-restore.db). Chỉ làm khi đây là máy mới. Không hoàn tác được."
+  en: "The data on this machine will be replaced by the latest backup on the Drive, plus the changes made since. A copy of the old data is kept next to the data file (tradelens.before-restore.db). Only do this on a new machine. It cannot be undone."
+cloud.confirm.restore:
+  vi: "Thay dữ liệu"
+  en: "Replace data"
+cloud.fault.not_configured:
+  vi: "Chưa cấu hình đăng nhập: %{message}. Mục «Client id đọc ở đâu» trong docs/cloud-sync.md chỉ cách đăng ký."
+  en: "Sign-in is not configured: %{message}. The section “Where to read the client id” in docs/cloud-sync.md explains how to register."
+cloud.fault.signed_out:
+  vi: "Phiên đăng nhập đã hết hạn hoặc bị thu hồi: hãy đăng nhập lại."
+  en: "The sign-in session has expired or was revoked: sign in again."
+cloud.fault.no_snapshot:
+  vi: "Trên Drive chưa có bản sao lưu nào để khôi phục: hãy sync từ máy cũ trước."
+  en: "There is no backup on the Drive to restore from yet: sync from the old machine first."
+cloud.fault.sign_in_stopped:
+  vi: "Luồng đăng nhập bị dừng: %{error}"
+  en: "The sign-in task stopped: %{error}"
+cloud.fault.sign_out_stopped:
+  vi: "Luồng đăng xuất bị dừng: %{error}"
+  en: "The sign-out task stopped: %{error}"
+cloud.fault.sync_stopped:
+  vi: "Luồng sync bị dừng: %{error}"
+  en: "The sync task stopped: %{error}"
+cloud.fault.not_signed_in:
+  vi: "Chưa đăng nhập: bấm Đăng nhập với Google hoặc Microsoft trước."
+  en: "Not signed in: press Sign in with Google or Microsoft first."
+cloud.fault.no_folder:
+  vi: "Ứng dụng không có thư mục dữ liệu nên chưa sync được."
+  en: "The app has no data folder, so it cannot sync yet."
+cloud.fault.restore_needs_sign_in:
+  vi: "Cần đăng nhập (và có thư mục dữ liệu) trước khi khôi phục."
+  en: "You need to sign in (and have a data folder) before restoring."
+cloud.fault.setting_not_kept:
+  vi: "Không ghi lại được cài đặt: %{error}"
+  en: "Could not write the settings back: %{error}"
+cloud.fault.cannot_open:
+  vi: "Không mở được dữ liệu để sync: %{error}"
+  en: "Could not open the data to sync: %{error}"

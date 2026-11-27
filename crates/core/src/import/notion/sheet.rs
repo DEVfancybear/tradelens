@@ -51,7 +51,7 @@ pub(super) fn read(bytes: &[u8]) -> Result<Sheet, ImportError> {
     let mut rows = Vec::new();
     let (mut cursor, mut line) = (0_usize, 1_usize);
     for record in reader.records() {
-        let record = record.map_err(|e| ImportError::Invalid(format!("file CSV bị lỗi: {e}")))?;
+        let record = record.map_err(|e| ImportError::Invalid(crate::tr!("core.notion.csv_error", error = e)))?;
         let cells: Vec<String> = record.iter().map(str::to_owned).collect();
         match &headers {
             None => {
@@ -75,9 +75,9 @@ pub(super) fn read(bytes: &[u8]) -> Result<Sheet, ImportError> {
             }
         }
     }
-    let headers = headers.ok_or_else(|| ImportError::Invalid("file CSV trống".into()))?;
+    let headers = headers.ok_or_else(|| ImportError::Invalid(crate::tr!("core.notion.csv_empty")))?;
     if rows.is_empty() {
-        return Err(ImportError::Invalid("file CSV chỉ có dòng tiêu đề, chưa có lệnh nào".into()));
+        return Err(ImportError::Invalid(crate::tr!("core.notion.csv_only_header")));
     }
     let delimiter = delimiter_of(text);
     let dates = detect_date_order(rows.iter().flat_map(|row| row.cells.iter().map(String::as_str)));
@@ -94,7 +94,7 @@ pub(super) fn read(bytes: &[u8]) -> Result<Sheet, ImportError> {
 /// [`ImportError::Invalid`] when there is no header or no data row.
 pub(super) fn from_table(headers: &[String], rows: &[Vec<String>]) -> Result<Sheet, ImportError> {
     if headers.is_empty() {
-        return Err(ImportError::Invalid("bảng Notion không có cột nào".into()));
+        return Err(ImportError::Invalid(crate::tr!("core.notion.table_no_columns")));
     }
     let headers: Vec<String> = headers
         .iter()
@@ -108,7 +108,7 @@ pub(super) fn from_table(headers: &[String], rows: &[Vec<String>]) -> Result<She
         .map(|(i, cells)| Row { line: i + 2, cells: cells.clone() })
         .collect();
     if rows.is_empty() {
-        return Err(ImportError::Invalid("bảng Notion chưa có lệnh nào".into()));
+        return Err(ImportError::Invalid(crate::tr!("core.notion.table_no_rows")));
     }
     let dates = detect_date_order(rows.iter().flat_map(|row| row.cells.iter().map(String::as_str)));
     Ok(Sheet { headers, rows, locale: Locale { dates, comma: CommaRole::Thousands } })

@@ -9,14 +9,14 @@ use crate::{
 
 const ALL: &str = "all";
 
-/// A drop-down of the accounts, "Tất cả" first; it sets the store's account filter.
+/// A drop-down of the accounts, "All" first; it sets the store's account filter.
 pub(crate) fn account_picker() -> impl IntoElement {
     let store = store();
     select_field(
-        "Tài khoản",
+        t!("account_picker.label"),
         move || {
             let snapshot = store.snapshot();
-            let mut choices = vec![Choice::new(ALL, format!("Tất cả ({})", snapshot.accounts.len()))];
+            let mut choices = vec![Choice::new(ALL, t!("account_picker.all", n = snapshot.accounts.len()))];
             choices.extend(snapshot.accounts.iter().map(|a| Choice::new(a.id.to_string(), a.title())));
             choices
         },

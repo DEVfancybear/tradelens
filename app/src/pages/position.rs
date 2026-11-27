@@ -1,4 +1,4 @@
-//! Quản lý lệnh: a modal over any screen for a position open on a connected MT5 account. It moves
+//! Quản lý lệnh (manage a trade): a modal over any screen for a position open on a connected MT5 account. It moves
 //! the stop and the target, or closes the position, all of it or part. Closing asks first; what
 //! the terminal answers shows under the buttons, and the trade's page follows at the next poll.
 
@@ -35,7 +35,7 @@ pub(crate) fn open(account: AccountRef, ticket: i64) {
     modal::open(
         Modal::new(
             id,
-            format!("Quản lý lệnh {ticket}"),
+            t!("position.title", ticket = ticket),
             move || panel(account.clone(), ticket),
             move || modal::close(&closing),
         )
@@ -98,7 +98,7 @@ fn panel(account: AccountRef, ticket: i64) -> impl IntoElement {
         position.with(|p| p.as_ref().is_some_and(|(_, _, connected)| *connected))
             && outcome.get() != Some(Outcome::Sending)
     };
-    let done = move |what: &'static str| {
+    let done = move |what: String| {
         move |result: Result<(), String>| {
             if result.is_ok() {
                 batch(|| {
@@ -107,7 +107,7 @@ fn panel(account: AccountRef, ticket: i64) -> impl IntoElement {
                 });
             }
             outcome.set(Some(match result {
-                Ok(()) => Outcome::Done(what.to_owned()),
+                Ok(()) => Outcome::Done(what),
                 Err(error) => Outcome::Failed(error),
             }));
         }
@@ -120,13 +120,14 @@ fn panel(account: AccountRef, ticket: i64) -> impl IntoElement {
             let account = account.clone();
             let send = move || {
                 outcome.set(Some(Outcome::Sending));
-                mt5.modify(&account, ticket, levels, done("Đã đặt SL/TP."));
+                mt5.modify(&account, ticket, levels, done(t!("position.levels_set")));
             };
             if removed.is_empty() {
                 send();
             } else {
-                let said = format!("Ô để trống sẽ bỏ {} của lệnh {ticket} trên MT5.", removed.join(" và "));
-                confirm_then(owner, "Bỏ mức dừng của lệnh?", said, "Bỏ và lưu", send);
+                let said =
+                    t!("position.remove_said", levels = removed.join(&t!("position.levels_sep")), ticket = ticket);
+                confirm_then(owner, t!("position.remove_title"), said, t!("position.remove_confirm"), send);
             }
         }
     };
@@ -134,7 +135,7 @@ fn panel(account: AccountRef, ticket: i64) -> impl IntoElement {
         let account = account.clone();
         let Some((open, ..)) = position.get_untracked() else { return };
         let (description, what, lots) = close_plan(&open, volume.get_untracked());
-        confirm_then(owner, "Đóng lệnh trên MT5?", description, "Đóng lệnh", move || {
+        confirm_then(owner, t!("position.close_title"), description, t!("position.close"), move || {
             outcome.set(Some(Outcome::Sending));
             mt5.close(&account, ticket, lots, done(what));
         });
@@ -151,7 +152,7 @@ fn panel(account: AccountRef, ticket: i64) -> impl IntoElement {
                 .gap_3()
                 .child(level_field("Stop loss", sl, move || current(|p| p.sl)))
                 .child(level_field("Take profit", tp, move || current(|p| p.tp)))
-                .child(action_when("Lưu SL/TP", Variant::Secondary, idle, save_levels)),
+                .child(action_when(t!("position.save_levels"), Variant::Secondary, idle, save_levels)),
         )
         .child(
             view()
@@ -160,42 +161,37 @@ fn panel(account: AccountRef, ticket: i64) -> impl IntoElement {
                 .items_end()
                 .gap_3()
                 .child(field(
-                    "Khối lượng đóng",
+                    t!("position.volume"),
                     number_field(
-                        "Khối lượng đóng",
-                        Some("lot"),
+                        t!("position.volume"),
+                        Some("lot".into()),
                         NumberRange::between(LOT_STEP, 1_000.0).stepping(LOT_STEP),
                         move || volume.get(),
                         move |v| volume.set(v),
                     ),
                 ))
-                .child(action_when("Đóng lệnh", Variant::Destructive, idle, close)),
+                .child(action_when(t!("position.close"), Variant::Destructive, idle, close)),
         )
         .child(dynamic(move || outcome.get().map(outcome_view)))
 }
 
 /// What closing `wanted` lots of `open` asks, says once done, and sends (`None`: all of it). No lots,
 /// or as many as are open, close it all.
-fn close_plan(open: &Position, wanted: Option<f64>) -> (String, &'static str, Option<f64>) {
+fn close_plan(open: &Position, wanted: Option<f64>) -> (String, String, Option<f64>) {
     let lots = wanted.filter(|lots| *lots > 0.0).unwrap_or(open.volume);
     if lots >= open.volume - 1e-9 {
-        let asked =
-            format!("Đóng toàn bộ {} lot {} theo giá thị trường trên MT5.", format::lots(open.volume), open.symbol);
-        return (asked, "Đã đóng lệnh.", None);
+        let asked = t!("position.close_all", lots = format::lots(open.volume), symbol = open.symbol);
+        return (asked, t!("position.closed"), None);
     }
-    let asked = format!(
-        "Đóng {} trên {} lot {} theo giá thị trường trên MT5.",
-        format::lots(lots),
-        format::lots(open.volume),
-        open.symbol
-    );
-    (asked, "Đã đóng một phần lệnh.", Some(lots))
+    let asked =
+        t!("position.close_part", lots = format::lots(lots), total = format::lots(open.volume), symbol = open.symbol);
+    (asked, t!("position.closed_part"), Some(lots))
 }
 
 /// The line under the buttons.
 fn outcome_view(outcome: Outcome) -> AnyElement {
     match outcome {
-        Outcome::Sending => save_status("Đang gửi lệnh tới MT5…").text_sm().into_element(),
+        Outcome::Sending => save_status(t!("position.sending")).text_sm().into_element(),
         Outcome::Done(what) => save_status(what).text_sm().into_element(),
         Outcome::Failed(error) => error_line(error).into_element(),
     }
@@ -205,8 +201,8 @@ fn outcome_view(outcome: Outcome) -> AnyElement {
 fn connection_note(position: Memo<Option<(Position, String, bool)>>) -> impl IntoElement {
     dynamic(move || {
         let said = match position.get() {
-            None => Some("Lệnh này không còn mở trên tài khoản đang kết nối."),
-            Some((_, _, false)) => Some("Tài khoản đang kết nối lại: chờ kết nối xong rồi gửi lệnh."),
+            None => Some(t!("position.gone")),
+            Some((_, _, false)) => Some(t!("position.reconnecting")),
             Some(_) => None,
         };
         said.map(|said| text(said).text_sm().text_color(move || theme().muted_foreground))
@@ -232,10 +228,12 @@ fn level_field(
 }
 
 /// A field with its label above it.
-fn field(label: &'static str, control: impl IntoElement) -> impl IntoElement {
+fn field(label: impl Into<SharedString>, control: impl IntoElement) -> impl IntoElement {
     view()
         .gap_1()
-        .child(text(label).text_xs().font_weight(FontWeight::MEDIUM).text_color(move || theme().muted_foreground))
+        .child(
+            text(label.into()).text_xs().font_weight(FontWeight::MEDIUM).text_color(move || theme().muted_foreground),
+        )
         .child(control)
 }
 
@@ -258,10 +256,10 @@ fn summary(p: &Position, currency: &str) -> impl IntoElement + use<> {
                         .font_weight(FontWeight::SEMIBOLD),
                 )
                 .child(
-                    text(format!(
-                        "Giá vào {} · giá hiện tại {}",
-                        format::price(p.open_price),
-                        format::price(p.current_price)
+                    text(t!(
+                        "position.prices",
+                        open = format::price(p.open_price),
+                        current = format::price(p.current_price)
                     ))
                     .text_xs()
                     .text_color(move || theme().muted_foreground),
@@ -323,11 +321,17 @@ mod tests {
             magic: 0,
             comment: String::new(),
         };
-        assert_eq!(close_plan(&open, None).2, None, "no lots: all of it");
-        assert_eq!(close_plan(&open, Some(0.3)).2, None, "as many as are open: all of it");
-        let (asked, done, lots) = close_plan(&open, Some(0.1));
-        assert_eq!(lots, Some(0.1));
-        assert_eq!(done, "Đã đóng một phần lệnh.");
-        assert!(asked.contains("0.10") && asked.contains("0.30"), "{asked}");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, move || {
+            assert_eq!(close_plan(&open, None).2, None, "no lots: all of it");
+            assert_eq!(close_plan(&open, Some(0.3)).2, None, "as many as are open: all of it");
+            let (asked, done, lots) = close_plan(&open, Some(0.1));
+            assert_eq!(lots, Some(0.1));
+            assert_eq!(done, "Đã đóng một phần lệnh.");
+            assert!(asked.contains("0.10") && asked.contains("0.30"), "{asked}");
+        });
+        crate::i18n::with_text(crate::i18n::Lang::En, || {
+            let all = Position { volume: 0.3, ..open_position() };
+            assert_eq!(close_plan(&all, Some(0.1)).0, "Close 0.10 of 0.30 lots of XAUUSD at market price on MT5.");
+        });
     }
 }

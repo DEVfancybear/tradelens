@@ -92,7 +92,9 @@ pub(crate) type SharedDb = Arc<Mutex<Db>>;
 type WhenOpen = Box<dyn FnOnce(Option<SharedDb>)>;
 
 /// What a read or a write says when the database could not be opened.
-const NOT_OPEN: &str = "Chưa mở được cơ sở dữ liệu.";
+fn not_open() -> String {
+    t!("store.not_open")
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct Store {
@@ -175,8 +177,8 @@ impl Store {
                     self.snapshot.set(Arc::new(next));
                     self.load.set(Load::Ready);
                 }),
-                Ok(Err(error)) => self.load.set(Load::Failed(format!("Không đọc được dữ liệu: {error}"))),
-                Err(error) => self.load.set(Load::Failed(format!("Luồng đọc dữ liệu bị dừng: {error}"))),
+                Ok(Err(error)) => self.load.set(Load::Failed(t!("store.read_failed", error = error))),
+                Err(error) => self.load.set(Load::Failed(t!("store.read_stopped", error = error))),
             }
         });
     }
@@ -204,7 +206,7 @@ impl Store {
     }
 
     /// Reads the database once on a blocking thread, and tells the UI thread the result (the
-    /// failure in Vietnamese). Unlike a [`Reading`] it does not follow the revision.
+    /// failure in the language chosen). Unlike a [`Reading`] it does not follow the revision.
     ///
     /// # Panics
     ///
@@ -216,7 +218,7 @@ impl Store {
     ) {
         self.when_open(move |db| {
             let Some(db) = db else {
-                return done(Err(NOT_OPEN.to_owned()));
+                return done(Err(not_open()));
             };
             spawn(async move {
                 let read = blocking(move || {
@@ -226,8 +228,8 @@ impl Store {
                 .await;
                 done(match read {
                     Ok(Ok(value)) => Ok(value),
-                    Ok(Err(error)) => Err(format!("Không đọc được dữ liệu: {error}")),
-                    Err(error) => Err(format!("Luồng đọc dữ liệu bị dừng: {error}")),
+                    Ok(Err(error)) => Err(t!("store.read_failed", error = error)),
+                    Err(error) => Err(t!("store.read_stopped", error = error)),
                 });
             });
         });
@@ -271,13 +273,13 @@ impl Store {
         done: impl FnOnce(Result<T, String>) + 'static,
     ) {
         let (Some(db), Some(path)) = (self.db.get(), Self::database_path()) else {
-            return done(Err("Chưa mở được tệp dữ liệu trên máy này.".to_owned()));
+            return done(Err(t!("store.no_file")));
         };
         spawn(async move {
             let worked = blocking(move || {
                 let mut guard = db.lock().expect("database lock poisoned");
-                guard.snapshot_to(&backup).map_err(|error| format!("Không sao lưu được dữ liệu hiện tại: {error}"))?;
-                let stand_in = Db::in_memory().map_err(|error| format!("Không đóng được dữ liệu hiện tại: {error}"))?;
+                guard.snapshot_to(&backup).map_err(|error| RestoreFailure::Backup(error.to_string()))?;
+                let stand_in = Db::in_memory().map_err(|error| RestoreFailure::Close(error.to_string()))?;
                 // Closing the file: nothing may hold it while it is replaced.
                 drop(std::mem::replace(&mut *guard, stand_in));
                 match replace(&path) {
@@ -290,12 +292,16 @@ impl Store {
                             Ok(reopened) => *guard = reopened,
                             Err(error) => log::error!("database: cannot be reopened after a restore: {error}"),
                         }
-                        Err(message)
+                        Err(RestoreFailure::Replace(message))
                     }
                 }
             })
             .await;
-            let outcome = worked.unwrap_or_else(|error| Err(format!("Luồng khôi phục bị dừng: {error}")));
+            // The text of a failure is made here, on the UI thread: the working thread cannot read the app's text.
+            let outcome = match worked {
+                Ok(outcome) => outcome.map_err(RestoreFailure::describe),
+                Err(error) => Err(t!("store.restore_stopped", error = error)),
+            };
             if outcome.is_ok() {
                 data_changed();
                 self.revision.set(revision().get());
@@ -312,9 +318,9 @@ impl Store {
         spawn(async move {
             let opened = blocking(move || {
                 if let Some(dir) = &dir {
-                    adopt_earlier_data(dir)?;
+                    adopt_earlier_data(dir).map_err(OpenFailure::Earlier)?;
                 }
-                open_database(path).map_err(|error| error.to_string())
+                open_database(path).map_err(|error| OpenFailure::Database(error.to_string()))
             })
             .await;
             match opened {
@@ -325,12 +331,12 @@ impl Store {
                     self.reload();
                 }
                 Ok(Err(error)) => {
-                    log::error!("database: {error}");
-                    self.load.set(Load::Failed(format!("Không mở được cơ sở dữ liệu: {error}")));
+                    log::error!("database: {error:?}");
+                    self.load.set(Load::Failed(t!("store.open_failed", error = error.describe())));
                     self.flush_waiting(None);
                 }
                 Err(error) => {
-                    self.load.set(Load::Failed(format!("Luồng mở dữ liệu bị dừng: {error}")));
+                    self.load.set(Load::Failed(t!("store.open_stopped", error = error)));
                     self.flush_waiting(None);
                 }
             }
@@ -358,6 +364,27 @@ impl Store {
     }
 }
 
+/// Why a restore failed on its working thread; [`RestoreFailure::describe`] makes the text on the UI thread.
+#[derive(Debug)]
+enum RestoreFailure {
+    /// The current data could not be copied to the backup file.
+    Backup(String),
+    /// The open database could not be set aside.
+    Close(String),
+    /// What replaced the file said why it could not (already text for the trader).
+    Replace(String),
+}
+
+impl RestoreFailure {
+    fn describe(self) -> String {
+        match self {
+            Self::Backup(error) => t!("store.backup_failed", error = error),
+            Self::Close(error) => t!("store.close_failed", error = error),
+            Self::Replace(message) => message,
+        }
+    }
+}
+
 /// The folder NSH gave every app that had no id, which is where this app's data was until it got one.
 const SHARED_FOLDER: &str = "default";
 
@@ -365,7 +392,7 @@ const SHARED_FOLDER: &str = "default";
 /// an id (`default`, next to the app's own folder) into `dir`, when `dir` has no database yet. The
 /// old folder is not touched. Only the app's own folder qualifies: a data folder given by a test or
 /// a command line has no earlier data to take.
-fn adopt_earlier_data(dir: &Path) -> Result<(), String> {
+fn adopt_earlier_data(dir: &Path) -> Result<(), EarlierDataFailure> {
     let own = dir.file_name().is_some_and(|name| name == crate::APP_ID);
     let Some(shared) = dir.parent().map(|parent| parent.join(SHARED_FOLDER)).filter(|_| own) else { return Ok(()) };
     match legacy::adopt(dir, &shared) {
@@ -381,7 +408,33 @@ fn adopt_earlier_data(dir: &Path) -> Result<(), String> {
         Ok(None) => Ok(()),
         Err(error) => {
             log::error!("data: the earlier data could not be copied: {error}");
-            Err(format!("Không chép được dữ liệu từ thư mục cũ ({}): {error}", shared.display()))
+            Err(EarlierDataFailure { folder: shared, error: error.to_string() })
+        }
+    }
+}
+
+/// The earlier data's folder that could not be copied, and why.
+#[derive(Debug)]
+struct EarlierDataFailure {
+    folder: PathBuf,
+    error: String,
+}
+
+/// Why the database could not be opened on its working thread; [`OpenFailure::describe`] makes the text
+/// on the UI thread.
+#[derive(Debug)]
+enum OpenFailure {
+    Earlier(EarlierDataFailure),
+    Database(String),
+}
+
+impl OpenFailure {
+    fn describe(self) -> String {
+        match self {
+            Self::Earlier(EarlierDataFailure { folder, error }) => {
+                t!("store.legacy_failed", folder = folder.display(), error = error)
+            }
+            Self::Database(error) => error,
         }
     }
 }
@@ -443,7 +496,7 @@ impl<T> Reading<T> {
         self.state.with(|s| s.value.clone())
     }
 
-    /// Why the last read failed, in Vietnamese; `None` when it went through (tracked).
+    /// Why the last read failed, in the language chosen; `None` when it went through (tracked).
     pub fn error(&self) -> Option<String> {
         self.state.with(|s| s.error.clone())
     }
@@ -522,8 +575,8 @@ pub fn query_with<I: Send + 'static, T: Send + 'static>(
                             s.value = Some(Arc::new(value));
                             s.error = None;
                         }
-                        Ok(Err(error)) => s.error = Some(format!("Không đọc được dữ liệu: {error}")),
-                        Err(error) => s.error = Some(format!("Luồng đọc dữ liệu bị dừng: {error}")),
+                        Ok(Err(error)) => s.error = Some(t!("store.read_failed", error = error)),
+                        Err(error) => s.error = Some(t!("store.read_stopped", error = error)),
                     }
                 });
             });
@@ -553,7 +606,7 @@ pub fn writer() -> Writer {
 impl Writer {
     /// Runs `op` on a blocking thread with the database; when it has stored something the
     /// revision moves, so every [`Reading`] reads again. `done` then hears the result on the UI
-    /// thread, with the failure in Vietnamese for the trader.
+    /// thread, with the failure in the language chosen for the trader.
     ///
     /// # Panics
     ///
@@ -568,7 +621,7 @@ impl Writer {
         // launch) waits for it; it fails only when opening did.
         store.when_open(move |db| {
             let Some(db) = db else {
-                return done(Err(NOT_OPEN.to_owned()));
+                return done(Err(not_open()));
             };
             spawn(async move {
                 let written = blocking(move || {
@@ -585,8 +638,8 @@ impl Writer {
                 .await;
                 let outcome = match written {
                     Ok(Ok(value)) => Ok(value),
-                    Ok(Err(error)) => Err(format!("Không ghi được dữ liệu: {error}")),
-                    Err(error) => Err(format!("Luồng ghi dữ liệu bị dừng: {error}")),
+                    Ok(Err(error)) => Err(t!("store.write_failed", error = error)),
+                    Err(error) => Err(t!("store.write_stopped", error = error)),
                 };
                 if outcome.is_ok() {
                     store.revision.set(revision().get());
@@ -721,6 +774,7 @@ mod tests {
         #[component]
         fn EarlyAsks() -> impl IntoElement {
             crate::ui::theme::install();
+            crate::i18n::install();
             provide();
             let wrote = signal(String::from("write waiting"));
             let read = signal(String::from("read waiting"));

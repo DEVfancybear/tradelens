@@ -69,30 +69,32 @@ impl NumberRange {
 /// same way. Typing is kept as the trader wrote it until the field is left, then held to `range`.
 pub fn number_field(
     label: impl Into<SharedString>,
-    unit: Option<&'static str>,
+    unit: Option<SharedString>,
     range: NumberRange,
     value: impl Fn() -> Option<f64> + 'static,
     on_change: impl Fn(Option<f64>) + 'static,
 ) -> impl IntoElement {
-    number_input_of(label, unit, range, value, on_change).w(px(number_width(unit)))
+    let width = number_width(unit.as_deref());
+    number_input_of(label, unit, range, value, on_change).w(px(width))
 }
 
 /// A [`number_field`] for a grid of fields: it takes the width of its cell (never less than what its
 /// digits and unit need) instead of a fixed one, so that it grows with the form.
 pub fn number_field_fluid(
     label: impl Into<SharedString>,
-    unit: Option<&'static str>,
+    unit: Option<SharedString>,
     range: NumberRange,
     value: impl Fn() -> Option<f64> + 'static,
     on_change: impl Fn(Option<f64>) + 'static,
 ) -> impl IntoElement {
-    number_input_of(label, unit, range, value, on_change).w_full().min_w(px(number_width(unit)))
+    let width = number_width(unit.as_deref());
+    number_input_of(label, unit, range, value, on_change).w_full().min_w(px(width))
 }
 
 /// The input of a number field, without a width.
 fn number_input_of(
     label: impl Into<SharedString>,
-    unit: Option<&'static str>,
+    unit: Option<SharedString>,
     range: NumberRange,
     value: impl Fn() -> Option<f64> + 'static,
     on_change: impl Fn(Option<f64>) + 'static,
@@ -135,7 +137,12 @@ fn number_input_of(
 }
 
 /// A row of a settings list: the name and an optional hint at the left, the control at the right.
-pub fn setting_row(label: &'static str, hint: Option<&'static str>, control: impl IntoElement) -> impl IntoElement {
+pub fn setting_row(
+    label: impl Into<SharedString>,
+    hint: Option<impl Into<SharedString>>,
+    control: impl IntoElement,
+) -> impl IntoElement {
+    let hint: Option<SharedString> = hint.map(Into::into);
     view()
         .flex_row()
         .items_center()
@@ -149,7 +156,7 @@ pub fn setting_row(label: &'static str, hint: Option<&'static str>, control: imp
                 .flex_1()
                 .min_w(px(0.0))
                 .gap_1()
-                .child(text(label).text_sm().font_weight(FontWeight::MEDIUM))
+                .child(text(label.into()).text_sm().font_weight(FontWeight::MEDIUM))
                 .when_some(hint, |v, hint| v.child(text(hint).text_xs().text_color(move || theme().muted_foreground))),
         )
         .child(control)
@@ -157,25 +164,26 @@ pub fn setting_row(label: &'static str, hint: Option<&'static str>, control: imp
 
 /// A setting that is on or off, taking effect at once.
 pub fn switch_row(
-    label: &'static str,
-    hint: Option<&'static str>,
+    label: impl Into<SharedString>,
+    hint: Option<impl Into<SharedString>>,
     checked: impl Fn() -> bool + 'static,
     on_change: impl Fn(bool) + 'static,
 ) -> impl IntoElement {
-    setting_row(label, hint, switch_control(label, checked, on_change))
+    let label: SharedString = label.into();
+    setting_row(label.clone(), hint, switch_control(label, checked, on_change))
 }
 
 /// The switch of a [`switch_row`] (or of a row that carries more than a switch, like a rule row): a
 /// track and a thumb that slides along it.
 pub fn switch_control(
-    label: &'static str,
+    label: impl Into<SharedString>,
     checked: impl Fn() -> bool + 'static,
     on_change: impl Fn(bool) + 'static,
 ) -> impl IntoElement {
     switch()
         .checked(checked)
         .on_change(move |next: &bool| on_change(*next))
-        .accessibility_label(label)
+        .accessibility_label(label.into())
         .hit_slop(EdgeInsets::all(px(6.0)))
         .cursor_pointer()
         .rounded_full()
@@ -200,33 +208,35 @@ pub fn switch_control(
 /// trader's items, `checked` the ids of those confirmed, and `on_toggle` hears `(id, on)`.
 /// Rows are made again only when the items change, never when the ticks do.
 pub fn checklist(
-    label: &'static str,
+    label: impl Into<SharedString>,
     items: impl Fn() -> Vec<ChecklistItem> + 'static,
     checked: impl Fn() -> Vec<i64> + Copy + 'static,
     on_toggle: impl Fn(i64, bool) + Copy + 'static,
 ) -> impl IntoElement {
     // The items often come from a `Reading`, which announces itself at every read of the database:
     // the rows follow the items, not the announcements.
+    let label: SharedString = label.into();
     let items = computed(items);
     view().gap_2().child(dynamic(move || {
         let items = items.get();
+        let label = label.clone();
         untracked(|| {
             if items.is_empty() {
-                return text("Chưa có mục nào trong checklist.")
+                return text(t!("ui.forms.checklist_empty"))
                     .text_sm()
                     .text_color(move || theme().muted_foreground)
                     .into_element();
             }
             view()
                 .gap_2()
-                .children(items.into_iter().map(|item| checklist_row(label, item, checked, on_toggle)))
+                .children(items.into_iter().map(|item| checklist_row(&label, item, checked, on_toggle)))
                 .into_element()
         })
     }))
 }
 
 fn checklist_row(
-    group: &'static str,
+    group: &SharedString,
     item: ChecklistItem,
     checked: impl Fn() -> Vec<i64> + Copy + 'static,
     on_toggle: impl Fn(i64, bool) + Copy + 'static,
@@ -310,10 +320,11 @@ const NEAR_LIMIT: f64 = 0.8;
 /// (`used / limit`; may pass 1). The bar and the summary turn amber near the limit and red
 /// at it, and the state is also in the progress bar's accessible value.
 pub fn progress_rule(
-    label: &'static str,
+    label: impl Into<SharedString>,
     summary: impl Fn() -> String + 'static,
     ratio: impl Fn() -> f64 + Copy + 'static,
 ) -> impl IntoElement {
+    let label: SharedString = label.into();
     let level = move || RuleLevel::of(ratio());
     view()
         .gap_2()
@@ -323,7 +334,7 @@ pub fn progress_rule(
                 .items_center()
                 .justify_between()
                 .gap_3()
-                .child(text(label).text_sm().font_weight(FontWeight::MEDIUM))
+                .child(text(label.clone()).text_sm().font_weight(FontWeight::MEDIUM))
                 .child(text(summary).text_xs().font_family(mono).tabular_nums().number_of_lines(1).text_color(
                     move || match level() {
                         RuleLevel::Within => theme().muted_foreground,
@@ -383,6 +394,7 @@ mod tests {
     #[component]
     fn Harness() -> impl IntoElement {
         super::super::theme::install();
+        crate::i18n::install();
         let ticked = signal(vec![2_i64]);
         let amount = signal(Some(1.5_f64));
         let on = signal(false);
@@ -409,7 +421,7 @@ mod tests {
             .child(text(move || format!("ticked {:?}", ticked.get())))
             .child(number_field(
                 "Risk",
-                Some("%"),
+                Some("%".into()),
                 NumberRange::between(0.0, 10.0).stepping(0.5),
                 move || amount.get(),
                 move |v| {

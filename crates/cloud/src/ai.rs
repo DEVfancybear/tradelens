@@ -71,44 +71,53 @@ pub struct WeeklyDigest {
 /// The longest note sent, in characters.
 const NOTE_LIMIT: usize = 400;
 
-/// The request text for `digest`, in Vietnamese, within what `disclosure` allows.
+/// The request text for `digest`, in the language of the process (the review comes back in it),
+/// within what `disclosure` allows.
 pub fn prompt(digest: &WeeklyDigest, disclosure: Disclosure) -> String {
     let mut p = String::new();
+    let _ = writeln!(p, "{}", crate::tr!("cloud.ai.prompt.intro", week = digest.week));
     let _ = writeln!(
         p,
-        "Bạn là người kèm cặp kỷ luật giao dịch. Dựa trên nhật ký tuần {} dưới đây, hãy:\n\
-         1. Chỉ ra tối đa 3 khuôn mẫu lặp lại (lỗi, cảm xúc, thời điểm, setup).\n\
-         2. Nêu setup nào đang hiệu quả, setup nào nên tạm dừng, kèm số liệu.\n\
-         3. Đề xuất 3 việc cụ thể cho tuần sau.\n\
-         Không đưa ra khuyến nghị mua bán hay dự báo giá. Trả lời bằng tiếng Việt, ngắn gọn.\n",
-        digest.week
-    );
-    let _ = writeln!(
-        p,
-        "Tổng quan: {} lệnh, win rate {:.0}%, tổng {:+.2}R, kỳ vọng {:+.2}R/lệnh, {} vi phạm quy tắc, \
-         {} lệnh bỏ lỡ ({:+.1}R).",
-        digest.trades,
-        digest.win_rate * 100.0,
-        digest.total_r,
-        digest.expectancy_r,
-        digest.violations,
-        digest.missed,
-        digest.missed_r
+        "{}",
+        crate::tr!(
+            "cloud.ai.prompt.overview",
+            trades = digest.trades,
+            win_rate = format!("{:.0}", digest.win_rate * 100.0),
+            total_r = format!("{:+.2}", digest.total_r),
+            expectancy = format!("{:+.2}", digest.expectancy_r),
+            violations = digest.violations,
+            missed = digest.missed,
+            missed_r = format!("{:+.1}", digest.missed_r)
+        )
     );
     if !digest.setups.is_empty() {
-        let _ = writeln!(p, "\nTheo setup:");
+        let _ = writeln!(p, "{}", crate::tr!("cloud.ai.prompt.by_setup"));
         for (name, trades, win, r) in &digest.setups {
-            let _ = writeln!(p, "- {name}: {trades} lệnh, win {:.0}%, {r:+.2}R", win * 100.0);
+            let _ = writeln!(
+                p,
+                "{}",
+                crate::tr!(
+                    "cloud.ai.prompt.setup_line",
+                    name = name,
+                    trades = trades,
+                    win = format!("{:.0}", win * 100.0),
+                    r = format!("{r:+.2}")
+                )
+            );
         }
     }
     if !digest.mistakes.is_empty() {
-        let _ = writeln!(p, "\nLỗi:");
+        let _ = writeln!(p, "{}", crate::tr!("cloud.ai.prompt.mistakes"));
         for (name, times, r) in &digest.mistakes {
-            let _ = writeln!(p, "- {name}: {times} lần, {r:+.2}R");
+            let _ = writeln!(
+                p,
+                "{}",
+                crate::tr!("cloud.ai.prompt.mistake_line", name = name, times = times, r = format!("{r:+.2}"))
+            );
         }
     }
     if disclosure == Disclosure::WithNotes && !digest.notes.is_empty() {
-        let _ = writeln!(p, "\nGhi chú của trader:");
+        let _ = writeln!(p, "{}", crate::tr!("cloud.ai.prompt.notes"));
         for note in &digest.notes {
             let trimmed: String = note.chars().take(NOTE_LIMIT).collect();
             let _ = writeln!(p, "- {}", trimmed.replace('\n', " "));
@@ -125,7 +134,7 @@ pub fn prompt(digest: &WeeklyDigest, disclosure: Disclosure) -> String {
 /// [`crate::CloudError::NotImplemented`] until v0.3.
 pub fn review_week(settings: &AiSettings, _digest: &WeeklyDigest) -> crate::Result<String> {
     if !settings.enabled {
-        return Err(crate::CloudError::Auth("AI review đang tắt".to_owned()));
+        return Err(crate::CloudError::Auth(crate::tr!("cloud.ai.off")));
     }
     Err(crate::CloudError::NotImplemented("AI review"))
 }

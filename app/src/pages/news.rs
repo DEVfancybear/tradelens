@@ -7,9 +7,10 @@ use std::{collections::BTreeMap, time::Duration};
 use chrono::{DateTime, Datelike, Local, NaiveDate, TimeZone, Utc};
 use nsh_base::theme;
 use nsh_core::prelude::*;
-use tradelens_core::{db::NewsFetch, news::NewsEvent, time::weekday_vi};
+use tradelens_core::{db::NewsFetch, news::NewsEvent};
 
 use crate::{
+    format::weekday_name,
     news::news,
     store::query_with,
     ui::{
@@ -42,24 +43,20 @@ pub(crate) fn news_page() -> impl IntoElement {
     );
 
     let reload = action_when(
-        move || if fetcher.busy() { "Đang tải…" } else { "Tải lại" },
+        move || if fetcher.busy() { t!("news.reloading") } else { t!("news.reload") },
         Variant::Secondary,
         move || !fetcher.busy(),
         move || fetcher.refresh(),
     );
     page_with(
-        "Tin quan trọng",
-        "Tin đỏ trong lịch tuần của Forex Factory · giờ theo máy này",
+        t!("news.title"),
+        t!("news.summary"),
         reload,
         view()
             .gap_6()
             .child(dynamic(move || {
                 let fetch = shown.value().map_or_default(|s| s.fetch.clone());
-                let never = if fetcher.busy() {
-                    "Đang tải lịch tin lần đầu…"
-                } else {
-                    "Chưa tải lịch tin lần nào."
-                };
+                let never = if fetcher.busy() { t!("news.never.loading") } else { t!("news.never.none") };
                 status_line(&fetch, now.get(), never)
             }))
             .child(dynamic(move || shown.error().map(error_line)))
@@ -70,10 +67,8 @@ pub(crate) fn news_page() -> impl IntoElement {
                 Some(match read.events.iter().find(|e| e.at_ms > at) {
                     Some(next) => next_card(next, at).into_element(),
                     None => card(
-                        "Sắp tới",
-                        text("Tuần này không còn tin đỏ nào. Lịch tuần sau có từ Chủ nhật.")
-                            .text_sm()
-                            .text_color(move || theme().muted_foreground),
+                        t!("news.next.title"),
+                        text(t!("news.next.none")).text_sm().text_color(move || theme().muted_foreground),
                     )
                     .into_element(),
                 })
@@ -82,12 +77,12 @@ pub(crate) fn news_page() -> impl IntoElement {
                 let (start_ms, end_ms) = week.get();
                 let read = shown.value();
                 let body = match read.as_deref() {
-                    None => empty_state("Đang đọc lịch tin…", "").into_element(),
+                    None => empty_state(t!("news.reading"), "").into_element(),
                     Some(Shown { events, fetch }) if events.is_empty() => {
                         let (title, hint) = if fetch.fetched_ms.is_some() {
-                            ("Tuần này không có tin đỏ", "Lịch được tải lại mỗi 30 phút.")
+                            (t!("news.empty.title"), t!("news.empty.hint"))
                         } else {
-                            ("Chưa có lịch tin", "Bấm Tải lại khi máy đã có mạng.")
+                            (t!("news.unloaded.title"), t!("news.unloaded.hint"))
                         };
                         empty_state(title, hint).into_element()
                     }
@@ -100,15 +95,16 @@ pub(crate) fn news_page() -> impl IntoElement {
 
 /// The line under the header: when the shown feed was fetched, why the last fetch failed, or
 /// `never` before the first fetch.
-fn status_line(fetch: &NewsFetch, now_ms: i64, never: &'static str) -> AnyElement {
+fn status_line(fetch: &NewsFetch, now_ms: i64, never: String) -> AnyElement {
     match (&fetch.failure, fetch.fetched_ms) {
         (Some((failed_ms, why)), fetched) => {
-            let shown = fetched.map_or_else(
-                || " Chưa có bản nào trên máy.".to_owned(),
-                |at| format!(" Đang hiện bản tải {}.", when(at, now_ms)),
-            );
-            warning_banner(format!("Không tải được lịch tin {} ({why}).{shown}", when(*failed_ms, now_ms)))
-                .into_element()
+            let failed = when(*failed_ms, now_ms);
+            let why = crate::news::failure_text(why);
+            warning_banner(match fetched {
+                Some(at) => t!("news.failed.with_copy", failed = failed, why = why, fetched = when(at, now_ms)),
+                None => t!("news.failed.without_copy", failed = failed, why = why),
+            })
+            .into_element()
         }
         (None, Some(at)) => view()
             .flex_row()
@@ -116,7 +112,9 @@ fn status_line(fetch: &NewsFetch, now_ms: i64, never: &'static str) -> AnyElemen
             .gap_2()
             .child(view().size(px(8.0)).rounded(px(4.0)).bg(profit))
             .child(
-                text(format!("Cập nhật {}", when(at, now_ms))).text_xs().text_color(move || theme().muted_foreground),
+                text(t!("news.updated", when = when(at, now_ms)))
+                    .text_xs()
+                    .text_color(move || theme().muted_foreground),
             )
             .into_element(),
         (None, None) => text(never).text_xs().text_color(move || theme().muted_foreground).into_element(),
@@ -129,7 +127,7 @@ fn next_card(event: &NewsEvent, now_ms: i64) -> impl IntoElement + use<> {
     let today = local(now_ms).date_naive();
     let left = countdown(event.at_ms - now_ms);
     card(
-        "Sắp tới",
+        t!("news.next.title"),
         view()
             .flex_row()
             .flex_wrap()
@@ -193,8 +191,8 @@ fn event_row(event: &NewsEvent, now_ms: i64) -> impl IntoElement + use<> {
         .child(impact_mark())
         .child(view().w(px(48.0)).child(chip(event.currency.clone(), Tone::Neutral)))
         .child(text(event.title.clone()).text_sm().flex_1().min_w(px(0.0)).number_of_lines(1))
-        .child(figure_cell("Dự báo", event.forecast.clone()))
-        .child(figure_cell("Trước", event.previous.clone()))
+        .child(figure_cell(t!("news.forecast"), event.forecast.clone()))
+        .child(figure_cell(t!("news.previous"), event.previous.clone()))
 }
 
 /// Forex Factory's red folder: a short bar in the colour of loss.
@@ -203,7 +201,7 @@ fn impact_mark() -> impl IntoElement {
 }
 
 /// A labelled figure at the row's right; a dash when there is none.
-fn figure_cell(label: &'static str, value: Option<String>) -> impl IntoElement {
+fn figure_cell(label: String, value: Option<String>) -> impl IntoElement {
     let shown = value.unwrap_or_else(|| "—".to_owned());
     view()
         .flex_row()
@@ -236,51 +234,58 @@ fn local_week(now_ms: i64) -> (i64, i64) {
 fn week_title(start_ms: i64, end_ms: i64) -> String {
     let first = local(start_ms).date_naive();
     let last = local(end_ms - 1).date_naive();
-    format!("Tuần này · {} – {}", first.format("%d/%m"), last.format("%d/%m"))
+    t!("news.week_title", first = first.format("%d/%m"), last = last.format("%d/%m"))
 }
 
 /// A day's heading: `Hôm nay · Thứ 4, 25/11`, or without "Hôm nay".
 fn day_label(day: NaiveDate, today: NaiveDate) -> String {
-    let name = format!("{}, {}", weekday_vi(day.weekday()), day.format("%d/%m"));
-    if day == today { format!("Hôm nay · {name}") } else { name }
+    let name = format!("{}, {}", weekday_name(day.weekday()), day.format("%d/%m"));
+    if day == today { t!("news.today", day = name) } else { name }
 }
 
 /// When something happened, from `now_ms`: `lúc 14:02 hôm nay` or `lúc 14:02 ngày 24/11`.
 fn when(at_ms: i64, now_ms: i64) -> String {
     let at = local(at_ms);
     if at.date_naive() == local(now_ms).date_naive() {
-        format!("lúc {} hôm nay", at.format("%H:%M"))
+        t!("news.when.today", time = at.format("%H:%M"))
     } else {
-        format!("lúc {} ngày {}", at.format("%H:%M"), at.format("%d/%m"))
+        t!("news.when.date", time = at.format("%H:%M"), date = at.format("%d/%m"))
     }
 }
 
-/// What is left until a news: `còn 2 ngày 3 giờ`, `còn 1 giờ 12 phút`, `còn 5 phút`.
+/// What is left until a news: `còn 2 ngày 3 giờ`, `còn 1 giờ 12 phút`, `còn 5 phút` (`in 2d 3h`, `in 1h 12m`, `in 5 min`).
 fn countdown(left_ms: i64) -> String {
     let minutes = (left_ms.max(0) + 59_999) / 60_000;
     let (days, hours, mins) = (minutes / 1_440, minutes / 60 % 24, minutes % 60);
     match (days, hours) {
-        (0, 0) => format!("còn {mins} phút"),
-        (0, _) if mins == 0 => format!("còn {hours} giờ"),
-        (0, _) => format!("còn {hours} giờ {mins} phút"),
-        (_, 0) => format!("còn {days} ngày"),
-        _ => format!("còn {days} ngày {hours} giờ"),
+        (0, 0) => t!("news.left.minutes", mins = mins),
+        (0, _) if mins == 0 => t!("news.left.hours", hours = hours),
+        (0, _) => t!("news.left.hours_minutes", hours = hours, mins = mins),
+        (_, 0) => t!("news.left.days", days = days),
+        _ => t!("news.left.days_hours", days = days, hours = hours),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::{Lang, with_text};
 
     #[test]
     fn the_countdown_reads_in_days_hours_and_minutes() {
         let minute = 60_000;
-        assert_eq!(countdown(30_000), "còn 1 phút", "a part of a minute counts as one");
-        assert_eq!(countdown(5 * minute), "còn 5 phút");
-        assert_eq!(countdown(60 * minute), "còn 1 giờ");
-        assert_eq!(countdown(72 * minute), "còn 1 giờ 12 phút");
-        assert_eq!(countdown((2 * 24 + 3) * 60 * minute), "còn 2 ngày 3 giờ");
-        assert_eq!(countdown(24 * 60 * minute), "còn 1 ngày");
+        let read = |lang| {
+            with_text(lang, move || {
+                [30_000, 5 * minute, 60 * minute, 72 * minute, (2 * 24 + 3) * 60 * minute, 24 * 60 * minute]
+                    .map(countdown)
+            })
+        };
+        let vi = read(Lang::Vi);
+        assert_eq!(vi[0], "còn 1 phút", "a part of a minute counts as one");
+        assert_eq!(vi[1..], ["còn 5 phút", "còn 1 giờ", "còn 1 giờ 12 phút", "còn 2 ngày 3 giờ", "còn 1 ngày"]);
+        let en = read(Lang::En);
+        assert_eq!(en[0], "in 1 min");
+        assert_eq!(en[1..], ["in 5 min", "in 1h", "in 1h 12m", "in 2d 3h", "in 1d"]);
     }
 
     #[test]
@@ -289,13 +294,26 @@ mod tests {
         let (start, end) = local_week(thursday.timestamp_millis());
         assert_eq!(local(start).naive_local().to_string(), "2026-11-23 00:00:00");
         assert_eq!(local(end).naive_local().to_string(), "2026-11-30 00:00:00");
-        assert_eq!(week_title(start, end), "Tuần này · 23/11 – 29/11");
+        assert_eq!(with_text(Lang::Vi, move || week_title(start, end)), "Tuần này · 23/11 – 29/11");
+        assert_eq!(with_text(Lang::En, move || week_title(start, end)), "This week · 23/11 – 29/11");
     }
 
     #[test]
     fn today_is_named_in_the_day_heading() {
         let day = NaiveDate::from_ymd_opt(2026, 11, 25).expect("a date");
-        assert_eq!(day_label(day, day), "Hôm nay · Thứ 4, 25/11");
-        assert_eq!(day_label(day, day.succ_opt().expect("a date")), "Thứ 4, 25/11");
+        let tomorrow = day.succ_opt().expect("a date");
+        assert_eq!(with_text(Lang::Vi, move || day_label(day, day)), "Hôm nay · Thứ 4, 25/11");
+        assert_eq!(with_text(Lang::Vi, move || day_label(day, tomorrow)), "Thứ 4, 25/11");
+        assert_eq!(with_text(Lang::En, move || day_label(day, day)), "Today · Wednesday, 25/11");
+    }
+
+    #[test]
+    fn when_says_today_or_the_day() {
+        let at = Local.with_ymd_and_hms(2026, 11, 24, 14, 2, 0).single().expect("a local time").timestamp_millis();
+        let next_day = at + 86_400_000;
+        assert_eq!(with_text(Lang::Vi, move || when(at, at)), "lúc 14:02 hôm nay");
+        assert_eq!(with_text(Lang::En, move || when(at, at)), "at 14:02 today");
+        assert_eq!(with_text(Lang::Vi, move || when(at, next_day)), "lúc 14:02 ngày 24/11");
+        assert_eq!(with_text(Lang::En, move || when(at, next_day)), "at 14:02 on 24/11");
     }
 }

@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use chrono::Weekday;
 use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
@@ -14,7 +15,7 @@ use tradelens_core::{
 use super::account_picker::account_picker;
 use crate::{
     format::{self, Sign},
-    insight::{self, Analysis, HeatCell, WEEKDAYS},
+    insight::{self, Analysis, HeatCell},
     nav::{self, Route},
     snapshot::Range,
     store::{Store, store},
@@ -44,14 +45,14 @@ enum Tab {
 const TABS: [Tab; 6] = [Tab::Overview, Tab::Symbol, Tab::Time, Tab::Setup, Tab::Mistakes, Tab::Risk];
 
 impl Tab {
-    fn label(self) -> &'static str {
+    fn label(self) -> String {
         match self {
-            Self::Overview => "Tổng hợp",
-            Self::Symbol => "Symbol",
-            Self::Time => "Thời gian",
-            Self::Setup => "Setup & tag",
-            Self::Mistakes => "Lỗi & cảm xúc",
-            Self::Risk => "Rủi ro (R)",
+            Self::Overview => t!("analytics.tab.overview"),
+            Self::Symbol => t!("analytics.tab.symbol"),
+            Self::Time => t!("analytics.tab.time"),
+            Self::Setup => t!("analytics.tab.setup"),
+            Self::Mistakes => t!("analytics.tab.mistakes"),
+            Self::Risk => t!("analytics.tab.risk"),
         }
     }
 }
@@ -69,13 +70,13 @@ pub(crate) fn analytics() -> impl IntoElement {
     let analysis = cx.a;
 
     page_with(
-        "Phân tích",
+        t!("nav.analytics"),
         move || {
             let a = analysis.get();
-            format!("{} · {} lệnh đã đóng", range.get().describe(), a.trades)
+            t!("analytics.summary", range = range.get().describe(), trades = format::trade_count(a.trades))
         },
         view().flex_row().flex_wrap().items_center().gap_3().child(account_picker()).child(segmented(
-            "Khoảng thời gian",
+            t!("analytics.range"),
             &Range::ALL,
             Range::label,
             move || range.get(),
@@ -83,7 +84,7 @@ pub(crate) fn analytics() -> impl IntoElement {
         )),
         view()
             .gap_5()
-            .child(tab_bar("Phân tích", &TABS, Tab::label, move || tab.get(), move |next| tab.set(next)))
+            .child(tab_bar(t!("nav.analytics"), &TABS, Tab::label, move || tab.get(), move |next| tab.set(next)))
             .child(dynamic(move || {
                 let open = tab.get();
                 untracked(|| content(open, cx).into_element())
@@ -99,8 +100,20 @@ fn content(tab: Tab, cx: Cx) -> impl IntoElement {
         )
         .into_element(),
         Tab::Symbol => columns(
-            view().gap_6().child(picked_card("Theo symbol", "Symbol", cx, |a| &a.by_symbol, Pick::Symbol)),
-            view().gap_6().child(picked_card("Buy so với Sell", "Chiều", cx, |a| &a.by_side, Pick::Rows("Chiều"))),
+            view().gap_6().child(picked_card(
+                t!("analytics.by_symbol"),
+                t!("analytics.symbol"),
+                cx,
+                |a| &a.by_symbol,
+                Pick::Symbol,
+            )),
+            view().gap_6().child(picked_card(
+                t!("analytics.by_side"),
+                t!("analytics.side"),
+                cx,
+                |a| &a.by_side,
+                Pick::Rows("analytics.side"),
+            )),
         )
         .into_element(),
         Tab::Time => columns(
@@ -109,18 +122,30 @@ fn content(tab: Tab, cx: Cx) -> impl IntoElement {
         )
         .into_element(),
         Tab::Setup => columns(
-            view().gap_6().child(picked_card("Theo setup", "Setup", cx, |a| &a.by_setup, Pick::Setup)),
-            view().gap_6().child(picked_card("Theo tag", "Tag", cx, |a| &a.by_tag, Pick::Rows("Tag"))),
+            view().gap_6().child(picked_card(
+                t!("analytics.by_setup"),
+                t!("analytics.setup"),
+                cx,
+                |a| &a.by_setup,
+                Pick::Setup,
+            )),
+            view().gap_6().child(picked_card(
+                t!("analytics.by_tag"),
+                t!("analytics.tag"),
+                cx,
+                |a| &a.by_tag,
+                Pick::Rows("analytics.tag"),
+            )),
         )
         .into_element(),
         Tab::Mistakes => columns(
             view().gap_6().child(mistake_card(cx)),
             view().gap_6().child(picked_card(
-                "Theo cảm xúc trước lệnh",
-                "Cảm xúc",
+                t!("analytics.by_emotion"),
+                t!("analytics.emotion"),
                 cx,
                 |a| &a.by_emotion,
-                Pick::Rows("Cảm xúc"),
+                Pick::Rows("analytics.emotion"),
             )),
         )
         .into_element(),
@@ -158,10 +183,10 @@ impl Cx {
     }
 
     /// The title of the column of results.
-    fn result_title(self) -> &'static str {
+    fn result_title(self) -> String {
         match self.unit() {
-            Unit::Money => "Net",
-            Unit::R => "Tổng R",
+            Unit::Money => t!("analytics.result.money"),
+            Unit::R => t!("analytics.result.r"),
         }
     }
 }
@@ -189,8 +214,12 @@ fn rows_of(groups: &[Group], currency: &str, unit: Unit) -> Vec<BreakdownRow> {
 
 /// What to say under the hour and session figures about the trades they leave out.
 fn time_note(a: &Analysis) -> Option<String> {
-    (a.time_unknown > 0).then(|| format!("{} lệnh không có giờ vào, không tính ở đây", a.time_unknown))
+    (a.time_unknown > 0).then(|| t!("analytics.time_unknown", trades = format::trade_count(a.time_unknown)))
 }
+
+/// The weekdays of the heatmap's rows (`HeatCell::weekday` is the position), Monday first.
+const WEEKDAYS_OF_WEEK: [Weekday; 7] =
+    [Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun];
 
 /// What a pressed line of a breakdown opens in the trades list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -200,7 +229,7 @@ enum Pick {
     /// The list's own setup filter.
     Setup,
     /// Exactly the trades of the row (a tag, a side, a session, an hour, an emotion), named by
-    /// the column's title and the row: the list has no filter of its own for these.
+    /// the column's title (its key in `locales/`) and the row: the list has no filter of its own for these.
     Rows(&'static str),
 }
 
@@ -210,7 +239,7 @@ impl Pick {
         match self {
             Self::Symbol => Filter { symbol: Some(group.label.clone()), ..Filter::default() },
             Self::Setup => Filter { setup: Some(group.label.clone()), ..Filter::default() },
-            Self::Rows(kind) => focus_on(format!("{kind} {}", group.label), &group.keys),
+            Self::Rows(column) => focus_on(format!("{} {}", t!(column), group.label), &group.keys),
         }
     }
 }
@@ -228,22 +257,22 @@ fn open_trades(filter: Filter) {
 
 /// A [`table_card`] whose lines open the trades list on the trades under them.
 fn picked_card(
-    title: &'static str,
-    name_title: &'static str,
+    title: String,
+    name_title: String,
     cx: Cx,
     pick: fn(&Analysis) -> &Vec<Group>,
     kind: Pick,
 ) -> impl IntoElement {
-    card(title, picked_table(name_title, cx, pick, kind, "Chưa có lệnh nào trong khoảng này"))
+    card(title, picked_table(name_title, cx, pick, kind, t!("analytics.no_trades")))
 }
 
 /// The table of `pick`'s groups, each line opening its trades.
 fn picked_table(
-    name_title: &'static str,
+    name_title: String,
     cx: Cx,
     pick: fn(&Analysis) -> &Vec<Group>,
     kind: Pick,
-    empty: &'static str,
+    empty: String,
 ) -> impl IntoElement {
     breakdown_table(
         name_title,
@@ -266,7 +295,7 @@ fn heat_grid_of(cells: &[HeatCell], currency: &str, unit: Unit) -> HeatGrid {
     let weekend = cells.iter().any(|c| c.weekday >= 5);
     let days = if weekend { 7 } else { 5 };
     let column_labels = (first..=last).map(|h| h.to_string()).collect();
-    let row_labels = WEEKDAYS.iter().take(days).map(|d| (*d).to_owned()).collect();
+    let row_labels = WEEKDAYS_OF_WEEK.iter().take(days).map(|d| format::weekday_short(*d)).collect();
     let rows = (0..days)
         .map(|weekday| {
             (first..=last)
@@ -274,14 +303,15 @@ fn heat_grid_of(cells: &[HeatCell], currency: &str, unit: Unit) -> HeatGrid {
                     let cell = cells.iter().find(|c| usize::try_from(c.weekday) == Ok(weekday) && c.hour == hour)?;
                     Some(HeatValue {
                         value: cell.result(unit),
-                        description: format!(
-                            "{} {hour:02}:00: {} ({} lệnh)",
-                            WEEKDAYS[weekday],
-                            match unit {
+                        description: t!(
+                            "analytics.heat.cell",
+                            day = format::weekday_short(WEEKDAYS_OF_WEEK[weekday]),
+                            hour = format!("{hour:02}"),
+                            result = match unit {
                                 Unit::Money => format::money(cell.net, Sign::Always, currency),
                                 Unit::R => format::r_text(Some(cell.r)),
                             },
-                            cell.trades
+                            trades = format::trade_count(cell.trades)
                         ),
                     })
                 })
@@ -296,12 +326,14 @@ fn heat_card(cx: Cx) -> impl IntoElement {
         cx.a.with(|a| {
             let shown = |value: f64| cx.result(value, value);
             let mut line = match insight::hour_extremes(a) {
-                Some(((best, best_result), (worst, worst_result))) => format!(
-                    "Đậm hơn = lãi/lỗ lớn hơn · Tốt nhất: {best:02}:00 ({}) · Tệ nhất: {worst:02}:00 ({})",
-                    shown(best_result),
-                    shown(worst_result)
+                Some(((best, best_result), (worst, worst_result))) => t!(
+                    "analytics.heat.hint_extremes",
+                    best = format!("{best:02}"),
+                    best_result = shown(best_result),
+                    worst = format!("{worst:02}"),
+                    worst_result = shown(worst_result)
                 ),
-                None => "Đậm hơn = lãi/lỗ lớn hơn".to_owned(),
+                None => t!("analytics.heat.hint"),
             };
             if let Some(note) = time_note(a) {
                 line.push_str(" · ");
@@ -311,22 +343,28 @@ fn heat_card(cx: Cx) -> impl IntoElement {
         })
     };
     let clock = move || match cx.store.snapshot().zone.display {
-        TimeDisplay::Local => "giờ của bạn",
-        TimeDisplay::Server => "giờ server",
+        TimeDisplay::Local => t!("analytics.heat.clock_local"),
+        TimeDisplay::Server => t!("analytics.heat.clock_server"),
     };
     card(
-        "Giờ vào lệnh × thứ",
+        t!("analytics.heat.title"),
         view()
             .gap_3()
             .child(
-                text(move || format!("Tính theo {}", clock())).text_xs().text_color(move || theme().muted_foreground),
+                text(move || t!("analytics.heat.basis", clock = clock()))
+                    .text_xs()
+                    .text_color(move || theme().muted_foreground),
             )
             .child(dynamic(move || {
                 // No trade has a time of day: a grid of one column of zeros would say nothing.
                 let none = cx.a.with(|a| a.heat.is_empty() && a.time_unknown > 0);
                 if none {
                     let skipped = cx.a.with(|a| a.time_unknown);
-                    empty_state("Dữ liệu không có giờ vào lệnh", format!("{skipped} lệnh chỉ có ngày")).into_element()
+                    empty_state(
+                        t!("analytics.no_entry_time"),
+                        t!("analytics.heat.day_only", trades = format::trade_count(skipped)),
+                    )
+                    .into_element()
                 } else {
                     heatmap(move || cx.a.with(|a| heat_grid_of(&a.heat, &cx.currency(), a.unit()))).into_element()
                 }
@@ -343,10 +381,16 @@ fn heat_card(cx: Cx) -> impl IntoElement {
 /// The table by hour of entry; trades dated by day only have no hour and are counted apart.
 fn hour_card(cx: Cx) -> impl IntoElement {
     card(
-        "Theo giờ vào lệnh",
+        t!("analytics.hour.title"),
         view()
             .gap_3()
-            .child(picked_table("Giờ", cx, |a| &a.by_hour, Pick::Rows("Giờ"), "Dữ liệu không có giờ vào lệnh"))
+            .child(picked_table(
+                t!("analytics.hour.name"),
+                cx,
+                |a| &a.by_hour,
+                Pick::Rows("analytics.hour.name"),
+                t!("analytics.no_entry_time"),
+            ))
             .child(
                 text(move || cx.a.with(|a| time_note(a)).unwrap_or_default())
                     .text_xs()
@@ -357,16 +401,16 @@ fn hour_card(cx: Cx) -> impl IntoElement {
 
 fn weekday_card(cx: Cx) -> impl IntoElement {
     card(
-        "Theo thứ trong tuần",
+        t!("analytics.weekday.title"),
         view().gap_3().child(crate::ui::charts::bar_chart(
             move || {
                 cx.a.with(|a| {
                     a.by_weekday
                         .iter()
-                        .map(|g| {
+                        .map(|(day, g)| {
                             BarItem::signed(
-                                g.label.clone(),
-                                format!("{:.0}% thắng", g.win_rate() * 100.0),
+                                format::weekday_short(*day),
+                                t!("analytics.weekday.won", pct = format!("{:.0}", g.win_rate() * 100.0)),
                                 cx.result(g.net, g.total_r),
                                 a.result_of(g),
                             )
@@ -374,7 +418,7 @@ fn weekday_card(cx: Cx) -> impl IntoElement {
                         .collect()
                 })
             },
-            "Kết quả theo thứ trong tuần",
+            t!("analytics.weekday.label"),
             150.0,
         )),
     )
@@ -382,10 +426,16 @@ fn weekday_card(cx: Cx) -> impl IntoElement {
 
 fn session_card(cx: Cx) -> impl IntoElement {
     card(
-        "Theo phiên",
+        t!("analytics.session.title"),
         view()
             .gap_3()
-            .child(picked_table("Phiên", cx, |a| &a.by_session, Pick::Rows("Phiên"), "Dữ liệu không có giờ vào lệnh"))
+            .child(picked_table(
+                t!("analytics.session.name"),
+                cx,
+                |a| &a.by_session,
+                Pick::Rows("analytics.session.name"),
+                t!("analytics.no_entry_time"),
+            ))
             .child(
                 text(move || cx.a.with(|a| time_note(a)).unwrap_or_default())
                     .text_xs()
@@ -414,15 +464,17 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
     let total = pnl_text(move || cx.a.with(|a| cx.result(a.mistakes.net, a.mistakes.total_r)));
     let summary = move || {
         cx.a.with(|a| match a.unit() {
-            Unit::Money => format!(
-                "= {} · {} lệnh có gắn lỗi trong {}",
-                format::r_text(Some(a.mistakes.total_r.abs())),
-                a.mistakes.trades,
-                range.get().describe().to_lowercase()
+            Unit::Money => t!(
+                "analytics.mistakes.summary_money",
+                r = format::r_text(Some(a.mistakes.total_r.abs())),
+                trades = format::trade_count(a.mistakes.trades),
+                range = range.get().describe().to_lowercase()
             ),
-            Unit::R => {
-                format!("{} lệnh có gắn lỗi trong {}", a.mistakes.trades, range.get().describe().to_lowercase())
-            }
+            Unit::R => t!(
+                "analytics.mistakes.summary_r",
+                trades = format::trade_count(a.mistakes.trades),
+                range = range.get().describe().to_lowercase()
+            ),
         })
     };
     let note = move || {
@@ -432,16 +484,12 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
             }
             let top = a.mistakes.costs.first().filter(|c| c.net < 0.0)?;
             (a.net > 0.0).then(|| {
-                format!(
-                    "Nếu bỏ được riêng lỗi {}, lợi nhuận tăng +{:.0}%. Tính trên P/L thực của lệnh có lỗi, không ước đoán.",
-                    top.label,
-                    -top.net / a.net * 100.0
-                )
+                t!("analytics.mistakes.note", mistake = top.label, pct = format!("{:.0}", -top.net / a.net * 100.0))
             })
         })
     };
     card(
-        "Chi phí của lỗi",
+        t!("analytics.mistakes.title"),
         view()
             .gap_3()
             .child(
@@ -458,7 +506,7 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
                             .child(view().child(total))
                             .child(text(summary).text_xs().pb_1().text_color(move || theme().muted_foreground)),
                     )
-                    .child(link("Xem lệnh", move || {
+                    .child(link(t!("analytics.mistakes.view"), move || {
                         // Every trade with a mistake, once.
                         let keys: Vec<TradeKey> = cx.a.with(|a| {
                             let mut all: Vec<TradeKey> = a.mistakes.costs.iter().flat_map(|c| c.keys.clone()).collect();
@@ -466,7 +514,7 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
                             all.dedup();
                             all
                         });
-                        open_trades(focus_on("Lệnh có gắn lỗi".to_owned(), &keys));
+                        open_trades(focus_on(t!("analytics.mistakes.focus"), &keys));
                     })),
             )
             .child(dynamic(move || {
@@ -474,11 +522,8 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
                 let costs = in_unit(costs, unit);
                 untracked(|| {
                     if costs.is_empty() {
-                        return empty_state(
-                            "Chưa có lệnh nào gắn lỗi",
-                            "Gắn lỗi vào nhật ký của lệnh để thấy mỗi lỗi tốn bao nhiêu.",
-                        )
-                        .into_element();
+                        return empty_state(t!("analytics.mistakes.empty"), t!("analytics.mistakes.empty_hint"))
+                            .into_element();
                     }
                     view()
                         .children(costs.iter().map(|c| {
@@ -486,7 +531,7 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
                                 Unit::Money => (cx.money(c.net, Sign::Always), format::r_text(Some(c.total_r))),
                                 Unit::R => (format::r_text(Some(c.total_r)), String::new()),
                             };
-                            let filter = focus_on(format!("Lỗi {}", c.label), &c.keys);
+                            let filter = focus_on(t!("analytics.mistakes.focus_one", mistake = c.label), &c.keys);
                             mistake_cost_bar_pickable(&c.label, c.trades, net, r, c.share_of_losses, move || {
                                 open_trades(filter.clone());
                             })
@@ -503,18 +548,18 @@ fn r_card(cx: Cx) -> impl IntoElement {
     let facts = move || {
         cx.a.with(|a| {
             if a.r_trades == 0 {
-                return "Chưa có lệnh nào đo được R: đặt SL hoặc ghi rủi ro dự định.".to_owned();
+                return t!("analytics.r.none");
             }
-            format!(
-                "Expectancy {} trên {} lệnh có SL · {} lệnh lỗ quá −2R",
-                format::r_average(a.avg_r),
-                a.r_trades,
-                a.beyond_two_r
+            t!(
+                "analytics.r.facts",
+                avg = format::r_average(a.avg_r),
+                measured = format::trade_count(a.r_trades),
+                beyond = format::trade_count(a.beyond_two_r)
             )
         })
     };
     card(
-        "Phân phối R",
+        t!("analytics.r.title"),
         view()
             .gap_3()
             .child(histogram(
@@ -527,7 +572,7 @@ fn r_card(cx: Cx) -> impl IntoElement {
                             .collect()
                     })
                 },
-                "Phân phối kết quả theo R",
+                t!("analytics.r.label"),
                 140.0,
             ))
             .child(text(facts).text_xs().text_color(move || theme().muted_foreground)),
@@ -544,7 +589,8 @@ mod tests {
 
     #[test]
     fn the_heat_grid_covers_the_working_week_and_the_usual_hours() {
-        let grid = heat_grid_of(&[cell(0, 8, 100.0)], "USD", Unit::Money);
+        let grid =
+            crate::i18n::with_text(crate::i18n::Lang::Vi, || heat_grid_of(&[cell(0, 8, 100.0)], "USD", Unit::Money));
         assert_eq!(grid.row_labels, ["T2", "T3", "T4", "T5", "T6"]);
         assert_eq!(grid.column_labels.first().map(String::as_str), Some("7"));
         assert_eq!(grid.column_labels.last().map(String::as_str), Some("23"));
@@ -554,7 +600,8 @@ mod tests {
 
     #[test]
     fn the_heat_grid_grows_for_weekends_and_odd_hours() {
-        let grid = heat_grid_of(&[cell(6, 3, -5.0)], "USD", Unit::Money);
+        let grid =
+            crate::i18n::with_text(crate::i18n::Lang::Vi, || heat_grid_of(&[cell(6, 3, -5.0)], "USD", Unit::Money));
         assert_eq!(grid.row_labels.len(), 7);
         assert_eq!(grid.column_labels.first().map(String::as_str), Some("3"));
         let sunday = &grid.cells[6];
@@ -563,7 +610,8 @@ mod tests {
 
     #[test]
     fn tabs_have_distinct_names() {
-        let names: Vec<&str> = TABS.iter().map(|t| t.label()).collect();
+        let names: Vec<String> =
+            crate::i18n::with_text(crate::i18n::Lang::Vi, || TABS.iter().map(|t| t.label()).collect());
         let mut sorted = names.clone();
         sorted.sort_unstable();
         sorted.dedup();

@@ -1,0 +1,5 @@
+_version: 2
+
+db.not_implemented:
+  vi: "chưa làm: %{what}"
+  en: "not implemented yet: %{what}"

@@ -136,7 +136,7 @@ pub(crate) async fn confirm(
     let answer = alert_dialog()
         .title(title)
         .description(description)
-        .cancel("cancel", "Huỷ")
+        .cancel("cancel", t!("common.cancel"))
         .destructive("confirm", confirm_label)
         .show()
         .await;
@@ -251,14 +251,15 @@ fn button_shell(variant: Variant, enabled: Enabled, on_press: impl Fn() + 'stati
 /// A row of the sidebar: an icon, a label, and the selection's fill and bar.
 pub(crate) fn sidebar_row(
     glyph: Icon,
-    label: &'static str,
+    label: impl Into<SharedString>,
     selected: impl Fn() -> bool + Copy + 'static,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
+    let label: SharedString = label.into();
     button()
         .cursor_pointer()
         .on_press(on_press)
-        .accessibility_label(label)
+        .accessibility_label(label.clone())
         .h(px(34.0))
         .px_3()
         .flex_row()
@@ -297,13 +298,14 @@ pub(crate) fn sidebar_row(
 
 /// A set of options of which exactly one is on (a period, Buy / Sell / both). `group` names
 /// the set for screen readers: each option reads "group: label".
-pub(crate) fn segmented<T: Copy + PartialEq + 'static>(
-    group: &'static str,
+pub(crate) fn segmented<T: Copy + PartialEq + 'static, L: Into<SharedString>>(
+    group: impl Into<SharedString>,
     options: &'static [T],
-    label: fn(T) -> &'static str,
+    label: impl Fn(T) -> L + Copy + 'static,
     value: impl Fn() -> T + Copy + 'static,
     on_change: impl Fn(T) + Copy + 'static,
 ) -> impl IntoElement {
+    let group: SharedString = group.into();
     toggle_group()
         .flex_row()
         .p_1()
@@ -318,7 +320,7 @@ pub(crate) fn segmented<T: Copy + PartialEq + 'static>(
                 .cursor_pointer()
                 .pressed(on)
                 .on_change(move |_: &bool| on_change(option))
-                .accessibility_label(format!("{group}: {}", label(option)))
+                .accessibility_label(format!("{group}: {}", label(option).into()))
                 .h(px(26.0))
                 .px_3()
                 .items_center()
@@ -328,7 +330,7 @@ pub(crate) fn segmented<T: Copy + PartialEq + 'static>(
                 .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
                 .style_when(on, |s| s.bg(move || theme().card))
                 .child(
-                    text(label(option))
+                    text(label(option).into())
                         .text_xs()
                         .font_weight(FontWeight::MEDIUM)
                         .style_when(on, |s| s.font_weight(FontWeight::SEMIBOLD))
@@ -360,7 +362,7 @@ enum Caption {
 /// A labelled drop-down: the label, the chosen title and a chevron open a list of `choices`.
 /// `value` is the stored value of the chosen one; a value no choice has shows as the first.
 pub(crate) fn select_field(
-    label: &'static str,
+    label: impl Into<SharedString>,
     choices: impl Fn() -> Vec<Choice> + 'static,
     value: impl Fn() -> SharedString + Copy + 'static,
     on_change: impl Fn(SharedString) + 'static,
@@ -442,7 +444,7 @@ fn drop_down(
 pub(crate) fn text_field(
     label: impl Into<SharedString>,
     glyph: Option<&'static str>,
-    placeholder: &'static str,
+    placeholder: impl Into<SharedString>,
     value: impl Fn() -> String + 'static,
     on_change: impl Fn(&str) + 'static,
 ) -> impl IntoElement {
@@ -453,7 +455,7 @@ pub(crate) fn text_field(
 /// (the first field of a form the trader just asked for).
 pub(crate) fn text_field_ref(
     label: impl Into<SharedString>,
-    placeholder: &'static str,
+    placeholder: impl Into<SharedString>,
     value: impl Fn() -> String + 'static,
     on_change: impl Fn(&str) + 'static,
     handle: &ElementRef,
@@ -467,7 +469,7 @@ pub(crate) fn text_field_ref(
 /// A one-line field for a password: what is typed shows as bullets and screen readers do not read it.
 pub(crate) fn secret_field(
     label: impl Into<SharedString>,
-    placeholder: &'static str,
+    placeholder: impl Into<SharedString>,
     value: impl Fn() -> String + 'static,
     on_change: impl Fn(&str) + 'static,
 ) -> impl IntoElement {
@@ -484,7 +486,7 @@ pub(crate) fn secret_field(
 /// never replaced, by a read that brings nothing new or by one that brings another text.
 pub(crate) fn commit_field(
     label: impl Into<SharedString>,
-    placeholder: &'static str,
+    placeholder: impl Into<SharedString>,
     value: impl Fn() -> String + 'static,
     on_commit: impl Fn(String) + 'static,
 ) -> impl IntoElement {
@@ -526,7 +528,7 @@ pub(crate) fn commit_field(
 /// value that is always empty would keep the text it added, and add it again when the field is left.)
 pub(crate) fn add_field(
     label: impl Into<SharedString>,
-    placeholder: &'static str,
+    placeholder: impl Into<SharedString>,
     on_add: impl Fn(String) + 'static,
 ) -> impl IntoElement {
     let draft = signal(String::new());
@@ -550,13 +552,17 @@ pub(crate) fn add_field(
 }
 
 /// The input of a text field, before its frame.
-fn text_input(label: SharedString, placeholder: &'static str, value: impl Fn() -> String + 'static) -> Input {
+fn text_input(
+    label: SharedString,
+    placeholder: impl Into<SharedString>,
+    value: impl Fn() -> String + 'static,
+) -> Input {
     input()
         .flex_1()
         .label(label)
         .text_sm()
         .text_color(move || theme().foreground)
-        .placeholder(placeholder)
+        .placeholder(placeholder.into().to_string())
         .placeholder_color(move || color(theme().muted_foreground))
         .caret_color(move || color(theme().primary))
         .value(value)
@@ -581,7 +587,7 @@ fn framed(glyph: Option<&'static str>, field: Input) -> impl IntoElement {
 /// A box for several lines of text, `lines` tall.
 pub(crate) fn textarea(
     label: impl Into<SharedString>,
-    placeholder: &'static str,
+    placeholder: impl Into<SharedString>,
     lines: u32,
     value: impl Fn() -> String + 'static,
     on_change: impl Fn(&str) + 'static,
@@ -602,7 +608,7 @@ pub(crate) fn textarea(
                 .label(label)
                 .text_sm()
                 .text_color(move || theme().foreground)
-                .placeholder(placeholder)
+                .placeholder(placeholder.into().to_string())
                 .placeholder_color(move || color(theme().muted_foreground))
                 .caret_color(move || color(theme().primary))
                 .value(value)
@@ -688,7 +694,7 @@ pub(crate) fn removable_tags(
                                 button()
                                     .cursor_pointer()
                                     .on_press(move || on_remove(&removed, &named))
-                                    .accessibility_label(format!("Xoá {group} {label}"))
+                                    .accessibility_label(t!("ui.controls.remove_tag", group = group, label = label))
                                     .size(px(20.0))
                                     .items_center()
                                     .justify_center()
@@ -762,7 +768,7 @@ pub(crate) fn rating_of(
         button()
             .cursor_pointer()
             .on_press(move || on_change(if value() == star { 0 } else { star }))
-            .accessibility_label(format!("{label}: {star} sao"))
+            .accessibility_label(t!("ui.controls.star", label = label, star = star))
             .size(px(28.0))
             .items_center()
             .justify_center()
@@ -788,6 +794,7 @@ mod tests {
     #[component]
     fn Harness() -> impl IntoElement {
         crate::ui::theme::install();
+        crate::i18n::install();
         let pressed = signal(Vec::<&'static str>::new());
         let note = move |what: &'static str| pressed.update(|all| all.push(what));
         let committed = signal(String::from("Tên cũ"));
@@ -997,6 +1004,7 @@ mod tests {
     #[component]
     fn ThemedHolder() -> impl IntoElement {
         crate::ui::theme::install();
+        crate::i18n::install();
         let shown = signal(0_u32);
         view()
             .child(dynamic(move || {
@@ -1025,6 +1033,7 @@ mod tests {
     #[component]
     fn ErrorHolder() -> impl IntoElement {
         crate::ui::theme::install();
+        crate::i18n::install();
         let failure = signal(Some(String::from("Không lưu được")));
         view()
             .child(dynamic(move || {

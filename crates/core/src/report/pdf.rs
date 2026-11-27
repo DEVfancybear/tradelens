@@ -108,7 +108,7 @@ fn tone(value: f64) -> Rgb {
 
 /// A column of a table: its title, its width and which side its text hugs.
 struct Column {
-    title: &'static str,
+    title: String,
     width: f32,
     right: bool,
 }
@@ -267,7 +267,7 @@ impl<'m> Layout<'m> {
                 }
             }
         };
-        let head: Vec<Cell> = columns.iter().map(|c| (c.title.to_owned(), MUTED)).collect();
+        let head: Vec<Cell> = columns.iter().map(|c| (c.title.clone(), MUTED)).collect();
         self.ensure(ROW * 2.0);
         let baseline = self.y + 13.0;
         draw(self, &head, FontFace::SemiBold, baseline);
@@ -291,9 +291,10 @@ impl<'m> Layout<'m> {
         self.rect((MARGIN, MARGIN, 20.0, 20.0), 5.0, Some(PRIMARY), None);
         self.text(MARGIN + 6.0, MARGIN + 14.5, 12.0, FontFace::Bold, PRIMARY_FOREGROUND, "T");
         self.text(MARGIN + 28.0, MARGIN + 15.0, 12.0, FontFace::SemiBold, INK, "TradeLens");
-        let title = format!("Báo cáo {}", Period::Month.title(report.month).to_lowercase());
+        let title = crate::tr!("core.report.pdf.title", month = month_label(report));
         self.text(MARGIN, MARGIN + 62.0, 26.0, FontFace::Bold, INK, &title);
-        let who = if report.account.is_empty() { "Tất cả tài khoản" } else { report.account.as_str() };
+        let who =
+            if report.account.is_empty() { crate::tr!("core.report.pdf.all_accounts") } else { report.account.clone() };
         let currency = if report.currency.is_empty() { String::new() } else { format!(" · {}", report.currency) };
         self.text(MARGIN, MARGIN + 82.0, 11.0, FontFace::Regular, MUTED, &format!("{who}{currency}"));
         self.y = MARGIN + 100.0;
@@ -309,15 +310,16 @@ impl<'m> Layout<'m> {
             Privacy::ShowMoney => (
                 money(s.net, &currency),
                 tone(s.net),
-                (s.r_trades > 0).then(|| format!("{} trên {} lệnh có R", r_text(s.total_r, 1), s.r_trades)),
+                (s.r_trades > 0)
+                    .then(|| crate::tr!("core.report.pdf.kpi.r_trades", r = r_text(s.total_r, 1), n = s.r_trades)),
             ),
             Privacy::OnlyR => (
                 if s.r_trades > 0 { r_text(s.total_r, 1) } else { "—".to_owned() },
                 tone(s.total_r),
-                s.avg_r.map(|r| format!("kỳ vọng {}/lệnh", r_text(r, 2))),
+                s.avg_r.map(|r| crate::tr!("core.report.pdf.kpi.expectancy", r = r_text(r, 2))),
             ),
             Privacy::NoFigures => {
-                (Outcome::of(s.net).label().to_owned(), tone(s.net), Some("đã ẩn số liệu".to_owned()))
+                (Outcome::of(s.net).label(), tone(s.net), Some(crate::tr!("core.report.pdf.kpi.hidden")))
             }
         };
         let drawdown = match (self.privacy, s.max_drawdown_pct) {
@@ -327,32 +329,37 @@ impl<'m> Layout<'m> {
             }
             (_, Some(pct)) => (format!("{:.1}%", pct * 100.0), None),
         };
-        let tiles: [(&str, String, Rgb, Option<String>); 6] = [
-            ("Kết quả", result.0, result.1, result.2),
+        let tiles: [(String, String, Rgb, Option<String>); 6] = [
+            (crate::tr!("core.report.pdf.kpi.result"), result.0, result.1, result.2),
             (
-                "Tỷ lệ thắng",
+                crate::tr!("core.report.pdf.kpi.win_rate"),
                 format!("{:.1}%", s.win_rate * 100.0),
                 INK,
-                Some(format!("{} thắng · {} thua · {} hòa", s.wins, s.losses, s.breakeven)),
+                Some(crate::tr!(
+                    "core.report.pdf.kpi.wins_losses",
+                    wins = s.wins,
+                    losses = s.losses,
+                    even = s.breakeven
+                )),
             ),
             (
-                "Profit factor",
+                "Profit factor".to_owned(),
                 s.profit_factor.map_or_else(|| "—".to_owned(), |p| format!("{p:.2}")),
                 INK,
-                s.payoff.map(|p| format!("thắng/thua trung bình {p:.2}")),
+                s.payoff.map(|p| crate::tr!("core.report.pdf.kpi.payoff", payoff = format!("{p:.2}"))),
             ),
-            ("Số lệnh", s.trades.to_string(), INK, Some(format!("{:.2} lot", s.volume))),
+            (crate::tr!("core.report.pdf.kpi.trades"), s.trades.to_string(), INK, Some(format!("{:.2} lot", s.volume))),
             (
-                "Drawdown tối đa",
+                crate::tr!("core.report.pdf.kpi.drawdown"),
                 drawdown.0,
                 if drawdown.1.is_some() || s.max_drawdown_pct.is_some() { LOSS } else { INK },
                 drawdown.1,
             ),
             (
-                "Ngày xanh",
+                crate::tr!("core.report.pdf.kpi.green_days"),
                 format!("{} / {}", s.green_days, s.trading_days),
                 INK,
-                Some(format!("chuỗi thắng {} · chuỗi thua {}", s.max_win_streak, s.max_loss_streak)),
+                Some(crate::tr!("core.report.pdf.kpi.streaks", wins = s.max_win_streak, losses = s.max_loss_streak)),
             ),
         ];
         let tile_width = (CONTENT_WIDTH - 2.0 * GAP) / 3.0;
@@ -360,7 +367,7 @@ impl<'m> Layout<'m> {
             let (col, row) = (count(i % 3), count(i / 3));
             let (x, y) = (MARGIN + col * (tile_width + GAP), self.y + row * (TILE_HEIGHT + GAP));
             self.rect((x, y, tile_width, TILE_HEIGHT), 6.0, Some(PANEL), Some(RULE));
-            self.text(x + 12.0, y + 18.0, 8.5, FontFace::Regular, MUTED, label);
+            self.text(x + 12.0, y + 18.0, 8.5, FontFace::Regular, MUTED, &label);
             let value = self.clipped(FontFace::MonoSemiBold, 17.0, tile_width - 24.0, &value);
             self.text(x + 12.0, y + 40.0, 17.0, FontFace::MonoSemiBold, color, &value);
             if let Some(sub) = sub {
@@ -374,14 +381,14 @@ impl<'m> Layout<'m> {
     /// The balance curve with its range, the cumulative R, or only the shape of the curve.
     fn curve(&mut self, report: &MonthlyReport) {
         const HEIGHT: f32 = 140.0;
-        let (title, values): (&str, Vec<f64>) = if self.privacy.shows_money() {
-            ("Đường balance", report.curve.iter().map(|p| p.balance).collect())
+        let (title, values): (String, Vec<f64>) = if self.privacy.shows_money() {
+            (crate::tr!("core.report.pdf.curve.balance"), report.curve.iter().map(|p| p.balance).collect())
         } else {
-            ("Đường R tích luỹ", report.r_curve.clone())
+            (crate::tr!("core.report.pdf.curve.r"), report.r_curve.clone())
         };
-        self.heading(title);
+        self.heading(&title);
         if values.len() < 2 {
-            self.note("Chưa đủ lệnh đóng trong tháng để vẽ đường.");
+            self.note(&crate::tr!("core.report.pdf.curve.too_few"));
             return;
         }
         self.ensure(HEIGHT + 10.0);
@@ -408,7 +415,14 @@ impl<'m> Layout<'m> {
         self.push(Op::Poly { points, color, width: 1.6 });
         match self.privacy {
             Privacy::NoFigures => {
-                self.text(x0 + 10.0, y0 + 20.0, 7.5, FontFace::Regular, MUTED, "chỉ hình dạng, đã ẩn số liệu");
+                self.text(
+                    x0 + 10.0,
+                    y0 + 20.0,
+                    7.5,
+                    FontFace::Regular,
+                    MUTED,
+                    &crate::tr!("core.report.pdf.curve.shape_only"),
+                );
             }
             privacy => {
                 let label = |v: f64, me: &Self| match privacy {
@@ -429,16 +443,27 @@ impl<'m> Layout<'m> {
     /// The month as a grid of days, tinted by the day's result, with money, R or nothing in it.
     fn calendar(&mut self, weeks: &[CalendarWeek]) {
         const CELL_HEIGHT: f32 = 36.0;
-        self.heading("Lịch tháng");
+        self.heading(&crate::tr!("core.report.pdf.calendar.title"));
         if weeks.is_empty() {
-            self.note("Chưa có dữ liệu ngày.");
+            self.note(&crate::tr!("core.report.pdf.calendar.empty"));
             return;
         }
         self.ensure(16.0 + count(weeks.len()) * CELL_HEIGHT);
         let cell = CONTENT_WIDTH / 7.0;
-        for (i, name) in ["T2", "T3", "T4", "T5", "T6", "T7", "CN"].into_iter().enumerate() {
+        for (i, key) in [
+            "core.report.pdf.weekday.mon",
+            "core.report.pdf.weekday.tue",
+            "core.report.pdf.weekday.wed",
+            "core.report.pdf.weekday.thu",
+            "core.report.pdf.weekday.fri",
+            "core.report.pdf.weekday.sat",
+            "core.report.pdf.weekday.sun",
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let middle = MARGIN + (count(i) + 0.5) * cell;
-            self.text_centre(middle, self.y + 9.0, 8.0, FontFace::SemiBold, MUTED, name);
+            self.text_centre(middle, self.y + 9.0, 8.0, FontFace::SemiBold, MUTED, &crate::tr!(key));
         }
         self.y += 14.0;
         let currency = self.currency.clone();
@@ -457,7 +482,7 @@ impl<'m> Layout<'m> {
                 let (text, color) = match self.privacy {
                     Privacy::ShowMoney => (money_whole(stat.net, &currency), tone(stat.net)),
                     Privacy::OnlyR if stat.r_trades > 0 => (r_text(stat.r, 1), tone(stat.r)),
-                    Privacy::OnlyR => (format!("{} lệnh", stat.trades), MUTED),
+                    Privacy::OnlyR => (crate::tr!("core.report.pdf.calendar.trades", n = stat.trades), MUTED),
                     Privacy::NoFigures => continue,
                 };
                 self.text_centre(x + cell / 2.0, y + 27.0, 8.0, FontFace::MonoSemiBold, color, &text);
@@ -468,24 +493,24 @@ impl<'m> Layout<'m> {
     }
 
     fn playbooks(&mut self, report: &MonthlyReport) {
-        self.heading("Theo playbook");
+        self.heading(&crate::tr!("core.report.pdf.playbooks.title"));
         if report.by_playbook.is_empty() {
-            self.note("Chưa có lệnh nào trong tháng.");
+            self.note(&crate::tr!("core.report.pdf.playbooks.empty"));
             return;
         }
         let privacy = self.privacy;
         let currency = self.currency.clone();
         let mut columns = vec![
-            Column { title: "Setup", width: 200.0, right: false },
-            Column { title: "Lệnh", width: 55.0, right: true },
-            Column { title: "Thắng", width: 60.0, right: true },
-            Column { title: "PF", width: 55.0, right: true },
+            Column { title: crate::tr!("core.report.pdf.col.setup"), width: 200.0, right: false },
+            Column { title: crate::tr!("core.report.pdf.col.trades"), width: 55.0, right: true },
+            Column { title: crate::tr!("core.report.pdf.col.wins"), width: 60.0, right: true },
+            Column { title: "PF".to_owned(), width: 55.0, right: true },
         ];
         if privacy.shows_r() {
-            columns.push(Column { title: "Tổng R", width: 70.0, right: true });
+            columns.push(Column { title: crate::tr!("core.report.pdf.col.total_r"), width: 70.0, right: true });
         }
         if privacy.shows_money() {
-            columns.push(Column { title: "Net", width: 75.0, right: true });
+            columns.push(Column { title: "Net".to_owned(), width: 75.0, right: true });
         }
         let used: f32 = columns.iter().map(|c| c.width).sum();
         columns[0].width += CONTENT_WIDTH - used;
@@ -512,21 +537,21 @@ impl<'m> Layout<'m> {
     }
 
     fn mistakes(&mut self, report: &MonthlyReport) {
-        self.heading("Lỗi tốn kém nhất");
+        self.heading(&crate::tr!("core.report.pdf.mistakes.title"));
         if report.mistakes.is_empty() {
-            self.note("Tháng này chưa gắn lỗi nào cho lệnh thua.");
+            self.note(&crate::tr!("core.report.pdf.mistakes.empty"));
             return;
         }
         let privacy = self.privacy;
         let currency = self.currency.clone();
         let mut columns = vec![
-            Column { title: "Lỗi", width: 200.0, right: false },
-            Column { title: "Số lệnh", width: 70.0, right: true },
+            Column { title: crate::tr!("core.report.pdf.col.mistake"), width: 200.0, right: false },
+            Column { title: crate::tr!("core.report.pdf.col.count"), width: 70.0, right: true },
         ];
         if privacy.shows_r() {
-            columns.push(Column { title: "Chi phí", width: 150.0, right: true });
+            columns.push(Column { title: crate::tr!("core.report.pdf.col.cost"), width: 150.0, right: true });
         }
-        columns.push(Column { title: "% tổng lỗ", width: 80.0, right: true });
+        columns.push(Column { title: crate::tr!("core.report.pdf.col.share"), width: 80.0, right: true });
         let used: f32 = columns.iter().map(|c| c.width).sum();
         columns[0].width += CONTENT_WIDTH - used;
         let rows: Vec<Vec<Cell>> = report
@@ -547,30 +572,30 @@ impl<'m> Layout<'m> {
     }
 
     fn missed(&mut self, report: &MonthlyReport) {
-        self.heading("Lệnh bỏ lỡ");
+        self.heading(&crate::tr!("core.report.pdf.missed.title"));
         let missed = &report.missed;
         if missed.count == 0 {
-            self.note("Tháng này không có lệnh bỏ lỡ nào được ghi.");
+            self.note(&crate::tr!("core.report.pdf.missed.empty"));
             return;
         }
         let summary = if self.privacy.shows_r() {
-            format!(
-                "{} lệnh bỏ lỡ · còn nằm lại trên bàn {} · tránh được {:.1}R lỗ",
-                missed.count,
-                r_text(missed.r_missed, 1),
-                missed.r_avoided
+            crate::tr!(
+                "core.report.pdf.missed.summary_r",
+                count = missed.count,
+                left = r_text(missed.r_missed, 1),
+                avoided = format!("{:.1}", missed.r_avoided)
             )
         } else {
-            format!("{} lệnh bỏ lỡ", missed.count)
+            crate::tr!("core.report.pdf.missed.summary", count = missed.count)
         };
         self.note(&summary);
         let privacy = self.privacy;
         let mut columns = vec![
-            Column { title: "Lý do", width: 200.0, right: false },
-            Column { title: "Số lệnh", width: 70.0, right: true },
+            Column { title: crate::tr!("core.report.pdf.col.reason"), width: 200.0, right: false },
+            Column { title: crate::tr!("core.report.pdf.col.count"), width: 70.0, right: true },
         ];
         if privacy.shows_r() {
-            columns.push(Column { title: "R nếu đã vào", width: 100.0, right: true });
+            columns.push(Column { title: crate::tr!("core.report.pdf.col.r_if_taken"), width: 100.0, right: true });
         }
         let used: f32 = columns.iter().map(|c| c.width).sum();
         columns[0].width += CONTENT_WIDTH - used;
@@ -589,19 +614,19 @@ impl<'m> Layout<'m> {
     }
 
     fn review(&mut self, report: &MonthlyReport) {
-        self.heading("Tổng kết tháng");
+        self.heading(&crate::tr!("core.report.pdf.review.title"));
         let Some(review) = &report.review else {
-            self.note("Chưa viết tổng kết cho tháng này.");
+            self.note(&crate::tr!("core.report.pdf.review.empty"));
             return;
         };
         if review.rating > 0 {
-            self.note(&format!("Điểm kỷ luật của tháng: {} / 5", review.rating));
+            self.note(&crate::tr!("core.report.pdf.review.rating", rating = review.rating));
         }
         for (prompt, answer) in &review.answers {
             self.ensure(LEADING * 3.0);
             self.paragraph(FontFace::SemiBold, BODY, INK, prompt);
             if answer.trim().is_empty() {
-                self.paragraph(FontFace::Regular, BODY, MUTED, "(chưa trả lời)");
+                self.paragraph(FontFace::Regular, BODY, MUTED, &crate::tr!("core.report.pdf.review.unanswered"));
             } else {
                 self.paragraph(FontFace::Regular, BODY, INK, answer.trim());
             }
@@ -612,9 +637,9 @@ impl<'m> Layout<'m> {
     /// The running header on every page after the first, and the page number on all.
     fn furniture(&mut self, report: &MonthlyReport) {
         let total = self.pages.len();
-        let header = format!("TradeLens · Báo cáo {}", Period::Month.title(report.month).to_lowercase());
+        let header = crate::tr!("core.report.pdf.running_header", month = month_label(report));
         for index in 0..total {
-            let label = format!("Trang {} / {total}", index + 1);
+            let label = crate::tr!("core.report.pdf.page", n = index + 1, total = total);
             let right = PAGE_WIDTH - MARGIN;
             let x = right - self.width(FontFace::Regular, 8.0, &label);
             let mut ops = Vec::new();
@@ -657,6 +682,11 @@ fn month_bounds(day: NaiveDate) -> (NaiveDate, NaiveDate) {
     Period::Month.bounds(day)
 }
 
+/// The report's month as `11/2026`, which the titles of the document put in a sentence.
+fn month_label(report: &MonthlyReport) -> String {
+    month_bounds(report.month).0.format("%m/%Y").to_string()
+}
+
 fn layout(report: &MonthlyReport, privacy: Privacy) -> Vec<Vec<Op>> {
     let metrics = Metrics::new();
     let mut layout = Layout::new(&metrics, privacy.for_unit(report.unit), &report.currency);
@@ -681,14 +711,15 @@ pub fn pdf_bytes(report: &MonthlyReport, privacy: Privacy) -> Result<Vec<u8>, Re
     let mut fonts: HashMap<FontFace, Font> = HashMap::new();
     for face in FontFace::ALL {
         let font = Font::new(Data::from(face.bytes()), 0)
-            .ok_or_else(|| ReportError::Render(format!("không nạp được font {face:?}")))?;
+            .ok_or_else(|| ReportError::Render(crate::tr!("core.report.pdf.font_load", face = format!("{face:?}"))))?;
         fonts.insert(face, font);
     }
     let mut document = Document::new();
-    let title = format!("Báo cáo {} — {}", Period::Month.title(report.month).to_lowercase(), report.account);
-    document.set_metadata(Metadata::new().title(title).creator("TradeLens".to_owned()).language("vi".to_owned()));
+    let title = crate::tr!("core.report.pdf.document_title", month = month_label(report), account = report.account);
+    let language = crate::i18n::current().key().to_owned();
+    document.set_metadata(Metadata::new().title(title).creator("TradeLens".to_owned()).language(language));
     let settings = PageSettings::from_wh(PAGE_WIDTH, PAGE_HEIGHT)
-        .ok_or_else(|| ReportError::Render("khổ giấy không hợp lệ".to_owned()))?;
+        .ok_or_else(|| ReportError::Render(crate::tr!("core.report.pdf.bad_page")))?;
     for ops in &pages {
         let mut page = document.start_page_with(settings.clone());
         let mut surface = page.surface();
@@ -772,7 +803,9 @@ fn polyline(points: &[(f32, f32)], base: Option<f32>) -> Option<krilla::geom::Pa
 fn draw(surface: &mut Surface<'_>, fonts: &HashMap<FontFace, Font>, op: &Op) -> Result<(), ReportError> {
     match op {
         Op::Text { x, y, size, face, color, text } => {
-            let font = fonts.get(face).cloned().ok_or_else(|| ReportError::Render(format!("thiếu font {face:?}")))?;
+            let font = fonts.get(face).cloned().ok_or_else(|| {
+                ReportError::Render(crate::tr!("core.report.pdf.font_missing", face = format!("{face:?}")))
+            })?;
             surface.set_stroke(None);
             surface.set_fill(Some(fill(*color, 1.0)));
             surface.draw_text(Point::from_xy(*x, *y), font, *size, text, false, TextDirection::Auto);

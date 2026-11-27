@@ -6,8 +6,9 @@ use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_cloud::{Provider, auth::Identity, sync::DeviceInfo, sync::SyncReport};
 
+use crate::i18n::plural;
 use crate::{
-    cloud::{self as app_cloud, AutoSync, Cloud, Outcome, Phase, State, Why},
+    cloud::{self as app_cloud, AutoSync, Cloud, Fault, Outcome, Phase, State, Why},
     ui::{
         chips::{Tone, chip},
         controls::{Variant, action, action_icon_when},
@@ -19,22 +20,19 @@ use crate::{
     },
 };
 
-/// Why "Sync ngay" is off while nobody is signed in.
-const SIGN_IN_TO_SYNC: &str = "Đăng nhập Google Drive hoặc OneDrive để đồng bộ";
-
-/// What a provider is called and how the card describes it.
-fn describe(provider: Provider) -> (&'static str, &'static str, &'static str) {
+/// What a provider is called and how the card describes it: its name, its subtitle and the sign-in button.
+fn describe(provider: Provider) -> (&'static str, String, String) {
     match provider {
-        Provider::Google => ("Google Drive", "Tài khoản Google · thư mục riêng của app", "Đăng nhập với Google"),
-        Provider::Microsoft => ("OneDrive", "Tài khoản Microsoft · thư mục riêng của app", "Đăng nhập với Microsoft"),
+        Provider::Google => ("Google Drive", t!("cloud.google.subtitle"), t!("cloud.google.sign_in")),
+        Provider::Microsoft => ("OneDrive", t!("cloud.microsoft.subtitle"), t!("cloud.microsoft.sign_in")),
     }
 }
 
 pub(crate) fn cloud() -> impl IntoElement {
     let cloud = app_cloud::cloud();
     crate::ui::parts::page(
-        "Đăng nhập & sync",
-        "Dùng TradeLens trên nhiều máy và không lo mất nhật ký",
+        t!("nav.cloud"),
+        t!("cloud.page.summary"),
         view()
             .gap_6()
             .child(dynamic(move || {
@@ -54,7 +52,7 @@ fn notice(cloud: Cloud) -> impl IntoElement {
     let state = cloud.state;
     dynamic(move || {
         let line = state.with(|s| s.notice.clone());
-        untracked(|| line.map(|line| warning_banner(line).into_element()))
+        untracked(|| line.map(|fault| warning_banner(fault.text()).into_element()))
     })
 }
 
@@ -84,7 +82,7 @@ fn provider_card(cloud: Cloud, provider: Provider) -> impl IntoElement {
                         .child(text(name).text_base().font_weight(FontWeight::SEMIBOLD))
                         .child(text(subtitle).text_xs().text_color(move || theme().muted_foreground)),
                 )
-                .child(dynamic(move || in_use().then(|| chip("Đang dùng", Tone::Primary)))),
+                .child(dynamic(move || in_use().then(|| chip(t!("cloud.in_use"), Tone::Primary)))),
         )
         .child(dynamic(move || {
             let (signed, phase, missing) = state.with(|s| {
@@ -100,7 +98,7 @@ fn provider_body(
     provider: Provider,
     signed: Option<Identity>,
     phase: Phase,
-    missing: Option<String>,
+    missing: Option<Fault>,
 ) -> impl IntoElement {
     let (name, _, sign_in_label) = describe(provider);
     if let Some(me) = signed {
@@ -117,22 +115,24 @@ fn provider_body(
                     .child(view().size(px(8.0)).rounded_full().bg(move || theme().primary))
                     .child(text(me.email).text_sm()),
             )
-            .child(view().flex_row().child(action("Đăng xuất", Variant::Ghost, sign_out)))
+            .child(view().flex_row().child(action(t!("cloud.sign_out"), Variant::Ghost, sign_out)))
             .into_element();
     }
     if phase == Phase::SigningIn(provider) {
         return view()
             .gap_3()
+            .child(text(t!("cloud.waiting")).text_sm().text_color(move || theme().muted_foreground))
             .child(
-                text("Đang chờ bạn đồng ý trong trình duyệt…").text_sm().text_color(move || theme().muted_foreground),
+                view()
+                    .flex_row()
+                    .child(action(t!("common.cancel"), Variant::Secondary, move || cloud.cancel_sign_in())),
             )
-            .child(view().flex_row().child(action("Huỷ", Variant::Secondary, move || cloud.cancel_sign_in())))
             .into_element();
     }
     view()
         .gap_3()
-        .child(text("Chưa đăng nhập").text_sm().text_color(move || theme().muted_foreground))
-        .children(missing.map(|why| text(why).text_xs().text_color(crate::ui::theme::warning)))
+        .child(text(t!("cloud.signed_out")).text_sm().text_color(move || theme().muted_foreground))
+        .children(missing.map(|why| text(why.text()).text_xs().text_color(crate::ui::theme::warning)))
         .child(view().flex_row().child(action_icon_when(
             Icon::Cloud,
             sign_in_label,
@@ -145,11 +145,11 @@ fn provider_body(
 
 // --- sync ---------------------------------------------------------------------------------------------------
 
-/// A moment as the screen says it: `14:02 hôm nay`, or `18/11 22:10` for another day.
+/// A moment as the screen says it: `14:02 hôm nay` (`14:02 today`), or `18/11 22:10` for another day.
 fn when(ms: i64) -> String {
     let Some(at) = DateTime::from_timestamp_millis(ms).map(|t| t.with_timezone(&Local)) else { return String::new() };
     if at.date_naive() == Local::now().date_naive() {
-        format!("{} hôm nay", at.format("%H:%M"))
+        t!("cloud.today", time = at.format("%H:%M"))
     } else {
         at.format("%d/%m %H:%M").to_string()
     }
@@ -157,42 +157,40 @@ fn when(ms: i64) -> String {
 
 /// What a sync did, in one line.
 fn counts(report: &SyncReport) -> String {
-    let mut parts = vec![format!("đẩy {} thay đổi, nhận {}", report.pushed, report.pulled)];
+    let mut parts = vec![t!("cloud.counts.moved", pushed = report.pushed, pulled = report.pulled)];
     if report.conflicts_resolved > 0 {
-        parts.push(format!("{} chỗ hai máy sửa khác nhau đã gộp theo lần sửa mới nhất", report.conflicts_resolved));
+        parts.push(plural!(report.conflicts_resolved, "cloud.counts.conflicts", n = report.conflicts_resolved));
     }
     if report.attachments_uploaded + report.attachments_downloaded > 0 {
-        parts.push(format!("ảnh: {} lên, {} xuống", report.attachments_uploaded, report.attachments_downloaded));
+        parts.push(t!("cloud.counts.pictures", up = report.attachments_uploaded, down = report.attachments_downloaded));
     }
     if report.attachments_failed > 0 {
-        parts.push(format!("{} ảnh chưa chuyển được, lần sync sau sẽ thử lại", report.attachments_failed));
+        parts.push(plural!(report.attachments_failed, "cloud.counts.pictures_failed", n = report.attachments_failed));
     }
     if report.snapshot_taken {
-        parts.push("đã chụp bản sao tuần".to_owned());
+        parts.push(t!("cloud.counts.snapshot"));
     }
     parts.join(" · ")
 }
 
 /// The headline and the detail line of the sync card for the state.
-fn headline(state: &State) -> (&'static str, String, bool) {
+fn headline(state: &State) -> (String, String, bool) {
     match (state.phase, &state.last) {
-        (Phase::Syncing, _) => {
-            ("Đang đồng bộ…", "Đẩy thay đổi của máy này và nhận thay đổi của máy khác".to_owned(), false)
-        }
-        (Phase::Restoring, _) => {
-            ("Đang khôi phục…", "Tải bản sao lưu gần nhất rồi nhận các thay đổi sau đó".to_owned(), false)
-        }
-        (_, Some(Outcome { at, result: Err(message), .. })) => {
-            ("Sync lỗi", format!("Lần thử {} · {message}", when(*at)), true)
-        }
+        (Phase::Syncing, _) => (t!("cloud.headline.syncing"), t!("cloud.headline.syncing_detail"), false),
+        (Phase::Restoring, _) => (t!("cloud.headline.restoring"), t!("cloud.headline.restoring_detail"), false),
+        (_, Some(Outcome { at, result: Err(fault), .. })) => (
+            t!("cloud.headline.failed"),
+            t!("cloud.headline.failed_detail", when = when(*at), message = fault.text()),
+            true,
+        ),
         (_, Some(Outcome { at, result: Ok(report), restored })) => (
-            if *restored { "Đã khôi phục" } else { "Đã đồng bộ" },
-            format!("Lần cuối {} · {}", when(*at), counts(report)),
+            if *restored { t!("cloud.headline.restored") } else { t!("cloud.headline.synced") },
+            t!("cloud.headline.last_counts", when = when(*at), counts = counts(report)),
             false,
         ),
         (_, None) => match state.last_sync {
-            Some(at) => ("Đã đồng bộ", format!("Lần cuối {}", when(at)), false),
-            None => ("Chưa đồng bộ", "Bấm Sync ngay sau khi đăng nhập".to_owned(), false),
+            Some(at) => (t!("cloud.headline.synced"), t!("cloud.headline.last", when = when(at)), false),
+            None => (t!("cloud.headline.never"), t!("cloud.headline.never_detail"), false),
         },
     }
 }
@@ -200,7 +198,7 @@ fn headline(state: &State) -> (&'static str, String, bool) {
 fn sync_card(cloud: Cloud) -> impl IntoElement {
     let state = cloud.state;
     card(
-        "Đồng bộ",
+        t!("cloud.sync.title"),
         view()
             .gap_3()
             .child(
@@ -226,7 +224,7 @@ fn sync_card(cloud: Cloud) -> impl IntoElement {
                     })))
                     .child(action_icon_when(
                         Icon::Refresh,
-                        "Sync ngay",
+                        t!("cloud.sync.now"),
                         Variant::Primary,
                         move || state.with(|s| s.ready && s.active().is_some() && !s.busy()),
                         move || cloud.sync(Why::Pressed),
@@ -235,16 +233,14 @@ fn sync_card(cloud: Cloud) -> impl IntoElement {
             .child(dynamic(move || {
                 // The button is off while nobody is signed in: say what turns it on.
                 let signed_out = state.with(|s| s.ready && s.active().is_none());
-                signed_out.then(|| text(SIGN_IN_TO_SYNC).text_sm().text_color(move || theme().muted_foreground))
+                signed_out.then(|| {
+                    text(t!("cloud.sync.sign_in_first")).text_sm().text_color(move || theme().muted_foreground)
+                })
             }))
-            .child(dynamic(move || {
-                state
-                    .with(|s| s.env.is_demo())
-                    .then(|| chip("Chế độ thử: ổ đĩa nằm trong bộ nhớ, không cần tài khoản", Tone::Neutral))
-            }))
+            .child(dynamic(move || state.with(|s| s.env.is_demo()).then(|| chip(t!("cloud.sync.demo"), Tone::Neutral))))
             .child(switch_row(
-                "Tự động sync",
-                Some("Mỗi 15 phút và khi đóng app; chỉ áp dụng cho máy này"),
+                t!("cloud.sync.auto"),
+                Some(t!("cloud.sync.auto_hint")),
                 move || state.with(|s| s.env.auto_sync()),
                 move |on| cloud.set_auto_sync(if on { AutoSync::On } else { AutoSync::Off }),
             )),
@@ -255,20 +251,13 @@ fn restore_card(cloud: Cloud) -> impl IntoElement {
     let state = cloud.state;
     let restore = move || cloud.confirm_restore();
     card(
-        "Khôi phục & sao lưu",
+        t!("cloud.restore.title"),
         view()
             .gap_3()
-            .child(
-                text(
-                    "Máy mới: đăng nhập cùng tài khoản rồi khôi phục từ bản chụp gần nhất của Drive (mỗi tuần một bản) \
-                     và các thay đổi sau đó.",
-                )
-                .text_sm()
-                .text_color(move || theme().muted_foreground),
-            )
+            .child(text(t!("cloud.restore.body")).text_sm().text_color(move || theme().muted_foreground))
             .child(view().flex_row().child(action_icon_when(
                 Icon::Upload,
-                "Khôi phục sang máy này",
+                t!("cloud.restore.button"),
                 Variant::Secondary,
                 move || state.with(|s| s.ready && s.active().is_some() && !s.busy()),
                 restore,
@@ -279,12 +268,12 @@ fn restore_card(cloud: Cloud) -> impl IntoElement {
 fn devices_card(cloud: Cloud) -> impl IntoElement {
     let state = cloud.state;
     card(
-        "Thiết bị dùng chung dữ liệu",
+        t!("cloud.devices.title"),
         dynamic(move || {
             let (devices, mine) = state.with(|s| (s.devices.clone(), s.device_id.clone()));
             untracked(|| {
                 if devices.is_empty() {
-                    return text("Danh sách hiện sau lần sync đầu tiên.")
+                    return text(t!("cloud.devices.empty"))
                         .text_sm()
                         .text_color(move || theme().muted_foreground)
                         .into_element();
@@ -310,21 +299,18 @@ fn device_row(device: &DeviceInfo, mine: &str) -> impl IntoElement + use<> {
                 .flex_1()
                 .min_w(px(0.0))
                 .child(text(device.name.clone()).text_sm().font_weight(FontWeight::MEDIUM))
-                .when(here, |v| v.child(text("thiết bị này").text_xs().text_color(move || theme().muted_foreground))),
+                .when(here, |v| {
+                    v.child(text(t!("cloud.devices.this_one")).text_xs().text_color(move || theme().muted_foreground))
+                }),
         )
         .child(text(when(device.last_sync)).text_xs().text_color(move || theme().muted_foreground))
 }
 
 fn access_card() -> impl IntoElement {
     card(
-        "Quyền truy cập",
+        t!("cloud.access.title"),
         view().gap_2().children(
-            [
-                "Chỉ thư mục ẩn của TradeLens trên Drive (appDataFolder / approot); app không thấy file khác của bạn.",
-                "Không có server TradeLens: dữ liệu đi thẳng từ máy bạn lên Drive.",
-                "Token đăng nhập nằm trong kho khoá của hệ điều hành (Windows Credential Manager, macOS Keychain), không nằm trong file dữ liệu.",
-            ]
-            .map(|line| {
+            [t!("cloud.access.folder"), t!("cloud.access.no_server"), t!("cloud.access.token")].map(|line| {
                 view()
                     .flex_row()
                     .gap_2()
@@ -342,12 +328,17 @@ mod tests {
     #[test]
     fn a_sync_is_summed_up_in_one_line() {
         let mut report = SyncReport { pushed: 12, pulled: 3, ..SyncReport::default() };
-        assert_eq!(counts(&report), "đẩy 12 thay đổi, nhận 3");
+        let said = |report: &SyncReport, lang| {
+            let report = *report;
+            crate::i18n::with_text(lang, move || counts(&report))
+        };
+        assert_eq!(said(&report, crate::i18n::Lang::Vi), "đẩy 12 thay đổi, nhận 3");
+        assert_eq!(said(&report, crate::i18n::Lang::En), "changes pushed: 12, received: 3");
         report.conflicts_resolved = 2;
         report.attachments_uploaded = 1;
         report.attachments_failed = 3;
         report.snapshot_taken = true;
-        let line = counts(&report);
+        let line = said(&report, crate::i18n::Lang::Vi);
         assert!(line.contains("2 chỗ hai máy sửa khác nhau") && line.contains("ảnh: 1 lên, 0 xuống"), "{line}");
         assert!(line.contains("3 ảnh chưa chuyển được"), "{line}");
         assert!(line.ends_with("đã chụp bản sao tuần"));
@@ -355,18 +346,20 @@ mod tests {
 
     #[test]
     fn the_headline_follows_the_phase_the_last_outcome_and_the_database() {
-        let idle = State::default();
-        assert_eq!(headline(&idle).0, "Chưa đồng bộ");
-        let known = State { last_sync: Some(0), ..State::default() };
-        assert_eq!(headline(&known).0, "Đã đồng bộ");
-        let failed = State {
-            last: Some(Outcome { at: 0, result: Err("lỗi mạng: x".into()), restored: false }),
-            ..State::default()
-        };
-        let (title, detail, bad) = headline(&failed);
-        assert_eq!((title, bad), ("Sync lỗi", true));
-        assert!(detail.contains("lỗi mạng: x"));
-        let busy = State { phase: Phase::Syncing, ..State::default() };
-        assert_eq!(headline(&busy).0, "Đang đồng bộ…");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let idle = State::default();
+            assert_eq!(headline(&idle).0, "Chưa đồng bộ");
+            let known = State { last_sync: Some(0), ..State::default() };
+            assert_eq!(headline(&known).0, "Đã đồng bộ");
+            let failed = State {
+                last: Some(Outcome { at: 0, result: Err(Fault::Words("lỗi mạng: x".into())), restored: false }),
+                ..State::default()
+            };
+            let (title, detail, bad) = headline(&failed);
+            assert_eq!((title.as_str(), bad), ("Sync lỗi", true));
+            assert!(detail.contains("lỗi mạng: x"));
+            let busy = State { phase: Phase::Syncing, ..State::default() };
+            assert_eq!(headline(&busy).0, "Đang đồng bộ…");
+        });
     }
 }
