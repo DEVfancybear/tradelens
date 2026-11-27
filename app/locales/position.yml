@@ -16,7 +16,7 @@ position.remove_title:
   en: "Remove the trade's stop levels?"
 position.remove_said:
   vi: "Ô để trống sẽ bỏ %{levels} của lệnh %{ticket} trên MT5."
-  en: "The empty box will remove the %{levels} of trade %{ticket} on MT5."
+  en: "Leaving it empty removes the %{levels} of trade %{ticket} on MT5."
 position.remove_confirm:
   vi: "Bỏ và lưu"
   en: "Remove and save"
@@ -34,10 +34,10 @@ position.volume:
   en: "Volume to close"
 position.close_all:
   vi: "Đóng toàn bộ %{lots} lot %{symbol} theo giá thị trường trên MT5."
-  en: "Close all %{lots} lot of %{symbol} at market price on MT5."
+  en: "Close all %{lots} lots of %{symbol} at market price on MT5."
 position.close_part:
   vi: "Đóng %{lots} trên %{total} lot %{symbol} theo giá thị trường trên MT5."
-  en: "Close %{lots} of %{total} lot of %{symbol} at market price on MT5."
+  en: "Close %{lots} of %{total} lots of %{symbol} at market price on MT5."
 position.closed:
   vi: "Đã đóng lệnh."
   en: "Trade closed."

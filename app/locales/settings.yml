@@ -37,7 +37,7 @@ settings.time:
   en: "Time & language"
 settings.clock:
   vi: "Giờ hiển thị"
-  en: "Clock shown"
+  en: "Show times in"
 settings.clock.hint:
   vi: "Lịch, nhật ký ngày và quy tắc theo ngày tính theo giờ này; giờ server là giờ MT5 báo"
   en: "The calendar, the daily journal and daily rules use this clock; server time is what MT5 reports"

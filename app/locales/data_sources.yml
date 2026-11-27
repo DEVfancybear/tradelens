@@ -9,7 +9,7 @@ data_sources.python.title:
   en: "Python script (MetaTrader5)"
 data_sources.python.body:
   vi: "Ghi lịch sử của terminal MT5 đang mở ra file JSON (chỉ Windows), rồi import file đó ở thẻ bên trái."
-  en: "Writes the history of the open MT5 terminal to a JSON file (Windows only), then import that file in the card on the left."
+  en: "Write the history of the open MT5 terminal to a JSON file (Windows only), then import that file in the card on the left."
 data_sources.accept.reports:
   vi: "Báo cáo MT5 hoặc JSON"
   en: "MT5 report or JSON"
@@ -48,7 +48,7 @@ data_sources.notion.drop:
   en: "Drop the Notion ZIP or CSV file here"
 data_sources.notion.drop_hint:
   vi: "Nhận file .zip (kèm ảnh) hoặc .csv"
-  en: "Takes a .zip (with pictures) or a .csv"
+  en: "Takes a .zip (with images) or a .csv"
 data_sources.notion.processing:
   vi: "Đang xử lý…"
   en: "Processing…"
@@ -108,7 +108,7 @@ data_sources.preview.period:
   en: "From %{from} to %{to} · %{total}"
 data_sources.preview.images:
   vi: "Ảnh: %{found} tìm thấy trong file zip, %{missing} không có trong zip"
-  en: "Pictures: %{found} found in the zip file, %{missing} not in the zip"
+  en: "Images: %{found} found in the zip file, %{missing} not in the zip"
 data_sources.preview.column:
   vi: "Cột «%{column}» → %{field}"
   en: "Column “%{column}” → %{field}"
@@ -171,7 +171,7 @@ data_sources.summary.options.other:
   en: "%{n} new options added to the tag, mistake and emotion lists…"
 data_sources.summary.images:
   vi: "Ảnh gắn vào lệnh: %{attached} · không có trong file zip: %{missing}"
-  en: "Pictures attached to trades: %{attached} · not in the zip file: %{missing}"
+  en: "Images attached to trades: %{attached} · not in the zip file: %{missing}"
 data_sources.summary.skipped_title:
   vi: "Dòng bị bỏ qua"
   en: "Skipped rows"

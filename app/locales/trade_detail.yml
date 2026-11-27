@@ -130,7 +130,7 @@ trade_detail.field.execution:
   en: "Execution score"
 trade_detail.field.market:
   vi: "Trạng thái thị trường"
-  en: "Market state"
+  en: "Market condition"
 trade_detail.field.tag:
   vi: "Tag"
   en: "Tag"

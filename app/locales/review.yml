@@ -207,13 +207,13 @@ review.template.count_default.other:
   en: "%{n} questions · default"
 review.template.edit:
   vi: "Sửa mẫu %{name}"
-  en: "Edit template %{name}"
+  en: "Edit the “%{name}” template"
 review.template.need_one:
   vi: "Cần ít nhất một câu hỏi."
   en: "At least one question is needed."
 review.template.questions_of:
   vi: "Câu hỏi của “%{name}”"
-  en: "Questions of “%{name}”"
+  en: "Questions in “%{name}”"
 review.template.questions:
   vi: "Câu hỏi"
   en: "Questions"

@@ -970,6 +970,8 @@ fn name_button(row: ReadSignal<Property>) -> impl IntoElement {
         .min_h(px(34.0))
         .py_2()
         .child(
+            // Bounded itself: the popover around the button sizes it by its content, so without a bound
+            // a long name (English "Emotion before the trade") runs under the editor instead of wrapping.
             text(move || row.with(|p| p.label.clone()))
                 .min_w(px(0.0))
                 .max_w(px(NAME_TEXT_WIDTH))

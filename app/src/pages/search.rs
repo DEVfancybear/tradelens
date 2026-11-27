@@ -357,7 +357,7 @@ mod tests {
         });
         crate::i18n::with_text(crate::i18n::Lang::En, || {
             assert_eq!(meta_of(&hit(DocKind::Review, "month:2026-11-01:0"), None), "Month review");
-            assert_eq!(meta_of(&hit(DocKind::Missed, "3"), None), "Missed trades");
+            assert_eq!(meta_of(&hit(DocKind::Missed, "3"), None), "Missed trade");
         });
     }
 }

@@ -105,7 +105,7 @@ dashboard.rule.daily_loss:
   en: "Daily loss"
 dashboard.rule.daily_trades:
   vi: "Số lệnh"
-  en: "Trade count"
+  en: "Trades today"
 dashboard.rule.risk_per_trade:
   vi: "Risk lệnh lớn nhất"
   en: "Largest trade risk"

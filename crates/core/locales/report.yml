@@ -11,7 +11,7 @@ core.report.outcome.flat:
   en: "Breakeven"
 core.report.stat.side:
   vi: "Chiều"
-  en: "Direction"
+  en: "Side"
 core.report.stat.held:
   vi: "Thời gian giữ"
   en: "Held for"

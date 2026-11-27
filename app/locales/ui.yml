@@ -261,7 +261,7 @@ ui.plan.slippage:
   en: "%{gap} (slippage)"
 ui.plan.on_price:
   vi: "đúng giá"
-  en: "at the price"
+  en: "no slippage"
 ui.plan.stop_widened:
   vi: "dời xa, tăng rủi ro"
   en: "moved away, more risk"
@@ -374,7 +374,7 @@ ui.properties.copy_label:
   en: "%{label} (copy)"
 ui.properties.change_kind_title:
   vi: "Đổi kiểu sẽ mất giá trị đã ghi?"
-  en: "Changing the type will lose the value written?"
+  en: "Change the type and lose the written value?"
 ui.properties.change_kind_body:
   vi: "Giá trị đã ghi ở lệnh này không chuyển được sang kiểu “%{kind}” và sẽ bị bỏ trống."
   en: "The value written on this trade cannot be converted to the “%{kind}” type and will be left empty."

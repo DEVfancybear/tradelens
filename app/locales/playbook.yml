@@ -60,7 +60,7 @@ playbook.stat.trades_note:
   en: "all time"
 playbook.stat.win:
   vi: "Thắng"
-  en: "Win"
+  en: "Win rate"
 playbook.stat.expectancy:
   vi: "Kỳ vọng"
   en: "Expectancy"

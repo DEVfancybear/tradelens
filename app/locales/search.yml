@@ -22,10 +22,10 @@ search.meta.review:
   en: "Review"
 search.meta.missed:
   vi: "Lệnh bỏ lỡ"
-  en: "Missed trades"
+  en: "Missed trade"
 search.hint:
   vi: "Gõ để tìm trong lệnh, nhật ký ngày, tổng kết, lệnh bỏ lỡ và playbook — không cần gõ dấu."
-  en: "Type to search trades, daily journal, reviews, missed trades and playbook."
+  en: "Type to search trades, daily journals, reviews, missed trades and playbooks — no need to type accents."
 search.searching:
   vi: "Đang tìm…"
   en: "Searching…"

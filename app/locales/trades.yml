@@ -31,7 +31,7 @@ trades.filter.outcome:
   en: "Result"
 trades.filter.direction:
   vi: "Chiều"
-  en: "Direction"
+  en: "Side"
 trades.filter.clear:
   vi: "Xoá lọc"
   en: "Clear filters"
@@ -58,7 +58,7 @@ trades.deselect:
   en: "Deselect"
 trades.delete_confirm:
   vi: "Xoá lệnh"
-  en: "Delete trades"
+  en: "Delete"
 trades.empty.loading:
   vi: "Đang tải dữ liệu…"
   en: "Loading data…"

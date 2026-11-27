@@ -54,7 +54,7 @@ pub(super) fn catalog_tags(
             asker,
             t!("catalog_tags.remove_title", label = label, list = list.get()),
             t!("catalog_tags.remove_said"),
-            t!("common.delete"),
+            t!("catalog_tags.remove"),
             move || {
                 write.run(
                     move |db| db.archive_catalog_item(kind, &key),

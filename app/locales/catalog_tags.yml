@@ -12,3 +12,6 @@ catalog_tags.remove_title:
 catalog_tags.remove_said:
   vi: "Không còn để chọn nữa; những gì đã ghi vẫn giữ nó."
   en: "It can no longer be picked; what was already recorded keeps it."
+catalog_tags.remove:
+  vi: "Xoá"
+  en: "Remove"

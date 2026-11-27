@@ -56,13 +56,13 @@ missed.empty:
   en: "No missed trades yet"
 missed.empty_hint:
   vi: "Ghi lại setup đúng mà bạn không vào ở form bên cạnh."
-  en: "Record, in the form beside this, a setup that was right and you did not enter."
+  en: "Use the form alongside to record a setup that was right but you did not enter."
 missed.column.time:
   vi: "Thời điểm"
   en: "Time"
 missed.column.side:
   vi: "Chiều"
-  en: "Direction"
+  en: "Side"
 missed.column.reason:
   vi: "Lý do không vào"
   en: "Reason"

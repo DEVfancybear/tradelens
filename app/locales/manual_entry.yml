@@ -51,7 +51,7 @@ manual_entry.field.account:
   en: "Account"
 manual_entry.field.side:
   vi: "Chiều"
-  en: "Direction"
+  en: "Side"
 manual_entry.field.opened:
   vi: "Thời gian vào"
   en: "Entry time"

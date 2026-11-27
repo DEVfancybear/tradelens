@@ -331,7 +331,7 @@ mod tests {
         });
         crate::i18n::with_text(crate::i18n::Lang::En, || {
             let all = Position { volume: 0.3, ..open_position() };
-            assert_eq!(close_plan(&all, Some(0.1)).0, "Close 0.10 of 0.30 lot of XAUUSD at market price on MT5.");
+            assert_eq!(close_plan(&all, Some(0.1)).0, "Close 0.10 of 0.30 lots of XAUUSD at market price on MT5.");
         });
     }
 }

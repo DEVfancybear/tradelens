@@ -99,7 +99,7 @@ core.form.label.missed_symbol:
   en: "Symbol"
 core.form.label.missed_side:
   vi: "Chiều"
-  en: "Direction"
+  en: "Side"
 core.form.label.missed_reason:
   vi: "Lý do không vào"
   en: "Reason for not entering"
