@@ -660,12 +660,18 @@ fn prepare(
     let folder = folder.ok_or(Notice::NoFolder)?;
     let script =
         python::install_scripts(&folder.join("scripts")).map_err(|error| Notice::ScriptFailed(error.to_string()))?;
-    let copy = install::portable_copy(terminal, &folder.join("terminals"), account)
-        .map_err(|error| Notice::CopyFailed(error.to_string()))?;
-    Ok(Prepared {
-        open: python::opener(python, script),
-        login: Login { account: account.clone(), password, terminal: copy },
-    })
+    let root = folder.join("terminals");
+    let copy =
+        install::portable_copy(terminal, &root, account).map_err(|error| Notice::CopyFailed(error.to_string()))?;
+    // Each later login (a retry after a failure) first takes a server list the machine may have
+    // learned since: the trader signs in to the server in their own terminal, as the failure asks.
+    let open = python::opener(python, script);
+    let (source, wanted) = (terminal.to_path_buf(), account.clone());
+    let refreshing: Opener = std::sync::Arc::new(move |login: &Login| {
+        install::refresh_server_list(&source, &root, &wanted);
+        open(login)
+    });
+    Ok(Prepared { open: refreshing, login: Login { account: account.clone(), password, terminal: copy } })
 }
 
 /// Stores a poll's deals; bumps the revision when something changed. The account's id, `None`

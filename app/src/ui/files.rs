@@ -118,16 +118,43 @@ impl CopyError {
     }
 }
 
-/// Puts the PNG `png` on the clipboard so that any app pastes it. On Windows NSH writes only the
-/// registered "PNG" format, which Paint, Zalo, Telegram and Office's older paths do not read, so the
-/// picture goes there as a bitmap (with its PNG too) through `arboard`. Blocking: call it in
-/// [`blocking`] there.
+/// The setting that keeps copied pictures off the operating system's clipboard when it is
+/// [`CLIPBOARD_IN_MEMORY`]: the screen tests set it, so a run neither fails while another program
+/// holds the clipboard nor overwrites what the developer copied.
+pub const CLIPBOARD_SETTING: &str = "share.clipboard";
+/// The value of [`CLIPBOARD_SETTING`] under which a copy is checked but not written.
+pub const CLIPBOARD_IN_MEMORY: &str = "memory";
+
+/// Where a copied picture goes ([`CLIPBOARD_SETTING`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Clipboard {
+    /// The operating system's clipboard, which every app pastes from.
+    System,
+    /// Nowhere: the picture is only decoded (the screen tests).
+    Memory,
+}
+
+impl Clipboard {
+    /// The clipboard the stored value `setting` of [`CLIPBOARD_SETTING`] names; the system's when unset.
+    pub fn from_setting(setting: Option<&str>) -> Self {
+        if setting.is_some_and(|value| value.trim().eq_ignore_ascii_case(CLIPBOARD_IN_MEMORY)) {
+            Self::Memory
+        } else {
+            Self::System
+        }
+    }
+}
+
+/// Puts the PNG `png` on `clipboard` so that any app pastes it ([`Clipboard::Memory`] only decodes
+/// it). On Windows NSH writes only the registered "PNG" format,
+/// which Paint, Zalo, Telegram and Office's older paths do not read, so the picture goes there as a
+/// bitmap (with its PNG too) through `arboard`. Blocking: call it in [`blocking`] there.
 ///
 /// # Errors
 ///
 /// Why the picture cannot be decoded or the clipboard cannot be written.
 #[cfg(target_os = "windows")]
-pub fn copy_png(png: &[u8]) -> Result<(), CopyError> {
+pub fn copy_png(png: &[u8], clipboard: Clipboard) -> Result<(), CopyError> {
     let picture = image::load_from_memory_with_format(png, image::ImageFormat::Png)
         .map_err(|error| CopyError::Unreadable(error.to_string()))?
         .to_rgba8();
@@ -138,6 +165,9 @@ pub fn copy_png(png: &[u8]) -> Result<(), CopyError> {
         height: size(height)?,
         bytes: std::borrow::Cow::Owned(picture.into_raw()),
     };
+    if clipboard == Clipboard::Memory {
+        return Ok(());
+    }
     arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_image(data)).map_err(|error| {
         log::warn!("copying a picture to the clipboard: {error}");
         match error {
@@ -291,6 +321,14 @@ pub fn image_slot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn copies_stay_off_the_system_clipboard_only_when_the_setting_says_memory() {
+        assert_eq!(Clipboard::from_setting(Some("memory")), Clipboard::Memory);
+        assert_eq!(Clipboard::from_setting(Some(" Memory ")), Clipboard::Memory);
+        assert_eq!(Clipboard::from_setting(Some("system")), Clipboard::System);
+        assert_eq!(Clipboard::from_setting(None), Clipboard::System, "the real app writes the clipboard");
+    }
 
     #[test]
     fn local_file_urls_become_paths_and_others_are_skipped() {

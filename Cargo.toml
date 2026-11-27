@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/core", "crates/cloud", "crates/mt5", "crates/update", "app"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.100"
@@ -22,8 +22,8 @@ thiserror = "2"
 # The text of the crates (`locales/`), in the format NSH reads the app's own with.
 rust-i18n = "4.2"
 # NSH is 0.x: pin exactly and upgrade on purpose.
-nsh-core = "=0.7.1"
-nsh-base = "=0.7.1"
+nsh-core = "=0.7.2"
+nsh-base = "=0.7.2"
 
 # Lints from BeautifulRust (https://github.com/morganlinton/BeautifulRust, lints/lints.toml).
 # CI runs `cargo clippy --all-targets -- -D warnings`.

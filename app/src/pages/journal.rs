@@ -439,6 +439,8 @@ pub(crate) fn journal() -> impl IntoElement {
     // The form is only offered once the day has been read: text typed before would be replaced by
     // what was read, and a press of "Ngày trước" would have nothing to save it under.
     let loaded = computed(move || session.context.get().is_some());
+    // Whether the day has a note stored: an empty day says "Lưu nhật ký" (greyed), not "Đã lưu".
+    let stored = computed(move || session.saved.with(|saved| *saved != Edits::default()));
     let save_now = move || session.save_now();
 
     let go = move |to: NaiveDate| {
@@ -496,7 +498,9 @@ pub(crate) fn journal() -> impl IntoElement {
         .child(save_status(move || status.get()).text_xs())
         .child(action_when(
             // Typing saves by itself: the button only saves at once, and says so when nothing waits.
-            move || SharedString::from(if dirty.get() { t!("journal.save") } else { t!("journal.saved") }),
+            move || {
+                SharedString::from(if dirty.get() || !stored.get() { t!("journal.save") } else { t!("journal.saved") })
+            },
             Variant::Primary,
             move || dirty.get() && !busy.get(),
             save_now,

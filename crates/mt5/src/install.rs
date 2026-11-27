@@ -98,9 +98,10 @@ fn in_folders_of(root: &Path) -> Vec<Install> {
 }
 
 /// The account the terminal `terminal` logged in to last, as (login, server): `[Common] Login=` and
-/// `Server=` of its `common.ini`, beside the program for a portable copy, else in the data folder
-/// that names the program's folder in its `origin.txt` (under `%APPDATA%\MetaQuotes\Terminal`).
-/// `None` when no terminal there has logged in. Reads two small files: fine on any thread.
+/// `Server=` of its `common.ini`, in the data folder that names the program's folder in its
+/// `origin.txt` (under `%APPDATA%\MetaQuotes\Terminal`) for an installed terminal, else beside the
+/// program (a portable copy). `None` when no terminal there has logged in. Reads the `origin.txt`
+/// of every data folder: call it off the UI thread.
 pub fn last_login(terminal: &Path) -> Option<(String, String)> {
     let data_folders =
         std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("MetaQuotes").join("Terminal"));
@@ -123,8 +124,10 @@ fn last_login_in(terminal: &Path, data_folders: Option<&Path>) -> Option<(String
                 .is_some_and(|origin| normal(Path::new(origin.trim())) == normal(folder))
         })
         .map(|data| data.join(CONFIG_DIR).join(COMMON_INI));
-    std::iter::once(own)
-        .chain(installed)
+    // An installed terminal's live settings are in its data folder; a `Config\common.ini` beside
+    // its program is left from a portable start, or shipped by a broker's installer.
+    installed
+        .chain(std::iter::once(own))
         .find_map(|ini| fs::read(ini).ok().and_then(|bytes| login_in_ini(&bytes)))
         .or_else(|| login_in_folder_name(folder))
 }
@@ -174,7 +177,7 @@ pub fn copy_folder(root: &Path, account: &AccountRef) -> PathBuf {
 }
 
 /// `account`'s portable terminal under `root`, copied from the installed `terminal` the first
-/// time, with the fullest list of servers on the machine ([`give_server_list`]). The copy is made
+/// time, with the list of servers that best knows the account's server ([`give_server_list`]). The copy is made
 /// beside its place and renamed into it, so a copy cut short is never taken for a finished one.
 /// Blocks while copying (a terminal's folder is a few hundred megabytes).
 ///
@@ -184,46 +187,94 @@ pub fn copy_folder(root: &Path, account: &AccountRef) -> PathBuf {
 /// cannot be written is only logged: the terminal may still know the server.
 pub fn portable_copy(terminal: &Path, root: &Path, account: &AccountRef) -> io::Result<PathBuf> {
     let copied = copy_once(terminal, root, account)?;
+    refresh_server_list(terminal, root, account);
+    Ok(copied)
+}
+
+/// Gives `account`'s portable copy under `root` a better list of servers when the machine has one
+/// now ([`give_server_list`]): the trader may have signed in to the server in their own terminal
+/// since the copy was made, as a failed login asks them to. Called before every login, from the
+/// link's thread; a list that cannot be written is only logged.
+pub fn refresh_server_list(terminal: &Path, root: &Path, account: &AccountRef) {
     let data_folders =
         std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("MetaQuotes").join("Terminal"));
     let candidates = server_lists(terminal, data_folders.as_deref());
     let folder = copy_folder(root, account);
-    if let Err(error) = give_server_list(&folder, &candidates) {
-        log::warn!("mt5 {account}: the server list of {} is not updated: {error}", folder.display());
+    match give_server_list(&folder, &candidates, &account.server) {
+        Ok(true) => log::info!("mt5 {account}: the copy takes a server list that knows {}", account.server),
+        Ok(false) => {}
+        Err(error) => log::warn!("mt5 {account}: the server list of {} is not updated: {error}", folder.display()),
     }
-    Ok(copied)
+}
+
+/// A terminal's list of servers, with the server that terminal last logged in to (so the list
+/// surely knows it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ServerList {
+    path: PathBuf,
+    /// `Server=` of the terminal's `common.ini`; empty when it never logged in.
+    logged_in_to: String,
+}
+
+impl ServerList {
+    /// The list in the settings folder `config` of a terminal, when there is one.
+    fn in_settings(config: &Path) -> Option<Self> {
+        let path = config.join(SERVERS_FILE);
+        path.is_file().then(|| Self { logged_in_to: server_in_settings(config).unwrap_or_default(), path })
+    }
+
+    fn knows(&self, server: &str) -> bool {
+        !server.is_empty() && self.logged_in_to.eq_ignore_ascii_case(server.trim())
+    }
+}
+
+/// The server the terminal whose settings are in `config` last logged in to.
+fn server_in_settings(config: &Path) -> Option<String> {
+    let (_, server) = login_in_ini(&fs::read(config.join(COMMON_INI)).ok()?)?;
+    (!server.is_empty()).then_some(server)
 }
 
 /// The server lists the copy of `terminal` may take: the one in the program's own folder, and
 /// those of every terminal's data folder under `data_folders` (`%APPDATA%\MetaQuotes\Terminal`).
 /// An installed terminal keeps the list it downloaded in its data folder, not beside the program,
 /// so a copy of the program folder alone may not know the account's server.
-fn server_lists(terminal: &Path, data_folders: Option<&Path>) -> Vec<PathBuf> {
-    let own = terminal.parent().map(|folder| folder.join(CONFIG_DIR).join(SERVERS_FILE));
+fn server_lists(terminal: &Path, data_folders: Option<&Path>) -> Vec<ServerList> {
+    let own = terminal.parent().map(|folder| folder.join(CONFIG_DIR));
     let installed = data_folders
         .and_then(|root| fs::read_dir(root).ok())
         .into_iter()
         .flatten()
         .filter_map(Result::ok)
-        .map(|entry| entry.path().join(CONFIG_DIR).join(SERVERS_FILE));
-    own.into_iter().chain(installed).filter(|path| path.is_file()).collect()
+        .map(|entry| entry.path().join(CONFIG_DIR));
+    own.into_iter().chain(installed).filter_map(|config| ServerList::in_settings(&config)).collect()
 }
 
-/// Puts the largest of `candidates` into the portable copy at `folder` when it is larger than the
-/// copy's own list. The list only grows as a terminal learns servers, so the largest knows the
-/// most, and a copy that learned more than any candidate keeps its own. Written beside its place
-/// and renamed in, so a terminal never reads half a list. Tells whether the list was replaced.
+/// Gives the portable copy at `folder` the list of `candidates` that best knows `server`, and tells
+/// whether its list was replaced. A list never comes from a smaller file merely for being there:
+/// - a copy that has logged in to `server` keeps its own list;
+/// - else the largest list of a terminal that logged in to `server` (it surely holds the server),
+///   when it is not the copy's already;
+/// - else the largest list, when larger than the copy's: a list only grows as a terminal learns
+///   servers, so the largest knows the most.
+///
+/// Written beside its place and renamed in, so a terminal never reads half a list.
 ///
 /// # Errors
 ///
 /// When the list cannot be read or written (a terminal still running in `folder` holds it).
-fn give_server_list(folder: &Path, candidates: &[PathBuf]) -> io::Result<bool> {
+fn give_server_list(folder: &Path, candidates: &[ServerList], server: &str) -> io::Result<bool> {
     let config = folder.join(CONFIG_DIR);
     let target = config.join(SERVERS_FILE);
-    let size = |path: &Path| fs::metadata(path).map_or(0, |meta| meta.len());
-    let current = size(&target);
-    let Some((_, best)) = candidates.iter().map(|path| (size(path), path)).filter(|(len, _)| *len > current).max()
-    else {
+    let own = ServerList::in_settings(&config);
+    if own.as_ref().is_some_and(|list| list.knows(server)) {
+        return Ok(false);
+    }
+    let current = own.as_ref().map_or(0, |list| file_size(&list.path));
+    let best = match largest(candidates.iter().filter(|list| list.knows(server))) {
+        Some((len, path)) => (len != current).then_some(path),
+        None => largest(candidates.iter()).filter(|(len, _)| *len > current).map(|(_, path)| path),
+    };
+    let Some(best) = best else {
         return Ok(false);
     };
     fs::create_dir_all(&config)?;
@@ -231,6 +282,16 @@ fn give_server_list(folder: &Path, candidates: &[PathBuf]) -> io::Result<bool> {
     fs::copy(best, &partial)?;
     crate::runtime::rename_patiently(&partial, &target).inspect_err(|_| drop(fs::remove_file(&partial)))?;
     Ok(true)
+}
+
+/// The size of the file at `path`, 0 when it cannot be read.
+fn file_size(path: &Path) -> u64 {
+    fs::metadata(path).map_or(0, |meta| meta.len())
+}
+
+/// The largest of `lists`, with its size.
+fn largest<'a>(lists: impl Iterator<Item = &'a ServerList>) -> Option<(u64, &'a Path)> {
+    lists.map(|list| (file_size(&list.path), list.path.as_path())).max()
 }
 
 /// `account`'s portable terminal under `root`, copied from `terminal` when it is not there yet.
@@ -356,11 +417,15 @@ mod tests {
         let account = AccountRef::new("123", "Exness-MT5Trial7");
         copy_once(&terminal, &root, &account).expect("the copy is made");
         let copy = copy_folder(&root, &account);
-        assert!(give_server_list(&copy, &candidates).expect("the list is written"), "the larger list is taken");
+        let server = &account.server;
+        assert!(give_server_list(&copy, &candidates, server).expect("the list is written"), "the larger list is taken");
         let taken = fs::read(copy.join(CONFIG_DIR).join(SERVERS_FILE)).expect("the copy has a list");
         assert_eq!(taken, fs::read(&downloaded).expect("the downloaded list"), "the largest list is taken");
         assert!(!copy.join(CONFIG_DIR).join(format!("{SERVERS_FILE}.copying")).exists(), "nothing is left beside it");
-        assert!(!give_server_list(&copy, &candidates).expect("nothing to do"), "the same list is not copied again");
+        assert!(
+            !give_server_list(&copy, &candidates, server).expect("nothing to do"),
+            "the same list is not copied again"
+        );
     }
 
     #[test]
@@ -368,9 +433,44 @@ mod tests {
         let dir = tempfile::tempdir().expect("a temp dir");
         let copy = dir.path().join("123@Demo");
         let learned = server_list(&copy, 900);
-        let candidate = server_list(&dir.path().join("Terminal").join("D0E8"), 666);
-        assert!(!give_server_list(&copy, &[candidate]).expect("nothing to do"));
+        let data = dir.path().join("Terminal").join("D0E8");
+        server_list(&data, 666);
+        let candidates = server_lists(&dir.path().join("none").join(TERMINAL_EXE), data.parent());
+        assert!(!give_server_list(&copy, &candidates, "Demo").expect("nothing to do"));
         assert_eq!(fs::metadata(learned).expect("the list is there").len(), 900);
+    }
+
+    /// Says in the settings of the terminal folder `folder` that it logged in to `server`.
+    fn logged_in(folder: &Path, server: &str) {
+        let config = folder.join(CONFIG_DIR);
+        fs::create_dir_all(&config).expect("the settings folder is made");
+        fs::write(config.join(COMMON_INI), utf16(&format!("[Common]\r\nLogin=1\r\nServer={server}\r\n")))
+            .expect("common.ini written");
+    }
+
+    #[test]
+    fn the_list_of_a_terminal_that_logged_in_to_the_server_wins_over_a_larger_one() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let data_folders = dir.path().join("Terminal");
+        // MetaQuotes' own terminal knows many brokers but not this one; the broker's terminal does.
+        server_list(&data_folders.join("MQ"), 666);
+        logged_in(&data_folders.join("MQ"), "MetaQuotes-Demo");
+        let broker = server_list(&data_folders.join("EX"), 200);
+        logged_in(&data_folders.join("EX"), "Exness-MT5Trial7");
+        let candidates = server_lists(&dir.path().join("none").join(TERMINAL_EXE), Some(&data_folders));
+
+        let copy = dir.path().join("123@Exness-MT5Trial7");
+        server_list(&copy, 666);
+        assert!(give_server_list(&copy, &candidates, "exness-mt5trial7").expect("written"), "even over a larger list");
+        let taken = fs::read(copy.join(CONFIG_DIR).join(SERVERS_FILE)).expect("the copy has a list");
+        assert_eq!(taken, fs::read(&broker).expect("the broker's list"));
+        assert!(!give_server_list(&copy, &candidates, "Exness-MT5Trial7").expect("nothing to do"), "taken once");
+
+        // Once the copy has logged in to its server, its own list stays.
+        server_list(&copy, 900);
+        logged_in(&copy, "Exness-MT5Trial7");
+        assert!(!give_server_list(&copy, &candidates, "Exness-MT5Trial7").expect("nothing to do"));
+        assert_eq!(fs::metadata(copy.join(CONFIG_DIR).join(SERVERS_FILE)).expect("its list").len(), 900);
     }
 
     fn utf16(text: &str) -> Vec<u8> {
@@ -402,6 +502,10 @@ mod tests {
             .expect("written");
         let found = last_login_in(&installed, Some(&dir.path().join("Terminal")));
         assert_eq!(found, Some(("52012345".to_owned(), "ICMarketsSC-Demo".to_owned())), "origin matched without case");
+        // A `Config\common.ini` beside an installed terminal's program is old: the data folder wins.
+        logged_in(installed.parent().expect("a folder"), "Old-Server");
+        let found = last_login_in(&installed, Some(&dir.path().join("Terminal")));
+        assert_eq!(found.map(|(_, server)| server).as_deref(), Some("ICMarketsSC-Demo"), "the live settings win");
 
         // A copy of the app whose login never went through is named after its account.
         let failed = fake_install(dir.path(), "434572089@Exness-MT5Trial7");

@@ -68,6 +68,9 @@ pub(crate) fn missed() -> impl IntoElement {
     // On for a moment after "Ghi lệnh bỏ lỡ": the form shows it is a new one (a blank form built
     // again looks the same, and the trader read the press as doing nothing).
     let fresh = signal(false);
+    // How many times "Ghi lệnh bỏ lỡ" was pressed: only the last press's timer ends the mark, so a
+    // second press within `FRESH_FOR` keeps it for its full time.
+    let presses = signal(0_u32);
     let picked = global::<Picked>();
     effect(move || {
         let Some(id) = picked.get().0 else { return };
@@ -83,13 +86,17 @@ pub(crate) fn missed() -> impl IntoElement {
         action_icon(Icon::Plus, t!("missed.record"), Variant::Primary, move || {
             editing.set(None);
             fresh.set(true);
+            let press = presses.get_untracked().wrapping_add(1);
+            presses.set(press);
             // The blank form is drawn in the next frame: its field takes the focus then, so the trader
             // can type at once; the form stays marked as new for a moment.
             spawn(async move {
                 next_frame().await;
                 symbol_field.focus();
                 timer(FRESH_FOR).await;
-                fresh.set(false);
+                if presses.get_untracked() == press {
+                    fresh.set(false);
+                }
             });
         }),
         view()

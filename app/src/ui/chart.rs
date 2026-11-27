@@ -93,28 +93,45 @@ pub(crate) fn value_axis(low: f64, high: f64, baseline: Baseline) -> ValueAxis {
     ValueAxis { domain, ticks }
 }
 
+/// The most powers of ten [`round_ends`] tries above the first: far more than any finite spread
+/// needs (the first power is already within a factor of ten), so that a spread too wide for `f64`
+/// steps gives up instead of looping.
+const MAX_POWERS: usize = 4;
+
 /// The smallest round step that lays `low..high` (`low < high`) out in at most [`MAX_STEPS`]
-/// whole steps, and the ends it rounds them out to.
+/// whole steps, and the ends it rounds them out to; the plain ends, in one step, for a spread no
+/// round step fits (beyond what `f64` holds).
 fn round_ends(low: f64, high: f64) -> (f64, [f64; 2]) {
     let most = f64::from(MAX_STEPS);
     let mut power = 10.0_f64.powf(((high - low) / most).log10().floor());
-    loop {
+    for _ in 0..=MAX_POWERS {
         let mantissas: &[f64] = if power >= 1.0 { &MANTISSAS } else { &FRACTION_MANTISSAS };
         for &mantissa in mantissas {
             let step = mantissa * power;
             let ends = [(low / step).floor() * step, (high / step).ceil() * step];
-            if (ends[1] - ends[0]) / step <= most + 1e-9 {
+            if ends.iter().all(|end| end.is_finite()) && (ends[1] - ends[0]) / step <= most + 1e-9 {
                 return (step, ends);
             }
         }
         power *= 10.0;
     }
+    (high - low, [low, high])
 }
 
-/// An axis label of money: whole units on whole values, cents on the steps of a curve that
-/// moved by less than a unit.
-fn money_label(value: f64, currency: &str) -> String {
-    if value.fract().abs() < 1e-9 {
+impl ValueAxis {
+    /// The distance between two labels.
+    fn step(&self) -> f64 {
+        match self.ticks.as_slice() {
+            [first, second, ..] => second - first,
+            _ => self.domain[1] - self.domain[0],
+        }
+    }
+}
+
+/// An axis label of money: whole units when every label of the axis is whole (a step of whole
+/// units), cents on all of them otherwise (`$1,002.50` beside `$1,000.00`, never `$1,000`).
+fn money_label(value: f64, step: f64, currency: &str) -> String {
+    if step.fract().abs() < 1e-9 && value.fract().abs() < 1e-9 {
         format::money_whole(value, Sign::OnlyNegative, currency)
     } else {
         format::money(value, Sign::OnlyNegative, currency)
@@ -188,7 +205,9 @@ pub(crate) fn equity_chart(
                     plot_axis()
                         .placement(AxisPlacement::Left)
                         .tick_values(move || axis.with(|a| a.ticks.clone()))
-                        .format(TickFormat::from_fn(move |value, _| money_label(value, &currency()).into()))
+                        .format(TickFormat::from_fn(move |value, _| {
+                            money_label(value, axis.with(ValueAxis::step), &currency()).into()
+                        }))
                         .label_class(AXIS_LABEL_CLASS),
                 ),
         )
@@ -312,7 +331,7 @@ mod tests {
         let step = ticks[1] - ticks[0];
         assert!(ticks.windows(2).all(|w| (w[1] - w[0] - step).abs() < 1e-6), "evenly spaced: {ticks:?}");
         assert!(ticks.iter().all(|t| (t / step).fract().abs() < 1e-9), "round values: {ticks:?}");
-        let labels: Vec<String> = ticks.iter().map(|&t| money_label(t, "USD")).collect();
+        let labels: Vec<String> = ticks.iter().map(|&t| money_label(t, axis.step(), "USD")).collect();
         assert!(labels.contains(&"$1,000,000".to_owned()), "{labels:?}");
     }
 
@@ -338,8 +357,24 @@ mod tests {
 
     #[test]
     fn money_labels_keep_the_currency_and_show_cents_only_on_fractional_steps() {
-        assert_eq!(money_label(996_000.0, "USD"), "$996,000");
-        assert_eq!(money_label(996_000.0, "EUR"), "996,000 EUR");
-        assert_eq!(money_label(10.5, "USD"), "$10.50");
+        assert_eq!(money_label(996_000.0, 1_000.0, "USD"), "$996,000");
+        assert_eq!(money_label(996_000.0, 1_000.0, "EUR"), "996,000 EUR");
+        assert_eq!(money_label(10.5, 0.5, "USD"), "$10.50");
+    }
+
+    #[test]
+    fn labels_of_one_axis_all_show_cents_when_its_step_has_them() {
+        // A balance that moved by $10: steps of 2.5, some labels whole, some not.
+        let axis = value_axis(1_000.0, 1_010.0, Baseline::Values);
+        assert!((axis.step() - 2.5).abs() < 1e-9, "{axis:?}");
+        let labels: Vec<String> = axis.ticks.iter().map(|&t| money_label(t, axis.step(), "USD")).collect();
+        assert!(labels.iter().all(|l| l.contains('.')), "every label has cents: {labels:?}");
+    }
+
+    #[test]
+    fn a_spread_too_wide_for_round_steps_still_gives_an_axis() {
+        // Returns at all (it looped for ever), with the values as its ends.
+        let (_, ends) = round_ends(-f64::MAX, f64::MAX);
+        assert_eq!(ends, [-f64::MAX, f64::MAX]);
     }
 }

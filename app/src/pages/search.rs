@@ -75,9 +75,10 @@ fn arranged(hits: &[Hit], kind: Option<DocKind>) -> Vec<Hit> {
 }
 
 /// The trades whose symbol starts with, or contains, every word typed (`xag` finds `XAGUSDm`), or
-/// whose position number is a word typed, newest first, at most `limit`. The full-text index holds
-/// only what the trader wrote, so a trade without a journal (one the MT5 sync just stored) is found
-/// here; titles read like the index's (`XAGUSDm Buy 27/11`).
+/// whose position number or the ticket of one of its deals is a word typed (MT5 shows both), newest
+/// first, at most `limit`. The full-text index holds only what the trader wrote, so a trade without
+/// a journal (one the MT5 sync just stored) is found here; titles read like the index's
+/// (`XAGUSDm Buy 27/11`).
 fn trades_by_symbol(snapshot: &Snapshot, typed: &str, limit: usize) -> Vec<Hit> {
     let words: Vec<String> = typed.split_whitespace().map(str::to_lowercase).collect();
     if words.is_empty() {
@@ -88,8 +89,11 @@ fn trades_by_symbol(snapshot: &Snapshot, typed: &str, limit: usize) -> Vec<Hit> 
         .iter()
         .filter(|row| {
             let symbol = row.trade.symbol.to_lowercase();
-            let ticket = row.trade.key.position_id.to_string();
-            words.iter().all(|word| symbol.contains(word.as_str()) || ticket == *word)
+            let position = row.trade.key.position_id.to_string();
+            let is_ticket = |word: &str| {
+                position == word || word.parse::<i64>().is_ok_and(|n| row.deals.iter().any(|deal| deal.ticket == n))
+            };
+            words.iter().all(|word| symbol.contains(word.as_str()) || is_ticket(word))
         })
         .collect();
     rows.sort_by_key(|row| std::cmp::Reverse(row.sort_time()));
@@ -310,6 +314,8 @@ mod tests {
         let both: Vec<String> = trades_by_symbol(&snapshot, "USD", 40).into_iter().map(|h| h.title).collect();
         assert_eq!(both, ["XAUUSDm Buy 27/11", "XAGUSDm Buy 27/11"], "newest first");
         assert_eq!(trades_by_symbol(&snapshot, "5149465589", 40).len(), 1, "by ticket");
+        let by_deal: Vec<String> = trades_by_symbol(&snapshot, "4", 40).into_iter().map(|h| h.title).collect();
+        assert_eq!(by_deal, ["XAUUSDm Buy 27/11"], "by the ticket of one of its deals");
         assert_eq!(trades_by_symbol(&snapshot, "  ", 40), [], "nothing typed");
         assert_eq!(trades_by_symbol(&snapshot, "eurusd", 40), [], "no such symbol");
 

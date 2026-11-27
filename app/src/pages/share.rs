@@ -362,14 +362,22 @@ fn copy_picture(state: State) -> impl Fn() + Clone + 'static {
 
 #[cfg(target_os = "windows")]
 fn put_on_clipboard(picture: &Arc<Rendered>, state: State) {
+    use crate::ui::files::{CLIPBOARD_SETTING, Clipboard, copy_png};
     let picture = Arc::clone(picture);
-    spawn(async move {
-        match blocking(move || crate::ui::files::copy_png(&picture.bytes)).await {
-            Ok(Ok(())) => state.succeed(t!("share.copied")),
-            Ok(Err(message)) => state.fail(message.text()),
-            Err(error) => state.fail(t!("share.error.copy_stopped", error = error)),
-        }
-    });
+    // The setting is read first, so the picture is decoded and written without the database lock.
+    store().read(
+        |db| db.setting(CLIPBOARD_SETTING),
+        move |setting| {
+            let clipboard = Clipboard::from_setting(setting.ok().flatten().as_deref());
+            spawn(async move {
+                match blocking(move || copy_png(&picture.bytes, clipboard)).await {
+                    Ok(Ok(())) => state.succeed(t!("share.copied")),
+                    Ok(Err(message)) => state.fail(message.text()),
+                    Err(error) => state.fail(t!("share.error.copy_stopped", error = error)),
+                }
+            });
+        },
+    );
 }
 
 #[cfg(not(target_os = "windows"))]
