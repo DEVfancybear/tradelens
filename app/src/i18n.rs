@@ -42,8 +42,19 @@ pub(crate) fn language() -> Lang {
     Lang::parse(locale().as_str())
 }
 
+/// The language the window is to show, for this app's surface: set at once, while NSH's locale
+/// follows it a moment later.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+struct Wanted(Lang);
+
+/// The language the window is to show (tracked where it is read).
+fn wanted() -> Lang {
+    global::<Wanted>().get().0
+}
+
 /// Gives the window's text and the crates' in `lang`.
 fn show(lang: Lang) {
+    global::<Wanted>().set(Wanted(lang));
     set_current(lang);
     set_locale(locale_of(lang));
     // Text made while reading (a snapshot's labels, a reading's error) is made again in `lang`.
@@ -72,7 +83,7 @@ pub(crate) fn follow_language() {
     let stored = computed(move || saved.value().and_then(|value| value.as_deref().map(Lang::parse)));
     effect(move || {
         let Some(lang) = stored.get() else { return };
-        if untracked(language) != lang {
+        if untracked(wanted) != lang {
             show(lang);
         }
     });
@@ -90,16 +101,20 @@ pub fn window_builds() -> usize {
 
 /// `content`, built again whenever the window's language changes. Each build is logged with what
 /// it cost (`RUST_LOG=tradelens::i18n=debug`).
+///
+/// It is built only once NSH shows the language asked for: `set_locale` takes effect a moment after
+/// it is called, and building before that would build the window twice, the first time in the
+/// system's language (a flash of English at every start on an English Windows).
 pub(crate) fn translated<E: IntoElement + 'static>(content: impl Fn() -> E + 'static) -> impl IntoElement {
     dynamic(move || {
         let lang = language();
-        untracked(|| {
+        (wanted() == lang).then(|| untracked(|| {
             let started = Instant::now();
             let built = view().flex_1().key(lang.key()).child(content());
             let count = BUILDS.fetch_add(1, Ordering::Relaxed) + 1;
             log::debug!(target: "tradelens::i18n", "window built in {} (#{count}) in {:?}", lang.key(), started.elapsed());
             built
-        })
+        }))
     })
 }
 
@@ -144,7 +159,7 @@ impl Picker {
             );
             spawn(async move {
                 next_frame().await;
-                if untracked(language) != lang {
+                if untracked(wanted) != lang {
                     show(lang);
                 }
             });

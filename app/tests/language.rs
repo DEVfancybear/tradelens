@@ -29,6 +29,8 @@ fn choose(app: &mut Headless, drop_down: &str, language: &str) {
 fn the_language_chosen_in_the_settings_turns_every_screen_and_comes_back_on_the_next_run() {
     let fixture = support::Fixture::new();
     let mut app = fixture.start(1280.0, 1000.0, |_| {});
+    // Built once, in Vietnamese: not first in the system's English, then again.
+    assert_eq!(nsh_app_tradelens::window_builds(), 1, "the window is built once at the start");
     common::press_until(&mut app, "role:button[Cài đặt]", |screen| screen.shows("Chế độ màu"));
 
     let built = nsh_app_tradelens::window_builds();
