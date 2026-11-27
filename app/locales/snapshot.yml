@@ -1,0 +1,27 @@
+_version: 2
+
+# The overview ranges (snapshot.rs).
+snapshot.range.days7:
+  vi: "7N"
+  en: "7D"
+snapshot.range.days30:
+  vi: "30N"
+  en: "30D"
+snapshot.range.days90:
+  vi: "90N"
+  en: "90D"
+snapshot.range.describe.days7:
+  vi: "7 ngày gần nhất"
+  en: "Last 7 days"
+snapshot.range.describe.days30:
+  vi: "30 ngày gần nhất"
+  en: "Last 30 days"
+snapshot.range.describe.days90:
+  vi: "90 ngày gần nhất"
+  en: "Last 90 days"
+snapshot.range.describe.ytd:
+  vi: "Từ đầu năm"
+  en: "Year to date"
+snapshot.range.describe.all:
+  vi: "Toàn bộ lịch sử"
+  en: "All history"

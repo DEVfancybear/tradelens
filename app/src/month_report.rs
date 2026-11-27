@@ -6,6 +6,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use chrono::{Datelike, NaiveDate};
+use nsh_core::t;
 use tradelens_core::{
     Db, DbError, TradeKey,
     catalog::{CatalogItem, CatalogKind},
@@ -53,11 +54,11 @@ pub(crate) fn load_extras(db: &Db, account: Option<i64>, month: NaiveDate) -> Re
     })
 }
 
-/// The name of the account in view, or `Tất cả tài khoản`.
+/// The name of the account in view, or "All accounts" (in the language chosen).
 pub(crate) fn account_name(snapshot: &Snapshot, account: Option<i64>) -> String {
     account
         .and_then(|id| snapshot.accounts.iter().find(|a| a.id == id))
-        .map_or_else(|| "Tất cả tài khoản".to_owned(), tradelens_core::Account::title)
+        .map_or_else(|| t!("month_report.all_accounts"), tradelens_core::Account::title)
 }
 
 /// The closed trades that closed from `first` to `last` (days on the trader's clock), oldest first.
@@ -91,9 +92,9 @@ fn r_curve(rows: &[&TradeRow]) -> Vec<f64> {
         .collect()
 }
 
-/// The playbook a trade belongs to; trades with none read as `Không playbook`.
+/// The playbook a trade belongs to; trades with none read as "No playbook" (in the language chosen).
 fn setup_of(row: &TradeRow) -> String {
-    if row.setup.is_empty() { "Không playbook".to_owned() } else { row.setup.clone() }
+    if row.setup.is_empty() { t!("month_report.no_playbook") } else { row.setup.clone() }
 }
 
 /// The figures a week's or month's share card is made of.
@@ -291,20 +292,22 @@ mod tests {
 
     #[test]
     fn the_report_starts_from_the_balance_before_the_month() {
-        let snap = snapshot();
-        let report = build(&snap, None, day("2026-11-15"), &Extras::default());
-        assert_eq!(report.month, day("2026-11-01"));
-        assert_eq!(report.stats.trades, 3);
-        assert!((report.stats.start_balance - 1_100.0).abs() < 1e-6, "1000 deposit + 100 in October");
-        assert!((report.stats.end_balance - 1_300.0).abs() < 1e-6, "{}", report.stats.end_balance);
-        assert_eq!(report.curve.len(), 4, "the start and one point per trade");
-        assert_eq!(report.weeks.len(), 6, "1 November 2026 is a Sunday");
-        assert_eq!(report.by_playbook[0].label, "Breakout");
-        assert_eq!(report.by_playbook[0].trades, 2);
-        assert_eq!(report.by_playbook[1].label, "Không playbook");
-        assert_eq!(report.mistakes.len(), 1);
-        assert_eq!(report.mistakes[0].label, "move_sl");
-        assert_eq!(report.account, "Tất cả tài khoản");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let snap = snapshot();
+            let report = build(&snap, None, day("2026-11-15"), &Extras::default());
+            assert_eq!(report.month, day("2026-11-01"));
+            assert_eq!(report.stats.trades, 3);
+            assert!((report.stats.start_balance - 1_100.0).abs() < 1e-6, "1000 deposit + 100 in October");
+            assert!((report.stats.end_balance - 1_300.0).abs() < 1e-6, "{}", report.stats.end_balance);
+            assert_eq!(report.curve.len(), 4, "the start and one point per trade");
+            assert_eq!(report.weeks.len(), 6, "1 November 2026 is a Sunday");
+            assert_eq!(report.by_playbook[0].label, "Breakout");
+            assert_eq!(report.by_playbook[0].trades, 2);
+            assert_eq!(report.by_playbook[1].label, "Không playbook");
+            assert_eq!(report.mistakes.len(), 1);
+            assert_eq!(report.mistakes[0].label, "move_sl");
+            assert_eq!(report.account, "Tất cả tài khoản");
+        });
     }
 
     #[test]
@@ -347,11 +350,13 @@ mod tests {
 
     #[test]
     fn a_report_from_the_snapshot_makes_a_pdf_in_each_privacy_level() {
-        let snap = snapshot();
-        let report = build(&snap, None, day("2026-11-15"), &Extras::default());
-        for privacy in [Privacy::ShowMoney, Privacy::OnlyR, Privacy::NoFigures] {
-            let bytes = pdf_bytes(&report, privacy).expect("the PDF is made");
-            assert!(bytes.starts_with(b"%PDF-"), "{privacy:?}");
-        }
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let snap = snapshot();
+            let report = build(&snap, None, day("2026-11-15"), &Extras::default());
+            for privacy in [Privacy::ShowMoney, Privacy::OnlyR, Privacy::NoFigures] {
+                let bytes = pdf_bytes(&report, privacy).expect("the PDF is made");
+                assert!(bytes.starts_with(b"%PDF-"), "{privacy:?}");
+            }
+        });
     }
 }
