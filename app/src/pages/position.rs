@@ -163,7 +163,7 @@ fn panel(account: AccountRef, ticket: i64) -> impl IntoElement {
                     "Khối lượng đóng",
                     number_field(
                         "Khối lượng đóng",
-                        Some("lot"),
+                        Some("lot".into()),
                         NumberRange::between(LOT_STEP, 1_000.0).stepping(LOT_STEP),
                         move || volume.get(),
                         move |v| volume.set(v),

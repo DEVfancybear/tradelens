@@ -121,8 +121,83 @@ pub(crate) enum Phase {
     Ready(String),
     /// A newer version the trader gets from its page.
     Available(String, Manual),
-    /// What went wrong, in Vietnamese.
-    Failed(String),
+    /// What went wrong.
+    Failed(Failure),
+}
+
+/// Which job of the updater a stopped working thread had.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Job {
+    Check,
+    Download,
+    Install,
+}
+
+/// What went wrong with an update. It is made on the working threads, which cannot read the app's
+/// text; [`Failure::text`] makes the words on the UI thread, in the language chosen.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Failure {
+    /// No answer from the update server.
+    Network(String),
+    /// The server has no `latest.json`: nothing published yet.
+    NoRelease,
+    /// The server answered with an error.
+    Status { status: u16, url: String },
+    /// The manifest, its signature or its content was refused.
+    Manifest(String),
+    /// The downloaded file does not match the release.
+    Download(String),
+    /// The new version could not be installed.
+    Install(String),
+    /// The updater's settings are wrong.
+    Config(String),
+    /// The update's files could not be written.
+    Files(String),
+    /// The release has no archive this app can install itself.
+    NotInstallable,
+    /// A working thread stopped before it answered.
+    Stopped(Job, String),
+    /// Words that were already made (the store's, when the settings could not be read).
+    Words(String),
+}
+
+impl From<&UpdateError> for Failure {
+    fn from(error: &UpdateError) -> Self {
+        match error {
+            UpdateError::Network(detail) => Self::Network(detail.clone()),
+            UpdateError::Status { status: 404, .. } => Self::NoRelease,
+            UpdateError::Status { status, url } => Self::Status { status: *status, url: url.clone() },
+            UpdateError::Refused(ManifestError::Manifest(detail)) => Self::Manifest(detail.clone()),
+            UpdateError::Refused(ManifestError::Download(detail)) => Self::Download(detail.clone()),
+            UpdateError::Refused(ManifestError::Install(detail)) => Self::Install(detail.clone()),
+            UpdateError::Refused(ManifestError::Config(detail)) => Self::Config(detail.clone()),
+            UpdateError::Refused(ManifestError::Io(detail)) | UpdateError::Io(detail) => {
+                Self::Files(detail.to_string())
+            }
+            UpdateError::NotInstallable => Self::NotInstallable,
+        }
+    }
+}
+
+impl Failure {
+    /// The words for the trader; call it on the UI thread.
+    pub(crate) fn text(&self) -> String {
+        match self {
+            Self::Network(detail) => t!("update.failed.network", detail = detail),
+            Self::NoRelease => t!("update.failed.no_release"),
+            Self::Status { status, url } => t!("update.failed.status", status = status, url = url),
+            Self::Manifest(detail) => t!("update.failed.manifest", detail = detail),
+            Self::Download(detail) => t!("update.failed.download", detail = detail),
+            Self::Install(detail) => t!("update.failed.install", detail = detail),
+            Self::Config(detail) => t!("update.failed.config", detail = detail),
+            Self::Files(detail) => t!("update.failed.files", detail = detail),
+            Self::NotInstallable => t!("update.failed.not_installable"),
+            Self::Words(words) => words.clone(),
+            Self::Stopped(Job::Check, error) => t!("update.failed.check_stopped", error = error),
+            Self::Stopped(Job::Download, error) => t!("update.failed.download_stopped", error = error),
+            Self::Stopped(Job::Install, error) => t!("update.failed.install_stopped", error = error),
+        }
+    }
 }
 
 /// Everything the settings page shows.
@@ -155,23 +230,19 @@ impl State {
     /// The line under the version on the settings page.
     pub(crate) fn status(&self) -> String {
         match &self.phase {
-            Phase::Idle if self.automatic() => "Sẽ tự kiểm tra bản mới sau khi mở ứng dụng".to_owned(),
-            Phase::Idle => "Chưa kiểm tra bản mới".to_owned(),
-            Phase::Checking => "Đang kiểm tra bản mới…".to_owned(),
+            Phase::Idle if self.automatic() => t!("update.status.auto"),
+            Phase::Idle => t!("update.status.never"),
+            Phase::Checking => t!("update.status.checking"),
             Phase::UpToDate => match self.checked_at.and_then(clock) {
-                Some(at) => format!("Bản mới nhất · kiểm tra lúc {at}"),
-                None => "Bản mới nhất".to_owned(),
+                Some(at) => t!("update.status.latest_at", at = at),
+                None => t!("update.status.latest"),
             },
-            Phase::Downloading(version) => format!("Đang tải bản {version}…"),
-            Phase::Ready(version) => format!("Bản {version} đã tải, sẽ cài khi khởi động lại"),
-            Phase::Available(version, Manual::FromSource) => {
-                format!("Có bản {version}: tải ở trang phát hành (bản chạy từ mã nguồn không tự cài)")
-            }
-            Phase::Available(version, Manual::ReadOnly) => {
-                format!("Có bản {version}: thư mục cài đặt không ghi được, hãy tải ở trang phát hành")
-            }
-            Phase::Available(version, Manual::Page) => format!("Có bản {version}: tải ở trang phát hành"),
-            Phase::Failed(message) => message.clone(),
+            Phase::Downloading(version) => t!("update.status.downloading", version = version),
+            Phase::Ready(version) => t!("update.status.ready", version = version),
+            Phase::Available(version, Manual::FromSource) => t!("update.status.available_source", version = version),
+            Phase::Available(version, Manual::ReadOnly) => t!("update.status.available_read_only", version = version),
+            Phase::Available(version, Manual::Page) => t!("update.status.available_page", version = version),
+            Phase::Failed(failure) => failure.text(),
         }
     }
 
@@ -202,35 +273,10 @@ fn shipped_updater() -> serde_json::Value {
     manifest["updater"].clone()
 }
 
-/// An error of the updater, in words for the trader.
-pub(crate) fn describe(error: &UpdateError) -> String {
-    match error {
-        UpdateError::Network(detail) => format!("Không kết nối được máy chủ cập nhật: {detail}"),
-        UpdateError::Status { status: 404, .. } => {
-            "Chưa có bản phát hành nào để cập nhật (máy chủ không có latest.json).".to_owned()
-        }
-        UpdateError::Status { status, url } => format!("Máy chủ cập nhật trả lỗi {status} cho {url}."),
-        UpdateError::Refused(ManifestError::Manifest(detail)) => {
-            format!("Bản phát hành bị từ chối (chữ ký hoặc nội dung không hợp lệ): {detail}")
-        }
-        UpdateError::Refused(ManifestError::Download(detail)) => {
-            format!("File tải về không khớp bản phát hành: {detail}")
-        }
-        UpdateError::Refused(ManifestError::Install(detail)) => format!("Không cài được bản mới: {detail}"),
-        UpdateError::Refused(ManifestError::Config(detail)) => format!("Cấu hình cập nhật sai: {detail}"),
-        UpdateError::Refused(ManifestError::Io(detail)) | UpdateError::Io(detail) => {
-            format!("Không ghi được file cập nhật: {detail}")
-        }
-        UpdateError::NotInstallable => {
-            "Bản phát hành này không cài được từ trong ứng dụng: hãy tải ở trang phát hành.".to_owned()
-        }
-    }
-}
-
 /// Where updates come from. A packaged release build takes its package's source and nothing else;
 /// a run from the code checks the manifest the settings name, else the GitHub Releases of `nsh.json`.
 /// A debug build never takes the package's, so it never replaces an executable.
-fn source(settings: &Settings) -> Result<Source, String> {
+fn source(settings: &Settings) -> Result<Source, Failure> {
     if !cfg!(debug_assertions)
         && let Some(source) = Source::packaged()
     {
@@ -242,7 +288,7 @@ fn source(settings: &Settings) -> Result<Source, String> {
         let key = shipped_updater()["publicKey"].as_str().map(str::to_owned);
         Source::new(Origin::Github(repository()), crate::APP_ID, VERSION, key.as_deref())
     };
-    made.map_err(|error| describe(&error))
+    made.map_err(|error| Failure::from(&error))
 }
 
 fn install_of(source: &Source) -> Install {
@@ -345,7 +391,7 @@ impl Updater {
                         self.check_if_due();
                     });
                 }
-                Err(message) => self.state.update(|s| s.phase = Phase::Failed(message)),
+                Err(message) => self.state.update(|s| s.phase = Phase::Failed(Failure::Words(message))),
             });
         });
     }
@@ -396,13 +442,13 @@ impl Updater {
         self.state.update(|s| s.phase = Phase::Checking);
         let settings = state.settings;
         spawn(async move {
-            let found = blocking(move || -> Result<Found, String> {
+            let found = blocking(move || -> Result<Found, Failure> {
                 let source = source(&settings)?;
-                let available = source.check().map_err(|error| describe(&error))?;
+                let available = source.check().map_err(|error| Failure::from(&error))?;
                 Ok(Found { source, available })
             })
             .await
-            .unwrap_or_else(|error| Err(format!("Luồng kiểm tra cập nhật bị dừng: {error}")));
+            .unwrap_or_else(|error| Err(Failure::Stopped(Job::Check, error.to_string())));
             let at = Utc::now().timestamp_millis();
             match found {
                 Err(message) => self.state.update(|s| {
@@ -445,13 +491,13 @@ impl Updater {
         let earlier = self.staged.replace(None);
         self.state.update(|s| s.phase = Phase::Downloading(version.clone()));
         spawn(async move {
-            let staged = blocking(move || -> Result<Staged, String> {
+            let staged = blocking(move || -> Result<Staged, Failure> {
                 drop(earlier);
-                let archive = source.download(&available, &dir).map_err(|error| describe(&error))?;
-                source.stage(&archive).map_err(|error| describe(&error))
+                let archive = source.download(&available, &dir).map_err(|error| Failure::from(&error))?;
+                source.stage(&archive).map_err(|error| Failure::from(&error))
             })
             .await
-            .unwrap_or_else(|error| Err(format!("Luồng tải bản mới bị dừng: {error}")));
+            .unwrap_or_else(|error| Err(Failure::Stopped(Job::Download, error.to_string())));
             match staged {
                 Ok(staged) => {
                     self.staged.replace(Some(staged));
@@ -479,9 +525,10 @@ impl Updater {
             // The restart starts the program at the path the trader knows, even once it was swapped.
             nsh_core::restart::remember_program();
             spawn(async move {
-                let finished = blocking(move || staged.finish().map_err(|error| describe(&UpdateError::from(error))))
-                    .await
-                    .unwrap_or_else(|error| Err(format!("Luồng cài bản mới bị dừng: {error}")));
+                let finished =
+                    blocking(move || staged.finish().map_err(|error| Failure::from(&UpdateError::from(error))))
+                        .await
+                        .unwrap_or_else(|error| Err(Failure::Stopped(Job::Install, error.to_string())));
                 match finished {
                     Ok(_) => nsh_core::element::desktop::restart(),
                     Err(message) => self.state.update(|s| s.phase = Phase::Failed(message)),
@@ -524,12 +571,14 @@ mod tests {
 
     #[test]
     fn the_status_line_says_where_the_update_stands() {
-        assert_eq!(state(Phase::Checking).status(), "Đang kiểm tra bản mới…");
-        assert_eq!(state(Phase::Downloading("0.4.1".into())).status(), "Đang tải bản 0.4.1…");
-        assert_eq!(state(Phase::Ready("0.4.1".into())).status(), "Bản 0.4.1 đã tải, sẽ cài khi khởi động lại");
-        assert!(state(Phase::Available("0.4.1".into(), Manual::FromSource)).status().starts_with("Có bản 0.4.1"));
-        let checked = State { checked_at: Some(Utc::now().timestamp_millis()), ..state(Phase::UpToDate) };
-        assert!(checked.status().starts_with("Bản mới nhất · kiểm tra lúc "), "{}", checked.status());
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            assert_eq!(state(Phase::Checking).status(), "Đang kiểm tra bản mới…");
+            assert_eq!(state(Phase::Downloading("0.4.1".into())).status(), "Đang tải bản 0.4.1…");
+            assert_eq!(state(Phase::Ready("0.4.1".into())).status(), "Bản 0.4.1 đã tải, sẽ cài khi khởi động lại");
+            assert!(state(Phase::Available("0.4.1".into(), Manual::FromSource)).status().starts_with("Có bản 0.4.1"));
+            let checked = State { checked_at: Some(Utc::now().timestamp_millis()), ..state(Phase::UpToDate) };
+            assert!(checked.status().starts_with("Bản mới nhất · kiểm tra lúc "), "{}", checked.status());
+        });
     }
 
     #[test]
@@ -542,6 +591,7 @@ mod tests {
     #[test]
     fn a_missing_release_reads_as_none_published_yet() {
         let error = UpdateError::Status { status: 404, url: "https://x/latest.json".into() };
-        assert!(describe(&error).starts_with("Chưa có bản phát hành"), "{}", describe(&error));
+        let said = crate::i18n::with_text(crate::i18n::Lang::Vi, move || Failure::from(&error).text());
+        assert!(said.starts_with("Chưa có bản phát hành"), "{said}");
     }
 }

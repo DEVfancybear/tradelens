@@ -370,7 +370,7 @@ fn rules_card(
 ) -> impl IntoElement {
     let saved = read(data, id, |a| a.rules.clone());
     let currency = read(data, id, |a| a.account.currency.clone());
-    let unit = unit_of(&currency);
+    let unit = unit_of(&currency).map(SharedString::from);
     let draft = RuleDraft::of(&saved);
     let everywhere = signal(false);
     let status = signal(String::new());
@@ -407,7 +407,7 @@ fn rules_card(
             .child(rule_row(
                 "Lỗ tối đa trong ngày",
                 "Chạm ngưỡng: thanh trạng thái chuyển đỏ và các lệnh vi phạm được ghi lại",
-                unit,
+                unit.clone(),
                 money_range,
                 DEFAULT_LOSS,
                 move || draft.loss.get(),
@@ -416,7 +416,7 @@ fn rules_card(
             .child(rule_row(
                 "Số lệnh tối đa mỗi ngày",
                 "Tính lệnh mở trong ngày, theo giờ chọn ở Cài đặt",
-                Some("lệnh"),
+                Some("lệnh".into()),
                 count_range,
                 DEFAULT_TRADES,
                 move || draft.trades.get(),
@@ -425,7 +425,7 @@ fn rules_card(
             .child(rule_row(
                 "Risk tối đa mỗi lệnh",
                 "Theo balance trước lệnh; cần lệnh có SL hoặc risk dự định để tính risk",
-                Some("%"),
+                Some("%".into()),
                 NumberRange::between(0.1, 100.0).stepping(0.1),
                 DEFAULT_RISK_PCT,
                 move || draft.risk.get(),
@@ -434,7 +434,7 @@ fn rules_card(
             .child(rule_row(
                 "Thua liên tiếp thì nghỉ",
                 "Lệnh vào sau chuỗi thua trong cùng ngày bị đánh dấu vi phạm",
-                Some("lệnh"),
+                Some("lệnh".into()),
                 count_range,
                 DEFAULT_STREAK,
                 move || draft.streak.get(),
@@ -555,7 +555,7 @@ fn info_card(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signal
                 "Balance ban đầu",
                 number_field(
                     "Balance ban đầu",
-                    unit_of(&currency.get_untracked()),
+                    unit_of(&currency.get_untracked()).map(Into::into),
                     NumberRange::between(0.0, 1_000_000_000.0).stepping(100.0),
                     move || initial.get(),
                     move |v| initial.set(v),

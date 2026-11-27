@@ -93,6 +93,7 @@ mod tests {
     #[component]
     fn Figures() -> impl IntoElement {
         super::super::theme::install();
+        crate::i18n::install();
         view()
             .child(pnl_text(|| "+34.4R".to_owned()))
             .child(figure_text(|| "47.1%".to_owned()))

@@ -26,7 +26,7 @@ use crate::{
 };
 
 /// What the terminal picker takes.
-const TERMINAL_FILE: Accept = Accept { name: "terminal64.exe", extensions: &["exe"] };
+const TERMINAL_FILE: Accept = Accept { name: || "terminal64.exe".to_owned(), extensions: &["exe"] };
 
 /// The sign-in form's fields, kept while the card lives.
 #[derive(Clone, Copy)]

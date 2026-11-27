@@ -18,21 +18,22 @@ use super::icons::{Icon, icon};
 
 /// Which files a drop zone or a picker takes: a name for the file dialog and the extensions
 /// (lowercase, no dot).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 pub struct Accept {
-    pub name: &'static str,
+    /// The name of the kind of file, in the language chosen (read when the dialog or a message needs it).
+    pub name: fn() -> String,
     pub extensions: &'static [&'static str],
 }
 
 impl Accept {
     /// Chart images, as `tradelens_core::attachments` stores them.
-    pub const IMAGES: Self = Self { name: "Ảnh", extensions: &IMAGE_EXTENSIONS };
+    pub const IMAGES: Self = Self { name: || t!("ui.files.images"), extensions: &IMAGE_EXTENSIONS };
     /// MT5 reports: HTML and XLSX.
-    pub const REPORTS: Self = Self { name: "Báo cáo MT5", extensions: &["html", "htm", "xlsx"] };
+    pub const REPORTS: Self = Self { name: || t!("ui.files.reports"), extensions: &["html", "htm", "xlsx"] };
 
     /// The filter the file dialog offers.
     fn filter(self) -> FileFilter {
-        FileFilter::new(self.name, self.extensions.iter().copied())
+        FileFilter::new((self.name)(), self.extensions.iter().copied())
     }
 
     /// Whether `path` has one of the extensions, in any case.
@@ -69,11 +70,11 @@ pub fn sift(paths: Vec<PathBuf>, accept: Accept, pick: Pick) -> (Vec<PathBuf>, O
     if pick == Pick::One {
         kept.truncate(1);
     }
-    (kept, (skipped > 0).then(|| format!("{skipped} file không đúng loại ({})", accept.name)))
+    (kept, (skipped > 0).then(|| t!("ui.files.skipped", n = skipped, kind = (accept.name)())))
 }
 
 /// Shows the system's open dialog for `accept`. `Ok(vec![])` when the trader cancels; the error
-/// (in Vietnamese) when the dialog could not open.
+/// (in the language chosen) when the dialog could not open.
 ///
 /// # Errors
 ///
@@ -82,7 +83,36 @@ pub async fn pick_files(accept: Accept, pick: Pick) -> Result<Vec<PathBuf>, Stri
     let dialog = OpenDialog::files().multiple(pick == Pick::Many).filter(accept.filter());
     match pick_paths(dialog).await {
         Ok(picked) => Ok(picked.unwrap_or_default()),
-        Err(error) => Err(format!("Không mở được hộp thoại chọn file: {error}")),
+        Err(error) => Err(t!("ui.files.dialog_failed", error = error)),
+    }
+}
+
+/// Why a picture could not be put on the clipboard. It is made where the copy runs (a blocking thread,
+/// which cannot read the app's text); [`CopyError::text`] says it to the trader on the UI thread.
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CopyError {
+    /// The PNG could not be decoded; the decoder's reason.
+    Unreadable(String),
+    /// The picture is wider or taller than the clipboard takes.
+    TooLarge,
+    /// Another app holds the clipboard.
+    Occupied,
+    /// The clipboard refused the picture.
+    Refused,
+}
+
+#[cfg(target_os = "windows")]
+impl CopyError {
+    /// What to tell the trader, in the language chosen; call it on the UI thread.
+    #[must_use]
+    pub fn text(&self) -> String {
+        match self {
+            Self::Unreadable(error) => t!("ui.files.copy_unreadable", error = error),
+            Self::TooLarge => t!("ui.files.copy_too_large"),
+            Self::Occupied => t!("ui.files.copy_occupied"),
+            Self::Refused => t!("ui.files.copy_refused"),
+        }
     }
 }
 
@@ -93,14 +123,14 @@ pub async fn pick_files(accept: Accept, pick: Pick) -> Result<Vec<PathBuf>, Stri
 ///
 /// # Errors
 ///
-/// The message to show when the picture cannot be decoded or the clipboard cannot be written.
+/// Why the picture cannot be decoded or the clipboard cannot be written.
 #[cfg(target_os = "windows")]
-pub fn copy_png(png: &[u8]) -> Result<(), String> {
+pub fn copy_png(png: &[u8]) -> Result<(), CopyError> {
     let picture = image::load_from_memory_with_format(png, image::ImageFormat::Png)
-        .map_err(|error| format!("Không đọc được ảnh để sao chép: {error}"))?
+        .map_err(|error| CopyError::Unreadable(error.to_string()))?
         .to_rgba8();
     let (width, height) = picture.dimensions();
-    let size = |side: u32| usize::try_from(side).map_err(|_| "Ảnh quá lớn để sao chép.".to_owned());
+    let size = |side: u32| usize::try_from(side).map_err(|_| CopyError::TooLarge);
     let data = arboard::ImageData {
         width: size(width)?,
         height: size(height)?,
@@ -109,10 +139,8 @@ pub fn copy_png(png: &[u8]) -> Result<(), String> {
     arboard::Clipboard::new().and_then(|mut clipboard| clipboard.set_image(data)).map_err(|error| {
         log::warn!("copying a picture to the clipboard: {error}");
         match error {
-            arboard::Error::ClipboardOccupied => {
-                "Clipboard đang được ứng dụng khác dùng, bấm lại sau giây lát.".to_owned()
-            }
-            _ => "Không ghi được ảnh vào clipboard.".to_owned(),
+            arboard::Error::ClipboardOccupied => CopyError::Occupied,
+            _ => CopyError::Refused,
         }
     })
 }
@@ -176,12 +204,13 @@ fn decode_data_uri(uri: &str) -> Option<(&'static str, Vec<u8>)> {
 /// when `pick` is [`Pick::One`]; files that do not pass are counted in a line inside the box.
 /// Nothing is read or copied here.
 pub fn dropzone(
-    title: &'static str,
-    hint: &'static str,
+    title: impl Into<SharedString>,
+    hint: impl IntoReactive<SharedString>,
     accept: Accept,
     pick: Pick,
     on_files: impl Fn(Vec<PathBuf>) + Clone + 'static,
 ) -> impl IntoElement {
+    let title: SharedString = title.into();
     let over = signal(false);
     let problem = signal(None::<String>);
     let deliver = move |paths: Vec<PathBuf>| {
@@ -204,7 +233,7 @@ pub fn dropzone(
     button()
         .cursor_pointer()
         .on_press(open)
-        .accessibility_label(title)
+        .accessibility_label(title.clone())
         .items_center()
         .justify_center()
         .gap_1()
@@ -291,6 +320,14 @@ mod tests {
 
     #[test]
     fn sifting_keeps_what_is_accepted_and_counts_the_rest() {
+        crate::i18n::with_text(crate::i18n::Lang::Vi, sifting_counts_the_rest);
+        let (_, note) = crate::i18n::with_text(crate::i18n::Lang::En, || {
+            sift(vec![PathBuf::from("b.txt")], Accept::IMAGES, Pick::Many)
+        });
+        assert_eq!(note.as_deref(), Some("1 file of the wrong type (Images)"));
+    }
+
+    fn sifting_counts_the_rest() {
         let files = vec![PathBuf::from("a.png"), PathBuf::from("b.txt"), PathBuf::from("c.jpg")];
         let (kept, note) = sift(files.clone(), Accept::IMAGES, Pick::Many);
         assert_eq!(kept, [PathBuf::from("a.png"), PathBuf::from("c.jpg")]);

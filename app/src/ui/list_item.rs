@@ -39,19 +39,19 @@ pub(crate) enum Side {
 
 /// A column of a [`mini_table`]: its heading and where its cells sit. The first column takes the
 /// room that is left; the others are of a fixed width.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct Column {
-    pub(crate) title: &'static str,
+    pub(crate) title: SharedString,
     pub(crate) side: Side,
 }
 
 impl Column {
-    pub(crate) const fn start(title: &'static str) -> Self {
-        Self { title, side: Side::Start }
+    pub(crate) fn start(title: impl Into<SharedString>) -> Self {
+        Self { title: title.into(), side: Side::Start }
     }
 
-    pub(crate) const fn end(title: &'static str) -> Self {
-        Self { title, side: Side::End }
+    pub(crate) fn end(title: impl Into<SharedString>) -> Self {
+        Self { title: title.into(), side: Side::End }
     }
 }
 
@@ -62,7 +62,9 @@ const CELL_WIDTH: f32 = 96.0;
 /// need no scrolling or sorting. A row with fewer cells than there are columns leaves the rest empty.
 pub(crate) fn mini_table(columns: Vec<Column>, rows: Vec<Vec<AnyElement>>) -> impl IntoElement {
     let head = view().flex_row().items_center().gap_3().px_2().pb_2().children(columns.iter().enumerate().map(
-        |(at, column)| cell(at, column.side, text(column.title).text_xs().text_color(move || theme().muted_foreground)),
+        |(at, column)| {
+            cell(at, column.side, text(column.title.clone()).text_xs().text_color(move || theme().muted_foreground))
+        },
     ));
     view().child(head).children(rows.into_iter().map(move |row| {
         view()

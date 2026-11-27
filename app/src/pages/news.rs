@@ -107,8 +107,12 @@ fn status_line(fetch: &NewsFetch, now_ms: i64, never: &'static str) -> AnyElemen
                 || " Chưa có bản nào trên máy.".to_owned(),
                 |at| format!(" Đang hiện bản tải {}.", when(at, now_ms)),
             );
-            warning_banner(format!("Không tải được lịch tin {} ({why}).{shown}", when(*failed_ms, now_ms)))
-                .into_element()
+            warning_banner(format!(
+                "Không tải được lịch tin {} ({}).{shown}",
+                when(*failed_ms, now_ms),
+                crate::news::failure_text(why)
+            ))
+            .into_element()
         }
         (None, Some(at)) => view()
             .flex_row()

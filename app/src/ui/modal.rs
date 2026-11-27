@@ -164,7 +164,7 @@ fn layer(modal: &Modal) -> impl IntoElement + use<> {
             button()
                 .cursor_pointer()
                 .on_press(scrim_press)
-                .accessibility_label("Đóng hộp thoại")
+                .accessibility_label(t!("ui.modal.close"))
                 .absolute()
                 .inset_0()
                 .bg(move || theme().background)
@@ -215,7 +215,7 @@ fn panel(modal: &Modal, dismiss: &Rc<dyn Fn()>, panel_ref: ElementRef) -> impl I
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(move || theme().popover_foreground),
                 )
-                .child(icon_action(Icon::Close, "Đóng", Variant::Ghost, move || close())),
+                .child(icon_action(Icon::Close, t!("common.close"), Variant::Ghost, move || close())),
         )
         .child(scroll().min_h(px(0.0)).child(view().px_5().pb_5().child((modal.body)())))
 }
@@ -235,6 +235,7 @@ mod tests {
     #[component]
     fn Harness() -> impl IntoElement {
         crate::ui::theme::install();
+        crate::i18n::install();
         let log = signal(Vec::<&'static str>::new());
         let note = move |what: &'static str| log.update(|all| all.push(what));
         let first = move || {

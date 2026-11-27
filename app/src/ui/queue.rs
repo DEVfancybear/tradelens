@@ -5,12 +5,12 @@ use nsh_core::prelude::*;
 
 use super::controls::{Variant, action};
 
-/// A queue row: `title` (`3 lệnh chưa ghi nhật ký`), a muted `detail` under it (the trades) and
+/// A queue row: `title` (`3 trades without a journal entry`), a muted `detail` under it (the trades) and
 /// the `action_label` button at the right, which runs `on_press`.
 pub(crate) fn queue_row(
     title: impl Into<SharedString>,
     detail: impl Into<SharedString>,
-    action_label: &'static str,
+    action_label: impl IntoReactive<SharedString>,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
     view()

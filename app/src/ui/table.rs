@@ -39,8 +39,11 @@ pub(crate) struct TableSort {
 }
 
 /// What the journal column says of a trade the trader wrote about.
-pub(crate) const JOURNALED: &str = "Đã ghi";
-/// …and of one they did not: a dash, not "Chưa ghi", which read as "the trade is not saved yet"
+pub(crate) fn journaled() -> String {
+    t!("ui.table.journaled")
+}
+
+/// …and of one they did not: a dash, not "Not written", which read as "the trade is not saved yet"
 /// for trades the MT5 sync had stored already.
 pub(crate) const NOT_JOURNALED: &str = "—";
 
@@ -111,23 +114,25 @@ fn columns(sorting: Sortable, shape: Shape) -> Vec<DataTableColumn> {
     let lot = figure_column("Lot", 5, sorting);
     let net = figure_column("Net", 11, sorting);
     let r = figure_column("R", 6, sorting);
+    let (closed_at, side, hold, journal) =
+        (t!("ui.table.closed_at"), t!("ui.table.side"), t!("ui.table.hold"), t!("ui.table.journal"));
     let mut list = match shape {
         Shape::Full => vec![
             column("select", "", SELECT_WIDTH, No, Start),
-            column("time", "Đóng lúc", 108.0, sorting, Start),
+            column("time", &closed_at, 108.0, sorting, Start),
             column("symbol", "Symbol", 104.0, sorting, Start),
-            column("side", "Chiều", 68.0, No, Start),
+            column("side", &side, 68.0, No, Start),
             column("lot", "Lot", lot, sorting, End),
-            column("hold", "Thời gian giữ", figure_column("Thời gian giữ", 8, sorting), sorting, End),
+            column("hold", &hold, figure_column(&hold, 8, sorting), sorting, End),
             column("net", "Net", net, sorting, End),
             column("r", "R", r, sorting, End),
             column("setup", "Setup", SETUP_MIN, No, Start),
-            column("journal", "Nhật ký", 88.0, No, Start),
+            column("journal", &journal, 88.0, No, Start),
         ],
         Shape::Recent => vec![
-            column("time", "Đóng lúc", 108.0, sorting, Start),
+            column("time", &closed_at, 108.0, sorting, Start),
             column("symbol", "Symbol", 104.0, sorting, Start),
-            column("side", "Chiều", 68.0, No, Start),
+            column("side", &side, 68.0, No, Start),
             column("lot", "Lot", lot, sorting, End),
             column("net", "Net", net, sorting, End),
             column("r", "R", r, sorting, End),
@@ -229,7 +234,7 @@ fn cell(cell: &DataTableCell, sorting: Sortable, on_open: impl Fn(usize) + Copy 
         "symbol" => button()
             .cursor_pointer()
             .on_press(move || on_open(row))
-            .accessibility_label(format!("Mở nhật ký lệnh {shown}"))
+            .accessibility_label(t!("ui.table.open_journal", trade = shown))
             .px_1()
             .rounded(px(4.0))
             .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
@@ -252,7 +257,7 @@ fn cell(cell: &DataTableCell, sorting: Sortable, on_open: impl Fn(usize) + Copy 
         }
         "setup" if !shown.is_empty() => chip(shown, Tone::Neutral).into_element(),
         "journal" => {
-            let written = shown.as_ref() == JOURNALED;
+            let written = !shown.is_empty() && shown.as_ref() != NOT_JOURNALED;
             text(shown)
                 .text_sm()
                 .text_color(move || if written { theme().primary } else { theme().muted_foreground })
@@ -329,7 +334,7 @@ fn build(
     view().flex_1().min_w(px(0.0)).child(
         data_table()
             .flex_1()
-            .accessibility_label("Danh sách lệnh")
+            .accessibility_label(t!("ui.table.label"))
             .columns(columns(sortable, shape))
             .data(move || rows_of(&rows()))
             .row_height(px(ROW_HEIGHT))

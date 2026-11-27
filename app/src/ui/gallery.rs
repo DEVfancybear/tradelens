@@ -1,8 +1,8 @@
 //! The picture gallery of an entry (a trade, a missed trade, a setup): a wrapping grid of
-//! thumbnails with a caption, ending in the "Thêm ảnh" tile that takes several files from the file
+//! thumbnails with a caption, ending in the "Add pictures" tile that takes several files from the file
 //! dialog, from a drop on the gallery, or from Ctrl+V.
 //!
-//! Pressing a thumbnail (or Enter on it, or its "Xem" button) opens the picture full size in the
+//! Pressing a thumbnail (or Enter on it, or its "View" button) opens the picture full size in the
 //! [viewer](super::viewer). The tile's actions sit over its top-right corner: a handle to reorder
 //! (drag, or the arrow keys), always there, and "Xem" and the remove button, which show while the
 //! pointer is over the tile or the keyboard focus is in it. A removed picture is gone at once and
@@ -41,16 +41,18 @@ const UNDO_WINDOW: Duration = Duration::from_secs(6);
 /// The size of the small buttons over a tile's corner.
 const CHIP: f32 = 24.0;
 
-/// The gallery of `items`, named `label` (`"Ảnh chart"`) for screen readers, whose tiles read
+/// The gallery of `items`, named `label` (`"Chart pictures"`) for screen readers, whose tiles read
 /// "label 1", "label 2". `items` is read where it is bound, so it follows a signal; `on_change`
 /// hears the whole new list after a reorder, a removal or an import, with no duplicates.
 ///
 /// One gallery should be on screen at a time: Ctrl+V pastes into every gallery that is mounted.
 pub fn gallery(
-    label: &'static str,
+    label: impl Into<SharedString>,
     items: impl Fn() -> Vec<Attachment> + Copy + 'static,
     on_change: impl Fn(Vec<Attachment>) + Copy + 'static,
 ) -> impl IntoElement {
+    let label: SharedString = label.into();
+    let tile_label = label.clone();
     let folder = data_dir().map(|dir| dir.join("attachments"));
     let notice = signal(None::<String>);
     let columns = signal(1_usize);
@@ -60,7 +62,7 @@ pub fn gallery(
     let owner = Owner::current();
     let on_change = move |list: Vec<Attachment>| owner.run(|| on_change(list));
     let removed = signal(None::<Removed>);
-    let hooks = hooks(label, folder.as_deref(), items, on_change, removed);
+    let hooks = hooks(label.clone(), folder.as_deref(), items, on_change, removed);
     let undo = move || bring_back(removed, items, on_change);
     let intake: Rc<dyn Fn(Vec<PathBuf>)> = {
         let folder = folder.clone();
@@ -78,7 +80,7 @@ pub fn gallery(
         spawn(async move {
             let images = pasted_images().await;
             if images.is_empty() {
-                notice.set(Some("Clipboard không có ảnh hay file ảnh.".to_owned()));
+                notice.set(Some(t!("ui.gallery.no_clipboard_image")));
             } else {
                 pasted(images);
             }
@@ -107,7 +109,7 @@ pub fn gallery(
                             .enumerate()
                             .map(|(index, item)| {
                                 let place = Tile {
-                                    label,
+                                    label: tile_label.clone(),
                                     index,
                                     len,
                                     file: folder.as_deref().map(|dir| item.file_in(dir)),
@@ -118,7 +120,7 @@ pub fn gallery(
                             .collect::<Vec<_>>()
                     })
                 }))
-                .child(add_tile(label, move || {
+                .child(add_tile(&label, move || {
                     let picked = Rc::clone(&picked);
                     spawn(async move {
                         match pick_files(Accept::IMAGES, Pick::Many).await {
@@ -138,8 +140,8 @@ pub fn gallery(
                         .flex_row()
                         .items_center()
                         .gap_2()
-                        .child(text("Đã xoá ảnh ·").text_xs().text_color(move || theme().muted_foreground))
-                        .child(link("Hoàn tác", undo))
+                        .child(text(t!("ui.gallery.removed")).text_xs().text_color(move || theme().muted_foreground))
+                        .child(link(t!("ui.gallery.undo"), undo))
                 })
             })
         }))
@@ -170,7 +172,7 @@ struct Hooks {
 /// in `removed` for [`UNDO_WINDOW`]. Call while building the gallery: the timer and the viewer
 /// belong to its owner.
 fn hooks(
-    label: &'static str,
+    label: SharedString,
     folder: Option<&std::path::Path>,
     items: impl Fn() -> Vec<Attachment> + Copy + 'static,
     on_change: impl Fn(Vec<Attachment>) + Copy + 'static,
@@ -197,7 +199,7 @@ fn hooks(
         })
     };
     let view: Rc<dyn Fn(usize)> = Rc::new(move |index| {
-        viewer::open(Request::new(label, Rc::clone(&slides), index, Rc::clone(&restore)));
+        viewer::open(Request::new(label.clone(), Rc::clone(&slides), index, Rc::clone(&restore)));
     });
     let remove: Rc<dyn Fn(usize)> = Rc::new(move |index| {
         let mut list = items();
@@ -247,11 +249,11 @@ fn detail_of(item: &Attachment) -> String {
     let added = (item.added_at > 0)
         .then(|| chrono::DateTime::from_timestamp_millis(item.added_at))
         .flatten()
-        .map(|time| format!("Thêm lúc {}", time.with_timezone(&chrono::Local).format("%d/%m/%Y %H:%M")));
+        .map(|time| t!("ui.gallery.added_at", time = time.with_timezone(&chrono::Local).format("%d/%m/%Y %H:%M")));
     let taken = match item.source {
         Source::Upload => None,
-        Source::EaEntry => Some("chụp lúc vào lệnh".to_owned()),
-        Source::EaExit => Some("chụp lúc thoát lệnh".to_owned()),
+        Source::EaEntry => Some(t!("ui.gallery.taken_at_entry")),
+        Source::EaExit => Some(t!("ui.gallery.taken_at_exit")),
     };
     [added, taken].into_iter().flatten().collect::<Vec<_>>().join(" · ")
 }
@@ -266,7 +268,7 @@ fn store(
     notice: Signal<Option<String>>,
 ) {
     let Some(folder) = folder else {
-        notice.set(Some("Chưa có thư mục dữ liệu để lưu ảnh.".to_owned()));
+        notice.set(Some(t!("ui.gallery.no_folder")));
         return;
     };
     spawn(async move {
@@ -284,7 +286,7 @@ fn store(
                     notice.set(problems);
                 }
             }
-            Err(error) => notice.set(Some(format!("Luồng lưu ảnh bị dừng: {error}"))),
+            Err(error) => notice.set(Some(t!("ui.gallery.store_stopped", error = error))),
         }
     });
 }
@@ -304,7 +306,7 @@ fn digest(results: Vec<Result<Attachment, AttachError>>) -> (Vec<Attachment>, Op
 
 /// What a tile shows of its picture and where it stands in the list.
 struct Tile {
-    label: &'static str,
+    label: SharedString,
     index: usize,
     len: usize,
     /// The picture's file in the data folder's `attachments/`.
@@ -364,8 +366,8 @@ fn tile(
         .opacity(0.0_f32)
         .group_hover(|s| s.opacity(1.0))
         .group_focus_within(|s| s.opacity(1.0))
-        .child(chip_button(Icon::Eye, Some("Xem"), format!("Xem {name}"), open_too))
-        .child(chip_button(Icon::Close, None, format!("Xoá {name}"), take_out));
+        .child(chip_button(Icon::Eye, Some(t!("ui.gallery.view")), t!("ui.gallery.view_tile", name = name), open_too))
+        .child(chip_button(Icon::Close, None, t!("ui.gallery.remove", name = name), take_out));
     view()
         .w(px(TILE_WIDTH))
         .group()
@@ -377,7 +379,7 @@ fn tile(
                         .element_ref(&button_ref)
                         .cursor_pointer()
                         .on_press(open)
-                        .accessibility_label(format!("Phóng to {name}"))
+                        .accessibility_label(t!("ui.gallery.zoom", name = name))
                         .w_full()
                         .h(px(TILE_IMAGE))
                         .rounded(move || theme().radius)
@@ -393,7 +395,7 @@ fn tile(
                         .items_center()
                         .gap_1()
                         .child(actions)
-                        .child(drag_handle(format!("Kéo để đổi thứ tự {name}"), by_drag, by_key)),
+                        .child(drag_handle(t!("ui.reorder.drag", name = name), by_drag, by_key)),
                 ),
         )
         .child(view().justify_center().h(px(TILE_CAPTION)).child(
@@ -403,12 +405,7 @@ fn tile(
 
 /// A small button over a tile's corner: an icon, and a word after it when `word` is given.
 /// `label` is what screen readers say and tests press.
-fn chip_button(
-    glyph: Icon,
-    word: Option<&'static str>,
-    label: String,
-    on_press: impl Fn() + 'static,
-) -> impl IntoElement {
+fn chip_button(glyph: Icon, word: Option<String>, label: String, on_press: impl Fn() + 'static) -> impl IntoElement {
     button()
         .cursor_pointer()
         .on_press(on_press)
@@ -432,11 +429,11 @@ fn chip_button(
 }
 
 /// The tile that adds pictures: press it for the file dialog, or drop files on the gallery.
-fn add_tile(label: &'static str, on_press: impl Fn() + 'static) -> impl IntoElement {
+fn add_tile(label: &SharedString, on_press: impl Fn() + 'static) -> impl IntoElement {
     button()
         .cursor_pointer()
         .on_press(on_press)
-        .accessibility_label(format!("Thêm ảnh vào {label}"))
+        .accessibility_label(t!("ui.gallery.add_to", label = label))
         .w(px(TILE_WIDTH))
         .h(px(TILE_IMAGE))
         .items_center()
@@ -449,8 +446,8 @@ fn add_tile(label: &'static str, on_press: impl Fn() + 'static) -> impl IntoElem
         .hover(|s| s.bg(move || theme().accent))
         .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
         .child(icon(Icon::Plus, 20.0).text_color(move || theme().muted_foreground))
-        .child(text("Thêm ảnh").text_xs().font_weight(FontWeight::MEDIUM))
-        .child(text("chọn nhiều, kéo thả, Ctrl+V").text_xs().text_color(move || theme().muted_foreground))
+        .child(text(t!("ui.gallery.add")).text_xs().font_weight(FontWeight::MEDIUM))
+        .child(text(t!("ui.gallery.add_hint")).text_xs().text_color(move || theme().muted_foreground))
 }
 
 #[cfg(test)]
@@ -508,25 +505,30 @@ mod tests {
     #[component]
     fn Harness() -> impl IntoElement {
         super::super::theme::install();
+        crate::i18n::install();
         let list = signal(vec![
             shot("images/a.png", Source::EaEntry, "bối cảnh", Some("h4")),
             shot("images/b.png", Source::Upload, "retest", Some("m5")),
             shot("images/c.png", Source::EaExit, "", None),
         ]);
         // Like the window: the page, then the viewer over it as the last child.
-        view()
-            .flex_1()
-            .child(
-                view().p_4().gap_3().child(gallery("Ảnh chart", move || list.get(), move |next| list.set(next))).child(
-                    text(move || {
-                        format!(
-                            "order {}",
-                            list.with(|l| l.iter().map(|a| a.path.as_str()).collect::<Vec<_>>().join(","))
-                        )
-                    }),
-                ),
-            )
-            .child(super::super::viewer::overlay())
+        crate::i18n::translated(move || {
+            view()
+                .flex_1()
+                .child(
+                    view()
+                        .p_4()
+                        .gap_3()
+                        .child(gallery("Ảnh chart", move || list.get(), move |next| list.set(next)))
+                        .child(text(move || {
+                            format!(
+                                "order {}",
+                                list.with(|l| l.iter().map(|a| a.path.as_str()).collect::<Vec<_>>().join(","))
+                            )
+                        })),
+                )
+                .child(super::super::viewer::overlay())
+        })
     }
 
     fn fixture() -> (tempfile::TempDir, Headless) {
@@ -764,11 +766,13 @@ mod tests {
 
     #[test]
     fn the_viewer_says_when_the_picture_was_added() {
-        let added = Attachment { added_at: 1_700_000_000_000, ..shot("a", Source::EaEntry, "", None) };
-        let detail = detail_of(&added);
-        assert!(detail.starts_with("Thêm lúc "), "{detail}");
-        assert!(detail.ends_with("· chụp lúc vào lệnh"), "{detail}");
-        assert_eq!(detail_of(&shot("a", Source::Upload, "", None)), "", "an upload with no time says nothing");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let added = Attachment { added_at: 1_700_000_000_000, ..shot("a", Source::EaEntry, "", None) };
+            let detail = detail_of(&added);
+            assert!(detail.starts_with("Thêm lúc "), "{detail}");
+            assert!(detail.ends_with("· chụp lúc vào lệnh"), "{detail}");
+            assert_eq!(detail_of(&shot("a", Source::Upload, "", None)), "", "an upload with no time says nothing");
+        });
     }
 
     #[test]

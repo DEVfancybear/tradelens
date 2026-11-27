@@ -1,0 +1,69 @@
+_version: 2
+
+# The updater: the status line and what a failed update says.
+update.status.auto:
+  vi: "Sẽ tự kiểm tra bản mới sau khi mở ứng dụng"
+  en: "Will check for a new version after the app opens"
+update.status.never:
+  vi: "Chưa kiểm tra bản mới"
+  en: "No check for a new version yet"
+update.status.checking:
+  vi: "Đang kiểm tra bản mới…"
+  en: "Checking for a new version…"
+update.status.latest_at:
+  vi: "Bản mới nhất · kiểm tra lúc %{at}"
+  en: "Up to date · checked at %{at}"
+update.status.latest:
+  vi: "Bản mới nhất"
+  en: "Up to date"
+update.status.downloading:
+  vi: "Đang tải bản %{version}…"
+  en: "Downloading version %{version}…"
+update.status.ready:
+  vi: "Bản %{version} đã tải, sẽ cài khi khởi động lại"
+  en: "Version %{version} is downloaded and installs on restart"
+update.status.available_source:
+  vi: "Có bản %{version}: tải ở trang phát hành (bản chạy từ mã nguồn không tự cài)"
+  en: "Version %{version} is available: download it from the release page (a build run from source does not install itself)"
+update.status.available_read_only:
+  vi: "Có bản %{version}: thư mục cài đặt không ghi được, hãy tải ở trang phát hành"
+  en: "Version %{version} is available: the install folder is not writable, download it from the release page"
+update.status.available_page:
+  vi: "Có bản %{version}: tải ở trang phát hành"
+  en: "Version %{version} is available: download it from the release page"
+update.failed.network:
+  vi: "Không kết nối được máy chủ cập nhật: %{detail}"
+  en: "Could not reach the update server: %{detail}"
+update.failed.no_release:
+  vi: "Chưa có bản phát hành nào để cập nhật (máy chủ không có latest.json)."
+  en: "No release to update to yet (the server has no latest.json)."
+update.failed.status:
+  vi: "Máy chủ cập nhật trả lỗi %{status} cho %{url}."
+  en: "The update server answered %{status} for %{url}."
+update.failed.manifest:
+  vi: "Bản phát hành bị từ chối (chữ ký hoặc nội dung không hợp lệ): %{detail}"
+  en: "The release was refused (its signature or content is not valid): %{detail}"
+update.failed.download:
+  vi: "File tải về không khớp bản phát hành: %{detail}"
+  en: "The downloaded file does not match the release: %{detail}"
+update.failed.install:
+  vi: "Không cài được bản mới: %{detail}"
+  en: "Could not install the new version: %{detail}"
+update.failed.config:
+  vi: "Cấu hình cập nhật sai: %{detail}"
+  en: "The update settings are wrong: %{detail}"
+update.failed.files:
+  vi: "Không ghi được file cập nhật: %{detail}"
+  en: "Could not write the update files: %{detail}"
+update.failed.not_installable:
+  vi: "Bản phát hành này không cài được từ trong ứng dụng: hãy tải ở trang phát hành."
+  en: "This release cannot be installed from inside the app: download it from the release page."
+update.failed.check_stopped:
+  vi: "Luồng kiểm tra cập nhật bị dừng: %{error}"
+  en: "The update-check task stopped: %{error}"
+update.failed.download_stopped:
+  vi: "Luồng tải bản mới bị dừng: %{error}"
+  en: "The download task stopped: %{error}"
+update.failed.install_stopped:
+  vi: "Luồng cài bản mới bị dừng: %{error}"
+  en: "The install task stopped: %{error}"

@@ -808,7 +808,7 @@ fn form_fields(fields: Fields, timeframes: Reading<Vec<CatalogItem>>) -> impl In
                     "Risk mặc định",
                     number_field(
                         "Risk mặc định",
-                        Some("%"),
+                        Some("%".into()),
                         NumberRange::between(0.0, 100.0).stepping(0.25),
                         move || risk.get(),
                         move |next| risk.set(next),

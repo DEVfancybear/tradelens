@@ -1,7 +1,8 @@
 //! Text for numbers and times, the way MT5 shows them: a dot for decimals, a comma
 //! between thousands, a real minus sign. Pure functions, so the pages stay declarative.
 
-use chrono::NaiveDateTime;
+use chrono::{NaiveDateTime, Weekday};
+use nsh_core::t;
 
 /// The minus sign (U+2212), as the design shows losses.
 const MINUS: char = '\u{2212}';
@@ -194,16 +195,95 @@ pub(crate) fn result_cells(
     r: Option<f64>,
     column: MoneyColumn,
 ) -> (String, Option<String>) {
-    const OPEN: &str = "đang mở";
     if position == Position::Open {
         // An open position has nothing to give in R, so the word stands in the last column.
+        let open = t!("format.open");
         return match column {
-            MoneyColumn::Shown => ("—".to_owned(), Some(OPEN.to_owned())),
-            MoneyColumn::Dropped => (OPEN.to_owned(), None),
+            MoneyColumn::Shown => ("—".to_owned(), Some(open)),
+            MoneyColumn::Dropped => (open, None),
         };
     }
     let money = (column == MoneyColumn::Shown).then(|| money.unwrap_or_else(|| "—".to_owned()));
     (r_text(r), money)
+}
+
+/// The name of a weekday: `Thứ 7`, `Chủ nhật` (`Saturday`, `Sunday`).
+pub(crate) fn weekday_name(day: Weekday) -> String {
+    match day {
+        Weekday::Mon => t!("format.weekday.mon"),
+        Weekday::Tue => t!("format.weekday.tue"),
+        Weekday::Wed => t!("format.weekday.wed"),
+        Weekday::Thu => t!("format.weekday.thu"),
+        Weekday::Fri => t!("format.weekday.fri"),
+        Weekday::Sat => t!("format.weekday.sat"),
+        Weekday::Sun => t!("format.weekday.sun"),
+    }
+}
+
+/// A weekday as a column head asks for it: `T7`, `CN` (`Sat`, `Sun`).
+pub(crate) fn weekday_short(day: Weekday) -> String {
+    match day {
+        Weekday::Mon => t!("format.weekday_short.mon"),
+        Weekday::Tue => t!("format.weekday_short.tue"),
+        Weekday::Wed => t!("format.weekday_short.wed"),
+        Weekday::Thu => t!("format.weekday_short.thu"),
+        Weekday::Fri => t!("format.weekday_short.fri"),
+        Weekday::Sat => t!("format.weekday_short.sat"),
+        Weekday::Sun => t!("format.weekday_short.sun"),
+    }
+}
+
+/// Keys of the months' names, January first.
+const MONTH_KEYS: [&str; 12] = [
+    "format.month.1",
+    "format.month.2",
+    "format.month.3",
+    "format.month.4",
+    "format.month.5",
+    "format.month.6",
+    "format.month.7",
+    "format.month.8",
+    "format.month.9",
+    "format.month.10",
+    "format.month.11",
+    "format.month.12",
+];
+
+/// Keys of the months' short names, January first.
+const MONTH_SHORT_KEYS: [&str; 12] = [
+    "format.month_short.1",
+    "format.month_short.2",
+    "format.month_short.3",
+    "format.month_short.4",
+    "format.month_short.5",
+    "format.month_short.6",
+    "format.month_short.7",
+    "format.month_short.8",
+    "format.month_short.9",
+    "format.month_short.10",
+    "format.month_short.11",
+    "format.month_short.12",
+];
+
+/// The name of a month (1 to 12): `Tháng 11` (`November`); empty for a number that is no month.
+pub(crate) fn month_name(month: u32) -> String {
+    month_key(&MONTH_KEYS, month).map_or_else(String::new, |key| t!(key))
+}
+
+/// The short name of a month (1 to 12): `Th 11` (`Nov`); empty for a number that is no month.
+pub(crate) fn month_short(month: u32) -> String {
+    month_key(&MONTH_SHORT_KEYS, month).map_or_else(String::new, |key| t!(key))
+}
+
+/// The key of month `month` (1 to 12) in `keys`.
+fn month_key(keys: &[&'static str; 12], month: u32) -> Option<&'static str> {
+    let index = usize::try_from(month.checked_sub(1)?).ok()?;
+    keys.get(index).copied()
+}
+
+/// A number of trades: `1 trade`, `12 trades` (in Vietnamese the count is the same either way).
+pub(crate) fn trade_count(count: usize) -> String {
+    if count == 1 { t!("format.trade_count.one", n = count) } else { t!("format.trade_count.other", n = count) }
 }
 
 /// Whether a displayed amount is a loss (starts with a minus sign).
@@ -294,6 +374,10 @@ mod tests {
 
     #[test]
     fn a_day_list_never_prints_r_as_money() {
+        crate::i18n::with_text(crate::i18n::Lang::Vi, day_list_never_prints_r_as_money);
+    }
+
+    fn day_list_never_prints_r_as_money() {
         use {
             MoneyColumn::{Dropped, Shown},
             Position::{Closed, Open},
@@ -310,6 +394,22 @@ mod tests {
         assert_eq!(result_cells(Open, None, None, Dropped), ("đang mở".to_owned(), None));
         assert_eq!(MoneyColumn::from(true), Shown);
         assert_eq!(Position::from(false), Open);
+    }
+
+    #[test]
+    fn an_open_position_and_a_count_of_trades_are_said_in_the_chosen_language() {
+        use crate::i18n::{Lang, with_text};
+        assert_eq!(with_text(Lang::En, || result_cells(Position::Open, None, None, MoneyColumn::Dropped).0), "open");
+        assert_eq!(with_text(Lang::Vi, || trade_count(3)), "3 lệnh");
+        assert_eq!(with_text(Lang::En, || trade_count(1)), "1 trade");
+        assert_eq!(with_text(Lang::En, || trade_count(3)), "3 trades");
+        assert_eq!(with_text(Lang::Vi, || weekday_name(Weekday::Sun)), "Chủ nhật");
+        assert_eq!(with_text(Lang::En, || weekday_name(Weekday::Sat)), "Saturday");
+        assert_eq!(with_text(Lang::Vi, || weekday_short(Weekday::Sun)), "CN");
+        assert_eq!(with_text(Lang::Vi, || month_name(11)), "Tháng 11");
+        assert_eq!(with_text(Lang::En, || month_name(11)), "November");
+        assert_eq!(with_text(Lang::En, || month_short(12)), "Dec");
+        assert_eq!(with_text(Lang::En, || month_name(0)), "");
     }
 
     #[test]

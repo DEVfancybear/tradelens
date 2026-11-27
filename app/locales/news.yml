@@ -1,0 +1,12 @@
+_version: 2
+
+# The news fetch: what a failed fetch says (news.rs).
+news.failed.network:
+  vi: "không kết nối được máy chủ lịch tin, hãy kiểm tra mạng"
+  en: "could not reach the news server, check your network"
+news.failed.service:
+  vi: "máy chủ lịch tin trả lỗi %{status}"
+  en: "the news server answered %{status}"
+news.failed.stopped:
+  vi: "luồng tải lịch tin bị dừng: %{error}"
+  en: "the news download task stopped: %{error}"

@@ -25,7 +25,7 @@ use crate::{
         },
         icons::Icon,
         parts::page_fill,
-        table::{JOURNALED, NOT_JOURNALED, Sorting, TableSort, TradeCells, trades_table},
+        table::{NOT_JOURNALED, Sorting, TableSort, TradeCells, journaled, trades_table},
     },
 };
 
@@ -72,7 +72,7 @@ pub(crate) fn cells_of(row: &TradeRow) -> TradeCells {
         },
         r: if closed { format::r_text(row.r) } else { "—".to_owned() },
         setup: row.setup.clone(),
-        journal: (if row.journaled { JOURNALED } else { NOT_JOURNALED }).to_owned(),
+        journal: if row.journaled { journaled() } else { NOT_JOURNALED.to_owned() },
     }
 }
 

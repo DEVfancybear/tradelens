@@ -30,10 +30,11 @@ use crate::{
 };
 
 /// What the report importer takes: MT5's HTML and XLSX, and the JSON the Python script writes.
-const REPORT_FILES: Accept = Accept { name: "Báo cáo MT5 hoặc JSON", extensions: &["html", "htm", "xlsx", "json"] };
+const REPORT_FILES: Accept =
+    Accept { name: || "Báo cáo MT5 hoặc JSON".to_owned(), extensions: &["html", "htm", "xlsx", "json"] };
 
 /// What the Notion importer takes: the CSV, or the zip Notion writes with the images beside it.
-const NOTION_FILES: Accept = Accept { name: "CSV hoặc ZIP của Notion", extensions: &["csv", "zip"] };
+const NOTION_FILES: Accept = Accept { name: || "CSV hoặc ZIP của Notion".to_owned(), extensions: &["csv", "zip"] };
 
 /// What the trader runs, in `python/`, to write the history of the open terminal to a file.
 const PYTHON_COMMAND: &str = "python tradelens_sync.py --days 365 --out deals.json";
@@ -840,21 +841,23 @@ mod tests {
 
     #[test]
     fn a_summary_lists_what_changed_and_nothing_else() {
-        let quiet = notion::NotionImportReport { created: 3, ..notion::NotionImportReport::default() };
-        assert_eq!(summary_lines(&quiet), ["Đã nhập 3 lệnh mới · 0 cập nhật · 0 không đổi"]);
-        let busy = notion::NotionImportReport {
-            created: 2,
-            updated: 1,
-            matched_mt5: 1,
-            properties_created: vec![PropertyCreated { label: "Mood".into(), kind: FieldKind::Select }],
-            properties_reused: vec!["Setup".into()],
-            options_added: 4,
-            ..notion::NotionImportReport::default()
-        };
-        let lines = summary_lines(&busy);
-        assert_eq!(lines.len(), 5);
-        assert!(lines[2].contains("Mood (Chọn một)"), "{}", lines[2]);
-        assert!(lines[4].starts_with("4 lựa chọn mới"));
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let quiet = notion::NotionImportReport { created: 3, ..notion::NotionImportReport::default() };
+            assert_eq!(summary_lines(&quiet), ["Đã nhập 3 lệnh mới · 0 cập nhật · 0 không đổi"]);
+            let busy = notion::NotionImportReport {
+                created: 2,
+                updated: 1,
+                matched_mt5: 1,
+                properties_created: vec![PropertyCreated { label: "Mood".into(), kind: FieldKind::Select }],
+                properties_reused: vec!["Setup".into()],
+                options_added: 4,
+                ..notion::NotionImportReport::default()
+            };
+            let lines = summary_lines(&busy);
+            assert_eq!(lines.len(), 5);
+            assert!(lines[2].contains("Mood (Chọn một)"), "{}", lines[2]);
+            assert!(lines[4].starts_with("4 lựa chọn mới"));
+        });
     }
 
     #[test]
