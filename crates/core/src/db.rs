@@ -1397,19 +1397,27 @@ fn upsert_account_on(conn: &Connection, info: &AccountInfo) -> Result<i64> {
     if login.is_empty() {
         return Err(DbError::Invalid("thiếu số tài khoản".into()));
     }
-    let key = join_key(&[login, info.server.trim()]);
+    let server = info.server.trim();
+    let key = join_key(&[login, server]);
+    let known: bool = conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM accounts WHERE login = ?1 AND server = ?2)",
+        [login, server],
+        |r| r.get(0),
+    )?;
     let id = sync::logged(conn, entity::ACCOUNT, Some(&key), || {
         let id = upsert_account_row(conn, info, login)?;
         Ok((key.clone(), id))
     })?;
-    adopt_shared_rules(conn, id, &key)?;
+    if !known {
+        adopt_shared_rules(conn, id, &key)?;
+    }
     Ok(id)
 }
 
-/// Gives the account `id` the discipline rules the trader already keeps, when it never had rules
-/// of its own: the rules are the trader's, and an account added later (a new MT5 login, an
-/// import) is judged by them at once. An account whose rules were saved, even all off, keeps them.
-/// The rules come from the first account (by id) with some rule on, as the dashboard picks them.
+/// Gives the account `id`, just added (a new MT5 login, an import), the discipline rules the trader
+/// already keeps, so that it is judged by them at once. Only a new account: one stored before
+/// without rules may have been left so on purpose. The rules come from the first account (by id)
+/// with some rule on.
 fn adopt_shared_rules(conn: &Connection, id: i64, key: &str) -> Result<()> {
     let has_own: bool =
         conn.query_row("SELECT EXISTS (SELECT 1 FROM rules WHERE account_id = ?1)", [id], |r| r.get(0))?;

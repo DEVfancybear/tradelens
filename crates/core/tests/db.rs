@@ -530,6 +530,21 @@ fn an_account_added_later_is_judged_by_the_rules_the_trader_keeps() {
 }
 
 #[test]
+fn an_account_stored_before_without_rules_is_left_without_them() {
+    let mut db = Db::in_memory().expect("db");
+    // A demo account the trader kept free of rules, from before the rules were shared.
+    let demo = db.upsert_account(&info(1000.0)).expect("an account without rules");
+    let live = db.upsert_account(&AccountInfo { login: "777".into(), ..info(500.0) }).expect("a second account");
+    let rules = Rules { max_daily_loss: Some(50.0), ..Rules::default() };
+    db.save_rules(live, &rules).expect("rules on the second account");
+
+    db.upsert_account(&info(1100.0)).expect("the demo account polled again");
+    assert_eq!(db.rules(demo).expect("rules"), Rules::default(), "an account seen again does not take rules");
+    let fresh = db.upsert_account(&AccountInfo { login: "888".into(), ..info(0.0) }).expect("a new account");
+    assert_eq!(db.rules(fresh).expect("rules"), rules, "a new account still does");
+}
+
+#[test]
 fn checklists_keep_item_ids_and_separate_global_from_account_items() {
     let mut db = Db::in_memory().unwrap();
     let account_id = db.upsert_account(&info(1000.0)).unwrap();
