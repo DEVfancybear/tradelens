@@ -60,7 +60,7 @@ const NOTION_URL_SETTING: &str = "cloud.notion.base_url";
 pub const CREDENTIALS_SETTING: &str = "cloud.credentials";
 
 /// The demo's drive name when the setting names none.
-const DEFAULT_DEMO_DRIVE: &str = "mặc định";
+const DEFAULT_DEMO_DRIVE: &str = "mặc định"; // i18n: stored data
 
 /// How often the app syncs by itself when it is switched on.
 pub(crate) const AUTO_SYNC_EVERY: Duration = Duration::from_mins(15);
@@ -141,7 +141,7 @@ impl Env {
             .or_else(|| std::env::var("HOSTNAME").ok())
             .filter(|name| !name.trim().is_empty())
             // The name other devices list this one under: data shared through the drive, so one language.
-            .unwrap_or_else(|| "Máy này".to_owned())
+            .unwrap_or_else(|| "Máy này".to_owned()) // i18n: stored data
     }
 
     /// What is missing to sign in with `provider`; `None` when it can be done (the demo needs nothing).
@@ -394,7 +394,9 @@ fn identities(env: &Env) -> Vec<Identity> {
             .into_iter()
             .filter(|p| env.get(DEMO_USER_SETTING).as_deref() == Some(p.key()))
             .map(|provider| Identity {
-                provider, email: DEMO_EMAIL.to_owned(), name: "Người dùng thử".to_owned()
+                provider,
+                email: DEMO_EMAIL.to_owned(),
+                name: "Người dùng thử".to_owned(), // i18n: stored data
             })
             .collect();
     }

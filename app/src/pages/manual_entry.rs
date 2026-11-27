@@ -478,8 +478,8 @@ fn store_trade(db: &mut Db, account: &str, trade: &ManualTrade, entry: &JournalE
         Ok(id) => id,
         Err(_) => db.upsert_account(&AccountInfo {
             login: MANUAL_ACCOUNT.to_owned(),
-            server: "Nhập tay".to_owned(),
-            name: "Nhập tay".to_owned(),
+            server: "Nhập tay".to_owned(), // i18n: stored data
+            name: "Nhập tay".to_owned(),   // i18n: stored data
             ..AccountInfo::default()
         })?,
     };
