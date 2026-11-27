@@ -14,7 +14,7 @@ use tradelens_core::{
 use super::account_picker::account_picker;
 use crate::{
     format::{self, Sign},
-    insight::{self, Analysis, HeatCell, WEEKDAYS},
+    insight::{self, Analysis, HeatCell},
     nav::{self, Route},
     snapshot::Range,
     store::{Store, store},
@@ -218,17 +218,9 @@ fn table_card(title: String, name_title: String, cx: Cx, pick: fn(&Analysis) -> 
     )
 }
 
-/// The weekdays in the order of [`WEEKDAYS`], Monday first.
+/// The weekdays of the heatmap's rows (`HeatCell::weekday` is the position), Monday first.
 const WEEKDAYS_OF_WEEK: [Weekday; 7] =
     [Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun];
-
-/// The weekday head of a group `insight` labelled with its fixed short name, in the window's language.
-fn weekday_title(label: &str) -> String {
-    WEEKDAYS
-        .iter()
-        .position(|d| *d == label)
-        .map_or_else(|| label.to_owned(), |at| format::weekday_short(WEEKDAYS_OF_WEEK[at]))
-}
 
 /// What a pressed line of a breakdown names, to open the trades under it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -391,9 +383,9 @@ fn weekday_card(cx: Cx) -> impl IntoElement {
                 cx.a.with(|a| {
                     a.by_weekday
                         .iter()
-                        .map(|g| {
+                        .map(|(day, g)| {
                             BarItem::signed(
-                                weekday_title(&g.label),
+                                format::weekday_short(*day),
                                 t!("analytics.weekday.won", pct = format!("{:.0}", g.win_rate() * 100.0)),
                                 cx.result(g.net, g.total_r),
                                 a.result_of(g),

@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use chrono::{Datelike, NaiveDate};
+use chrono::{Datelike, NaiveDate, Weekday};
 use tradelens_core::{
     Account, Rules, Side, TradeKey,
     catalog::CatalogItem,
@@ -15,9 +15,6 @@ use tradelens_core::{
 };
 
 use crate::snapshot::{Range, Snapshot, TradeRow};
-
-/// The short names of the weekdays, Monday first.
-pub(crate) const WEEKDAYS: [&str; 7] = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"];
 
 /// The day a range starts on; `None` for no limit.
 pub(crate) fn range_start(range: Range, today: NaiveDate) -> Option<NaiveDate> {
@@ -128,7 +125,8 @@ pub(crate) struct Analysis {
     pub(crate) time_unknown: usize,
     /// Best result first.
     pub(crate) by_symbol: Vec<Group>,
-    pub(crate) by_weekday: Vec<Group>,
+    /// The weekdays trades were opened on, Monday first; the page names them in its language.
+    pub(crate) by_weekday: Vec<(Weekday, Group)>,
     pub(crate) by_hour: Vec<Group>,
     pub(crate) by_session: Vec<Group>,
     pub(crate) by_setup: Vec<Group>,
@@ -172,6 +170,18 @@ fn best_first(mut groups: Vec<Group>, unit: Unit) -> Vec<Group> {
     groups
 }
 
+/// The groups of `samples` by the weekday number (Monday 0) `weekday_of` gives them, Monday first.
+fn weekday_groups(samples: &[Sample<'_>], weekday_of: impl Fn(&Sample<'_>) -> Option<u32>) -> Vec<(Weekday, Group)> {
+    // Each group is labelled with its weekday number, which names the weekday it is for.
+    metrics::breakdown(samples, |x| weekday_of(x).into_iter().collect(), u32::to_string)
+        .into_iter()
+        .filter_map(|group| {
+            let day: u8 = group.label.parse().ok()?;
+            Some((Weekday::try_from(day).ok()?, group))
+        })
+        .collect()
+}
+
 /// The trades closed in `range`, broken down every way the analytics page shows.
 pub(crate) fn analyse(snapshot: &Snapshot, range: Range, today: NaiveDate) -> Analysis {
     let rows = closed_in_range(snapshot, range, today);
@@ -183,15 +193,13 @@ pub(crate) fn analyse(snapshot: &Snapshot, range: Range, today: NaiveDate) -> An
 
     let basis = Basis::of(&samples);
     let unit = basis.unit();
-    let weekday_label = |index: &u32| WEEKDAYS.get(usize::try_from(*index).unwrap_or(usize::MAX)).unwrap_or(&"?");
     // A trade dated by day only has a weekday but no hour: the hour and session figures leave it out.
     let opened_weekday = |x: &Sample<'_>| row_of(x).map(|row| weekday_index(row.opened().date()));
     let opened_hour = |x: &Sample<'_>| row_of(x).filter(|row| row.trade.time_known()).map(|row| hour_of(row.opened()));
     let time_unknown = samples.iter().filter(|x| !x.trade.time_known()).count();
 
     let by_symbol = metrics::breakdown(&samples, |x| vec![x.trade.symbol.clone()], String::clone);
-    let by_weekday =
-        metrics::breakdown(&samples, |x| opened_weekday(x).into_iter().collect(), |d| (*weekday_label(d)).to_owned());
+    let by_weekday = weekday_groups(&samples, opened_weekday);
     let by_hour = metrics::breakdown(&samples, |x| opened_hour(x).into_iter().collect(), |h| format!("{h:02}:00"));
     let by_session = metrics::breakdown(
         &samples,
@@ -498,8 +506,8 @@ mod tests {
     fn entries_group_by_local_weekday_hour_and_utc_session() {
         let (_db, snapshot) = seeded();
         let a = analyse(&snapshot, Range::Days30, today());
-        let weekdays: Vec<(&str, usize)> = a.by_weekday.iter().map(|g| (g.label.as_str(), g.trades)).collect();
-        assert_eq!(weekdays, [("T2", 2), ("T3", 1)]);
+        let weekdays: Vec<(Weekday, usize)> = a.by_weekday.iter().map(|(day, g)| (*day, g.trades)).collect();
+        assert_eq!(weekdays, [(Weekday::Mon, 2), (Weekday::Tue, 1)]);
         assert!(a.heat.contains(&HeatCell { weekday: 0, hour: 8, net: 100.0, r: 0.0, trades: 1 }));
         assert!(a.heat.contains(&HeatCell { weekday: 0, hour: 22, net: -40.0, r: 0.0, trades: 1 }));
         let sessions: Vec<&str> = a.by_session.iter().map(|g| g.label.as_str()).collect();
