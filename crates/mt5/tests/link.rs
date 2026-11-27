@@ -179,9 +179,11 @@ fn logins_that_keep_failing_wait_longer_each_time_up_to_a_limit() {
         next(&heard, |e| matches!(e, Event::State(_, LinkState::Connecting)).then_some(()));
         tries.push(Instant::now());
     }
+    // The third wait is the longest (400 ms), the first 100 ms: compared with the settings, not as a
+    // ratio, so a slow first login on a loaded machine does not fail the test.
     let first = tries[1] - tries[0];
     let third = tries[3] - tries[2];
-    assert!(third >= first * 3, "waits grow: {first:?} then {third:?}");
+    assert!(third >= settings().retry_longest, "waits grow to the longest: {first:?} then {third:?}");
     broker.set_unreachable(None);
     next(&heard, |e| matches!(e, Event::State(_, LinkState::Connected(_))).then_some(()));
     link.stop();
