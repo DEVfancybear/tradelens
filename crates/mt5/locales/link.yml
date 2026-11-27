@@ -1,0 +1,79 @@
+_version: 2
+
+mt5.link.busy:
+  vi: "MT5 đang bận (đăng nhập lại hoặc đọc dữ liệu): lệnh chưa được gửi, hãy thử lại"
+  en: "MT5 is busy (signing in again or reading data): the order was not sent, please try again"
+mt5.link.not_connected:
+  vi: "tài khoản chưa kết nối"
+  en: "the account is not connected"
+mt5.link.reconnecting:
+  vi: "tài khoản đang kết nối lại, lệnh chưa được gửi; hãy thử lại sau ít giây"
+  en: "the account is reconnecting, the order was not sent; please try again in a few seconds"
+mt5.link.no_answer:
+  vi: "lệnh đã gửi tới MT5 nhưng chưa có trả lời; hãy xem lại lệnh trước khi gửi lần nữa"
+  en: "the order was sent to MT5 but no answer came; check the order before sending it again"
+
+mt5.memory.wrong_login:
+  vi: "sai số tài khoản, mật khẩu hoặc server"
+  en: "wrong account number, password or server"
+mt5.memory.account_gone:
+  vi: "tài khoản không còn"
+  en: "the account is gone"
+mt5.memory.position_gone:
+  vi: "không còn lệnh %{ticket} đang mở"
+  en: "position %{ticket} is no longer open"
+mt5.memory.bad_volume:
+  vi: "khối lượng đóng %{lots} không hợp lệ (lệnh đang có %{open})"
+  en: "the volume to close, %{lots}, is not valid (the position has %{open})"
+mt5.memory.not_signed_in:
+  vi: "chưa đăng nhập MT5"
+  en: "not signed in to MT5"
+
+mt5.python.pip_launch_failed:
+  vi: "không chạy được pip: %{error}"
+  en: "cannot run pip: %{error}"
+mt5.python.pip_failed:
+  vi: "pip không cài được %{package}: %{tail}"
+  en: "pip could not install %{package}: %{tail}"
+mt5.python.timed_out:
+  vi: "quá thời gian chờ"
+  en: "timed out"
+mt5.python.launch_failed:
+  vi: "không chạy được Python: %{error}"
+  en: "cannot run Python: %{error}"
+mt5.python.no_stdin:
+  vi: "Python không có stdin"
+  en: "Python has no stdin"
+mt5.python.no_stdout:
+  vi: "Python không có stdout"
+  en: "Python has no stdout"
+mt5.python.worker_stopped:
+  vi: "worker MT5 đã dừng: %{error}"
+  en: "the MT5 worker has stopped: %{error}"
+mt5.python.no_reply:
+  vi: "MT5 không trả lời kịp"
+  en: "MT5 did not answer in time"
+mt5.python.worker_exited:
+  vi: "worker MT5 đã thoát (%{status})"
+  en: "the MT5 worker exited (%{status})"
+mt5.python.worker_closed:
+  vi: "worker MT5 đã đóng kết nối"
+  en: "the MT5 worker closed the connection"
+mt5.python.unknown_error:
+  vi: "MT5 báo lỗi không rõ"
+  en: "MT5 reported an unknown error"
+mt5.python.login_digits:
+  vi: "số tài khoản MT5 chỉ gồm chữ số"
+  en: "an MT5 account number has digits only"
+mt5.python.odd_account:
+  vi: "worker trả về tài khoản lạ: %{error}"
+  en: "the worker returned an odd account: %{error}"
+mt5.python.odd_data:
+  vi: "worker trả về dữ liệu lạ: %{error}"
+  en: "the worker returned odd data: %{error}"
+mt5.python.ipc_timeout:
+  vi: "terminal không nối được tới server %{server} (IPC timeout). Thường là terminal chưa có server này trong danh sách: hãy mở MetaTrader 5 bạn vẫn dùng cho tài khoản này, đăng nhập một lần để nó tải danh sách server, rồi bấm \"Kết nối lại\""
+  en: "the terminal could not reach the server %{server} (IPC timeout). Usually the terminal does not have this server in its list: open the MetaTrader 5 you already use for this account, sign in once so it downloads the server list, then click \"Reconnect\""
+mt5.python.maybe_done:
+  vi: "%{why}; lệnh có thể đã được thực hiện, hãy xem lại trên MT5 trước khi gửi lần nữa"
+  en: "%{why}; the order may have been carried out, check it in MT5 before sending it again"

@@ -88,11 +88,11 @@ pub fn own(mt5: &Path) -> Option<Install> {
 ///
 /// # Errors
 ///
-/// [`Mt5Error::Setup`] with a Vietnamese message when the download fails, when the file is not
+/// [`Mt5Error::Setup`] with a message for the trader when the download fails, when the file is not
 /// signed by MetaQuotes, or when it cannot be written.
 pub fn download(folder: &Path) -> Result<PathBuf, Mt5Error> {
     let write_error = |path: &Path, error: &dyn std::fmt::Display| {
-        Mt5Error::Setup(format!("Không ghi được {}: {error}", path.display()))
+        Mt5Error::Setup(crate::tr!("mt5.write_failed", path = path.display(), error = error))
     };
     fs::create_dir_all(folder).map_err(|e| write_error(folder, &e))?;
     let partial = folder.join(format!("{INSTALLER_FILE}.part"));
@@ -129,7 +129,7 @@ pub fn run(installer: &Path, mt5: &Path) -> Result<Installed, Mt5Error> {
     // so that nothing can replace it from its signature check until it has done its work, and the
     // signature is checked again once it is held.
     let outcome = hold(installer)
-        .map_err(|error| Mt5Error::Setup(format!("Không mở được trình cài MetaTrader 5 đã tải: {error}")))
+        .map_err(|error| Mt5Error::Setup(crate::tr!("mt5.installer.open_failed", error = error)))
         .and_then(|held| {
             check_signature(installer)?;
             let outcome = install_with(&mut Windows, installer, &mt5.join(OWN_FOLDER));
@@ -173,14 +173,17 @@ fn install_with(machine: &mut impl Machine, installer: &Path, own: &Path) -> Res
         Some(found) => (found, false),
         None => (wait_for_install(machine, installer, Watch::INSTALL)?, true),
     };
-    let folder = system.terminal.parent().filter(|folder| !folder.as_os_str().is_empty()).ok_or_else(|| {
-        Mt5Error::Setup(format!("Không biết thư mục của {} để chép MetaTrader 5.", system.terminal.display()))
-    })?;
+    let folder = system
+        .terminal
+        .parent()
+        .filter(|folder| !folder.as_os_str().is_empty())
+        .ok_or_else(|| Mt5Error::Setup(crate::tr!("mt5.installer.no_folder", path = system.terminal.display())))?;
     machine.copy(folder, own).map_err(|error| {
-        Mt5Error::Setup(format!(
-            "MetaTrader 5 đã được cài vào {} nhưng không chép được vào thư mục của TradeLens ({}): {error}",
-            folder.display(),
-            own.display()
+        Mt5Error::Setup(crate::tr!(
+            "mt5.installer.copy_failed",
+            from = folder.display(),
+            to = own.display(),
+            error = error
         ))
     })?;
     let left_behind = made_here.then(|| remove_installed(machine, &system, Watch::REMOVE).err()).flatten();
@@ -192,7 +195,7 @@ fn install_with(machine: &mut impl Machine, installer: &Path, own: &Path) -> Res
 fn wait_for_install(machine: &mut impl Machine, installer: &Path, watch: Watch) -> Result<Install, Mt5Error> {
     machine
         .launch(installer)
-        .map_err(|error| Mt5Error::Setup(format!("Không chạy được trình cài MetaTrader 5: {error}")))?;
+        .map_err(|error| Mt5Error::Setup(crate::tr!("mt5.installer.launch_failed", error = error)))?;
     let mut waited = Duration::ZERO;
     let mut gone_for = Duration::ZERO;
     loop {
@@ -210,35 +213,27 @@ fn wait_for_install(machine: &mut impl Machine, installer: &Path, watch: Watch) 
             }
             gone_for += watch.every;
             if gone_for >= watch.settle {
-                return Err(Mt5Error::Setup(
-                    "Trình cài MetaTrader 5 đã dừng mà chưa cài xong: có thể Windows chưa được cho phép cài (hãy bấm \"Có\" khi Windows hỏi), hoặc trình cài đã bị đóng. Hãy thử lại.".to_owned(),
-                ));
+                return Err(Mt5Error::Setup(crate::tr!("mt5.installer.stopped")));
             }
         }
         if waited >= watch.limit {
-            return Err(Mt5Error::Setup(format!(
-                "Cài MetaTrader 5 quá {} phút mà chưa xong: hãy xem cửa sổ trình cài của MetaQuotes, rồi bấm \"Kiểm tra lại\".",
-                watch.limit.as_secs() / 60
-            )));
+            return Err(Mt5Error::Setup(crate::tr!("mt5.installer.too_long", minutes = watch.limit.as_secs() / 60)));
         }
     }
 }
 
 /// Removes MetaQuotes' copy `installed` with its uninstaller and waits until its terminal is gone;
-/// why it is still there otherwise, in Vietnamese.
+/// why it is still there otherwise.
 fn remove_installed(machine: &mut impl Machine, installed: &Install, watch: Watch) -> Result<(), String> {
     let folder = installed.terminal.parent().unwrap_or(Path::new(""));
-    let left = |why: &str| {
-        format!(
-            "Đã chép MetaTrader 5 vào thư mục của TradeLens, nhưng bản MetaQuotes cài trong {} chưa gỡ được ({why}). TradeLens không cần bản đó nữa: có thể gỡ \"MetaTrader 5\" trong Cài đặt Windows › Ứng dụng.",
-            folder.display()
-        )
-    };
+    let left = |why: &str| crate::tr!("mt5.installer.left_behind", folder = folder.display(), why = why);
     let uninstaller = folder.join(UNINSTALLER_FILE);
     if !machine.exists(&uninstaller) {
-        return Err(left("không thấy uninstall.exe"));
+        return Err(left(&crate::tr!("mt5.installer.uninstaller_missing")));
     }
-    machine.launch(&uninstaller).map_err(|error| left(&format!("không chạy được trình gỡ: {error}")))?;
+    machine
+        .launch(&uninstaller)
+        .map_err(|error| left(&crate::tr!("mt5.installer.uninstaller_launch_failed", error = error)))?;
     let mut waited = Duration::ZERO;
     let mut gone_for = Duration::ZERO;
     loop {
@@ -252,11 +247,11 @@ fn remove_installed(machine: &mut impl Machine, installed: &Install, watch: Watc
         } else {
             gone_for += watch.every;
             if gone_for >= watch.settle {
-                return Err(left("trình gỡ đã dừng, có thể Windows chưa được cho phép gỡ"));
+                return Err(left(&crate::tr!("mt5.installer.uninstaller_stopped")));
             }
         }
         if waited >= watch.limit {
-            return Err(left("trình gỡ chạy quá lâu"));
+            return Err(left(&crate::tr!("mt5.installer.uninstaller_too_long")));
         }
     }
 }
@@ -272,7 +267,10 @@ fn copy_installed(from: &Path, to: &Path) -> io::Result<()> {
     }
     let copied = copy_tree(from, &partial).and_then(|()| {
         if !partial.join(TERMINAL_EXE).is_file() {
-            return Err(io::Error::new(io::ErrorKind::NotFound, format!("không có {TERMINAL_EXE}")));
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                crate::tr!("mt5.installer.no_terminal", file = TERMINAL_EXE),
+            ));
         }
         if to.exists() {
             fs::remove_dir_all(to)?;
@@ -421,7 +419,7 @@ fn check_signature(file: &Path) -> Result<(), Mt5Error> {
     let mut ask = powershell(SCRIPT);
     ask.env("TRADELENS_FILE", file);
     let output = python::output_within(ask, Duration::from_mins(1))
-        .map_err(|error| Mt5Error::Setup(format!("Không kiểm tra được chữ ký của trình cài MetaTrader 5: {error}")))?;
+        .map_err(|error| Mt5Error::Setup(crate::tr!("mt5.installer.signature_check_failed", error = error)))?;
     signed_by_metaquotes(&String::from_utf8_lossy(&output.stdout))
 }
 
@@ -433,10 +431,9 @@ fn signed_by_metaquotes(printed: &str) -> Result<(), Mt5Error> {
     if status == "Valid" && named {
         return Ok(());
     }
-    let shown = if line.is_empty() { "không đọc được chữ ký" } else { line };
-    Err(Mt5Error::Setup(format!(
-        "Trình cài MetaTrader 5 tải về không mang chữ ký hợp lệ của {SIGNER} ({shown}): TradeLens không chạy nó."
-    )))
+    let unreadable = crate::tr!("mt5.installer.signature_unreadable");
+    let shown = if line.is_empty() { unreadable.as_str() } else { line };
+    Err(Mt5Error::Setup(crate::tr!("mt5.installer.signature_invalid", signer = SIGNER, shown = shown)))
 }
 
 #[cfg(test)]

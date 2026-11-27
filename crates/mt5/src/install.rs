@@ -223,10 +223,9 @@ fn copy_once(terminal: &Path, root: &Path, account: &AccountRef) -> io::Result<P
     if copied.is_file() {
         return Ok(copied);
     }
-    let source = terminal
-        .parent()
-        .filter(|_| terminal.is_file())
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("không thấy {}", terminal.display())))?;
+    let source = terminal.parent().filter(|_| terminal.is_file()).ok_or_else(|| {
+        io::Error::new(io::ErrorKind::NotFound, crate::tr!("mt5.install.not_found", path = terminal.display()))
+    })?;
     fs::create_dir_all(root)?;
     let partial = root.join(format!("{}.copying", account.folder_name()));
     if partial.exists() {
