@@ -127,7 +127,9 @@ class Leash:
         """Starts a helper (this script with `--hide`) that hides the terminal's windows as soon as
         they show, for at most `seconds`: the terminal shows its main window while `initialize`
         logs in, which holds the interpreter's lock for up to two minutes, so no thread here can
-        hide it meanwhile. The helper is tied to the job; stop it with `end_watch`."""
+        hide it meanwhile. The helper is tied to the job; stop it with `end_watch`. Without a job
+        (it could not be made) nothing kills the helper if this worker dies during `initialize`, so
+        it also ends by itself after `seconds`."""
         if sys.platform != "win32":
             return None
         command = [sys.executable, "-X", "utf8", os.path.abspath(__file__), HIDE_FLAG, self.terminal, f"{seconds:.0f}"]
@@ -167,17 +169,20 @@ class Leash:
         failed login. Returns how many windows it hid; never fails a request."""
         if sys.platform != "win32":
             return 0
+        # Two steps that fail apart: a process snapshot that fails still lets the windows be hidden.
         try:
             for pid in processes_of(self.terminal):
                 self.tie(pid)
-            hidden = 0
+        except OSError as err:
+            print(f"tradelens worker: processes not tied: {err}", file=sys.stderr)
+        hidden = 0
+        try:
             for hwnd, pid in visible_windows_of(self.terminal):
                 hide_window(hwnd)
                 self.tie(pid)
                 hidden += 1
         except OSError as err:
             print(f"tradelens worker: windows not hidden: {err}", file=sys.stderr)
-            return 0
         return hidden
 
 

@@ -242,6 +242,24 @@ class WorkerTests(unittest.TestCase):
         worker.Leash.end_watch(helper)
         self.assertIsNotNone(helper.poll(), "ended")
 
+    @unittest.skipUnless(os.name == "nt", "windows are Windows only")
+    def test_a_failed_process_snapshot_still_hides_the_windows(self) -> None:
+        hidden: list[int] = []
+
+        def no_snapshot(_program: str) -> list[int]:
+            raise OSError("snapshot refused")
+
+        originals = (worker.processes_of, worker.visible_windows_of, worker.hide_window)
+        worker.processes_of = no_snapshot  # type: ignore[assignment]
+        worker.visible_windows_of = lambda _program: [(7, 70), (8, 80)]  # type: ignore[assignment]
+        worker.hide_window = hidden.append  # type: ignore[assignment]
+        try:
+            leash = worker.Leash(os.path.abspath("terminal64.exe"))
+            self.assertEqual(leash.tend(), 2)
+        finally:
+            worker.processes_of, worker.visible_windows_of, worker.hide_window = originals
+        self.assertEqual(hidden, [7, 8], "the windows are hidden though the processes could not be listed")
+
     @unittest.skipUnless(os.name == "nt", "process snapshots are Windows only")
     def test_the_processes_of_a_program_are_found_by_its_path(self) -> None:
         program = os.path.normcase(os.path.abspath(worker.sys.executable))
