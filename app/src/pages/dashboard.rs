@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use chrono::Datelike;
+use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
     DbError, Rules,
@@ -29,7 +30,7 @@ use crate::{
         layout::{columns, titled_card},
         month_grid::mini_month,
         parts::{empty_state, page_with, stat_tile, stat_tile_with, warning_banner},
-        r_chart::{RPoint, r_curve_chart},
+        r_chart::r_curve_chart,
         table::recent_trades,
     },
 };
@@ -322,7 +323,7 @@ fn r_body(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
     view().child(dynamic(move || {
         if drawable.get() {
             r_curve_chart(
-                move || points.with(|p| p.iter().map(|&(time_ms, total_r)| RPoint { time_ms, total_r }).collect()),
+                move || points.with(|p| p.iter().map(|&(_, total_r)| total_r).collect()),
                 move || u32::try_from(Range::ALL.iter().position(|r| *r == range.get()).unwrap_or(0)).unwrap_or(0),
             )
             .into_element()
@@ -410,8 +411,8 @@ fn discipline_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
             let snapshot = store.snapshot();
             let day = today.get();
             untracked(|| {
-                let in_force = read.as_deref().and_then(|r| insight::rules_in_force(r));
-                let Some((account, set)) = in_force else {
+                let closest = read.as_deref().and_then(|r| insight::closest_to_limits(&snapshot, r, day));
+                let Some((account, usage)) = closest else {
                     return view()
                         .gap_3()
                         .child(empty_state(
@@ -421,10 +422,14 @@ fn discipline_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
                         .child(action("Đặt quy tắc", Variant::Secondary, || nav::go(Route::Accounts)))
                         .into_element();
                 };
-                let usage = insight::discipline_today(&snapshot, *account, set, day);
                 let warn = warning_of(&usage, &snapshot);
+                // With several accounts under rules, say whose day the bars measure.
+                let several =
+                    read.as_deref().is_some_and(|r| r.iter().filter(|(_, s)| *s != Rules::default()).count() > 1);
+                let whose = several.then(|| insight::account_title(&snapshot, account)).flatten();
                 view()
                     .gap_3()
+                    .child(whose.map(|name| text(name).text_xs().text_color(move || theme().muted_foreground)))
                     .children(usage.into_iter().map(|u| {
                         let (name, summary) = usage_line(&u, &snapshot);
                         progress_rule(name, move || summary.clone(), move || u.ratio())
@@ -515,6 +520,7 @@ mod tests {
             r_trades: 0,
             r_profit: 0.0,
             r_loss: 0.0,
+            keys: Vec::new(),
         }
     }
 

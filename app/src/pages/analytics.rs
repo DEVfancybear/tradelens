@@ -6,6 +6,7 @@ use std::sync::Arc;
 use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
+    TradeKey,
     metrics::{Group, MistakeCost, Unit},
     time::TimeDisplay,
 };
@@ -17,9 +18,10 @@ use crate::{
     nav::{self, Route},
     snapshot::Range,
     store::{Store, store},
+    trade_list::{Filter, Focus},
     ui::{
         breakdown::{BreakdownRow, breakdown_table},
-        charts::{BarItem, HeatGrid, HeatValue, heatmap, histogram, mistake_cost_bar},
+        charts::{BarItem, HeatGrid, HeatValue, heatmap, histogram, mistake_cost_bar_pickable},
         chips::pnl_text,
         controls::{link, segmented},
         layout::columns,
@@ -97,8 +99,8 @@ fn content(tab: Tab, cx: Cx) -> impl IntoElement {
         )
         .into_element(),
         Tab::Symbol => columns(
-            view().gap_6().child(table_card("Theo symbol", "Symbol", cx, |a| &a.by_symbol)),
-            view().gap_6().child(table_card("Buy so với Sell", "Chiều", cx, |a| &a.by_side)),
+            view().gap_6().child(picked_card("Theo symbol", "Symbol", cx, |a| &a.by_symbol, Pick::Symbol)),
+            view().gap_6().child(picked_card("Buy so với Sell", "Chiều", cx, |a| &a.by_side, Pick::Rows("Chiều"))),
         )
         .into_element(),
         Tab::Time => columns(
@@ -107,13 +109,19 @@ fn content(tab: Tab, cx: Cx) -> impl IntoElement {
         )
         .into_element(),
         Tab::Setup => columns(
-            view().gap_6().child(table_card("Theo setup", "Setup", cx, |a| &a.by_setup)),
-            view().gap_6().child(table_card("Theo tag", "Tag", cx, |a| &a.by_tag)),
+            view().gap_6().child(picked_card("Theo setup", "Setup", cx, |a| &a.by_setup, Pick::Setup)),
+            view().gap_6().child(picked_card("Theo tag", "Tag", cx, |a| &a.by_tag, Pick::Rows("Tag"))),
         )
         .into_element(),
         Tab::Mistakes => columns(
             view().gap_6().child(mistake_card(cx)),
-            view().gap_6().child(table_card("Theo cảm xúc trước lệnh", "Cảm xúc", cx, |a| &a.by_emotion)),
+            view().gap_6().child(picked_card(
+                "Theo cảm xúc trước lệnh",
+                "Cảm xúc",
+                cx,
+                |a| &a.by_emotion,
+                Pick::Rows("Cảm xúc"),
+            )),
         )
         .into_element(),
         Tab::Risk => columns(view().gap_6().child(r_card(cx)), view()).into_element(),
@@ -184,20 +192,70 @@ fn time_note(a: &Analysis) -> Option<String> {
     (a.time_unknown > 0).then(|| format!("{} lệnh không có giờ vào, không tính ở đây", a.time_unknown))
 }
 
-fn table_card(
+/// What a pressed line of a breakdown opens in the trades list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Pick {
+    /// The list's own symbol filter.
+    Symbol,
+    /// The list's own setup filter.
+    Setup,
+    /// Exactly the trades of the row (a tag, a side, a session, an hour, an emotion), named by
+    /// the column's title and the row: the list has no filter of its own for these.
+    Rows(&'static str),
+}
+
+impl Pick {
+    /// The filter of the trades under the row `group`.
+    fn filter(self, group: &Group) -> Filter {
+        match self {
+            Self::Symbol => Filter { symbol: Some(group.label.clone()), ..Filter::default() },
+            Self::Setup => Filter { setup: Some(group.label.clone()), ..Filter::default() },
+            Self::Rows(kind) => focus_on(format!("{kind} {}", group.label), &group.keys),
+        }
+    }
+}
+
+/// The trades list showing only `keys`, said as `title`.
+fn focus_on(title: String, keys: &[TradeKey]) -> Filter {
+    Filter { focus: Some(Focus { title, keys: keys.iter().cloned().collect() }), ..Filter::default() }
+}
+
+/// Opens the trades list with `filter`.
+fn open_trades(filter: Filter) {
+    store().trade_filter.set(filter);
+    nav::go(Route::Trades);
+}
+
+/// A [`table_card`] whose lines open the trades list on the trades under them.
+fn picked_card(
     title: &'static str,
     name_title: &'static str,
     cx: Cx,
     pick: fn(&Analysis) -> &Vec<Group>,
+    kind: Pick,
 ) -> impl IntoElement {
-    card(
-        title,
-        breakdown_table(
-            name_title,
-            move || cx.result_title(),
-            move || cx.a.with(|a| rows_of(pick(a), &cx.currency(), a.unit())),
-            "Chưa có lệnh nào trong khoảng này",
-        ),
+    card(title, picked_table(name_title, cx, pick, kind, "Chưa có lệnh nào trong khoảng này"))
+}
+
+/// The table of `pick`'s groups, each line opening its trades.
+fn picked_table(
+    name_title: &'static str,
+    cx: Cx,
+    pick: fn(&Analysis) -> &Vec<Group>,
+    kind: Pick,
+    empty: &'static str,
+) -> impl IntoElement {
+    breakdown_table(
+        name_title,
+        move || cx.result_title(),
+        move || cx.a.with(|a| rows_of(pick(a), &cx.currency(), a.unit())),
+        empty,
+        move |name| {
+            let filter = cx.a.with(|a| pick(a).iter().find(|g| g.label == name).map(|g| kind.filter(g)));
+            if let Some(filter) = filter {
+                open_trades(filter);
+            }
+        },
     )
 }
 
@@ -288,12 +346,7 @@ fn hour_card(cx: Cx) -> impl IntoElement {
         "Theo giờ vào lệnh",
         view()
             .gap_3()
-            .child(breakdown_table(
-                "Giờ",
-                move || cx.result_title(),
-                move || cx.a.with(|a| rows_of(&a.by_hour, &cx.currency(), a.unit())),
-                "Dữ liệu không có giờ vào lệnh",
-            ))
+            .child(picked_table("Giờ", cx, |a| &a.by_hour, Pick::Rows("Giờ"), "Dữ liệu không có giờ vào lệnh"))
             .child(
                 text(move || cx.a.with(|a| time_note(a)).unwrap_or_default())
                     .text_xs()
@@ -332,12 +385,7 @@ fn session_card(cx: Cx) -> impl IntoElement {
         "Theo phiên",
         view()
             .gap_3()
-            .child(breakdown_table(
-                "Phiên",
-                move || cx.result_title(),
-                move || cx.a.with(|a| rows_of(&a.by_session, &cx.currency(), a.unit())),
-                "Dữ liệu không có giờ vào lệnh",
-            ))
+            .child(picked_table("Phiên", cx, |a| &a.by_session, Pick::Rows("Phiên"), "Dữ liệu không có giờ vào lệnh"))
             .child(
                 text(move || cx.a.with(|a| time_note(a)).unwrap_or_default())
                     .text_xs()
@@ -410,7 +458,16 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
                             .child(view().child(total))
                             .child(text(summary).text_xs().pb_1().text_color(move || theme().muted_foreground)),
                     )
-                    .child(link("Xem lệnh", move || nav::go(Route::Trades))),
+                    .child(link("Xem lệnh", move || {
+                        // Every trade with a mistake, once.
+                        let keys: Vec<TradeKey> = cx.a.with(|a| {
+                            let mut all: Vec<TradeKey> = a.mistakes.costs.iter().flat_map(|c| c.keys.clone()).collect();
+                            all.sort();
+                            all.dedup();
+                            all
+                        });
+                        open_trades(focus_on("Lệnh có gắn lỗi".to_owned(), &keys));
+                    })),
             )
             .child(dynamic(move || {
                 let (costs, unit) = cx.a.with(|a| (a.mistakes.costs.clone(), a.unit()));
@@ -424,21 +481,15 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
                         .into_element();
                     }
                     view()
-                        .children(costs.iter().map(|c| match unit {
-                            Unit::Money => mistake_cost_bar(
-                                &c.label,
-                                c.trades,
-                                cx.money(c.net, Sign::Always),
-                                format::r_text(Some(c.total_r)),
-                                c.share_of_losses,
-                            ),
-                            Unit::R => mistake_cost_bar(
-                                &c.label,
-                                c.trades,
-                                format::r_text(Some(c.total_r)),
-                                String::new(),
-                                c.share_of_losses,
-                            ),
+                        .children(costs.iter().map(|c| {
+                            let (net, r) = match unit {
+                                Unit::Money => (cx.money(c.net, Sign::Always), format::r_text(Some(c.total_r))),
+                                Unit::R => (format::r_text(Some(c.total_r)), String::new()),
+                            };
+                            let filter = focus_on(format!("Lỗi {}", c.label), &c.keys);
+                            mistake_cost_bar_pickable(&c.label, c.trades, net, r, c.share_of_losses, move || {
+                                open_trades(filter.clone());
+                            })
                         }))
                         .into_element()
                 })

@@ -97,6 +97,77 @@ fn in_folders_of(root: &Path) -> Vec<Install> {
         .collect()
 }
 
+/// The account the terminal `terminal` logged in to last, as (login, server): `[Common] Login=` and
+/// `Server=` of its `common.ini`, beside the program for a portable copy, else in the data folder
+/// that names the program's folder in its `origin.txt` (under `%APPDATA%\MetaQuotes\Terminal`).
+/// `None` when no terminal there has logged in. Reads two small files: fine on any thread.
+pub fn last_login(terminal: &Path) -> Option<(String, String)> {
+    let data_folders =
+        std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("MetaQuotes").join("Terminal"));
+    last_login_in(terminal, data_folders.as_deref())
+}
+
+fn last_login_in(terminal: &Path, data_folders: Option<&Path>) -> Option<(String, String)> {
+    let folder = terminal.parent()?;
+    let own = folder.join(CONFIG_DIR).join(COMMON_INI);
+    let installed = data_folders
+        .and_then(|root| fs::read_dir(root).ok())
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|data| {
+            fs::read(data.join("origin.txt"))
+                .ok()
+                .and_then(|bytes| decode_origin(&bytes))
+                .is_some_and(|origin| normal(Path::new(origin.trim())) == normal(folder))
+        })
+        .map(|data| data.join(CONFIG_DIR).join(COMMON_INI));
+    std::iter::once(own)
+        .chain(installed)
+        .find_map(|ini| fs::read(ini).ok().and_then(|bytes| login_in_ini(&bytes)))
+        .or_else(|| login_in_folder_name(folder))
+}
+
+/// The account an app's portable copy was made for, from its folder's name
+/// (`AccountRef::folder_name`, `434572089@Exness-MT5Trial7`): a copy whose login never went
+/// through has no login in its `common.ini`. The server is left out when the name had to replace
+/// characters of it (`_`), since the real name is then unknown.
+fn login_in_folder_name(folder: &Path) -> Option<(String, String)> {
+    let name = folder.file_name()?.to_str()?;
+    let (login, server) = name.split_once('@')?;
+    if login.is_empty() || !login.chars().all(|c| c.is_ascii_digit()) || server.is_empty() {
+        return None;
+    }
+    let server = if server.contains('_') { String::new() } else { server.to_owned() };
+    Some((login.to_owned(), server))
+}
+
+/// The terminal's settings file that names the last account.
+const COMMON_INI: &str = "common.ini";
+
+/// `Login` and `Server` of the `[Common]` section of a terminal's `common.ini` (UTF-16 with a
+/// byte-order mark as the terminal writes it, or UTF-8); `None` without a login (or `Login=0`).
+fn login_in_ini(bytes: &[u8]) -> Option<(String, String)> {
+    let text = decode_origin(bytes)?;
+    let mut in_common = false;
+    let (mut login, mut server) = (None, None);
+    for line in text.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_common = line.eq_ignore_ascii_case("[Common]");
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=').filter(|_| in_common) else { continue };
+        let value = value.trim();
+        match key.trim() {
+            "Login" if !value.is_empty() && value != "0" => login = Some(value.to_owned()),
+            "Server" if !value.is_empty() => server = Some(value.to_owned()),
+            _ => {}
+        }
+    }
+    Some((login?, server.unwrap_or_default()))
+}
+
 /// The folder of `account`'s portable copy under `root`.
 pub fn copy_folder(root: &Path, account: &AccountRef) -> PathBuf {
     root.join(account.folder_name())
@@ -301,6 +372,51 @@ mod tests {
         let candidate = server_list(&dir.path().join("Terminal").join("D0E8"), 666);
         assert!(!give_server_list(&copy, &[candidate]).expect("nothing to do"));
         assert_eq!(fs::metadata(learned).expect("the list is there").len(), 900);
+    }
+
+    fn utf16(text: &str) -> Vec<u8> {
+        let mut bytes = vec![0xFF, 0xFE];
+        bytes.extend(text.encode_utf16().flat_map(u16::to_le_bytes));
+        bytes
+    }
+
+    #[test]
+    fn the_last_login_of_a_terminal_is_read_from_its_common_ini() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        // A portable copy keeps it beside the program.
+        let copy = fake_install(dir.path(), "434572098@Exness-MT5Trial7");
+        let config = dir.path().join("434572098@Exness-MT5Trial7").join(CONFIG_DIR);
+        fs::create_dir_all(&config).expect("settings folder");
+        let ini =
+            "\r\n[Common]\r\nLogin=434572098\r\nServer=Exness-MT5Trial7\r\nProxyEnable=0\r\n[Charts]\r\nLogin=1\r\n";
+        fs::write(config.join(COMMON_INI), utf16(ini)).expect("written");
+        let found = last_login_in(&copy, None);
+        assert_eq!(found, Some(("434572098".to_owned(), "Exness-MT5Trial7".to_owned())));
+
+        // An installed terminal keeps it in the data folder that names it.
+        let installed = fake_install(dir.path(), "MetaTrader 5");
+        let data = dir.path().join("Terminal").join("D0E8");
+        fs::create_dir_all(data.join(CONFIG_DIR)).expect("data folder");
+        let folder = installed.parent().expect("a folder").display().to_string();
+        fs::write(data.join("origin.txt"), utf16(&folder.to_uppercase())).expect("origin written");
+        fs::write(data.join(CONFIG_DIR).join(COMMON_INI), "[Common]\nLogin=52012345\nServer=ICMarketsSC-Demo\n")
+            .expect("written");
+        let found = last_login_in(&installed, Some(&dir.path().join("Terminal")));
+        assert_eq!(found, Some(("52012345".to_owned(), "ICMarketsSC-Demo".to_owned())), "origin matched without case");
+
+        // A copy of the app whose login never went through is named after its account.
+        let failed = fake_install(dir.path(), "434572089@Exness-MT5Trial7");
+        fs::create_dir_all(dir.path().join("434572089@Exness-MT5Trial7").join(CONFIG_DIR)).expect("settings");
+        fs::write(dir.path().join("434572089@Exness-MT5Trial7").join(CONFIG_DIR).join(COMMON_INI), "[Common]\n")
+            .expect("written");
+        let found = last_login_in(&failed, None);
+        assert_eq!(found, Some(("434572089".to_owned(), "Exness-MT5Trial7".to_owned())));
+        let odd = fake_install(dir.path(), "77@Broker_Live");
+        assert_eq!(last_login_in(&odd, None), Some(("77".to_owned(), String::new())), "a changed server is left out");
+
+        // A terminal that never logged in tells nothing.
+        assert_eq!(login_in_ini(b"[Common]\nLogin=0\nServer=\n"), None);
+        assert_eq!(last_login_in(&dir.path().join("none").join(TERMINAL_EXE), None), None);
     }
 
     #[test]

@@ -6,7 +6,7 @@ mod common;
 use std::time::Duration;
 
 use chrono::{Datelike, Local, NaiveDate};
-use nsh_core::Checked;
+use nsh_core::{Checked, platform::Os};
 use nsh_testing::{Headless, Screen};
 use tradelens_core::{
     ChecklistItem, DayNote, Db, Deal, DealBatch, DealEntry, DealKind,
@@ -124,6 +124,27 @@ fn saving_the_rules_updates_the_status_of_today() {
 }
 
 #[test]
+fn emptying_a_limit_keeps_its_rule_on_and_its_field_there() {
+    let fixture = Fixture::new();
+    let account = seed_today(&mut fixture.db(), -40.0);
+    // Backspace only reaches the focused field on the Linux key map.
+    let mut app = fixture.0.start(1280.0, 1100.0, |config| config.environment.os = Os::Linux);
+    open_accounts(&mut app);
+    app.press("label:Số lệnh tối đa mỗi ngày").expect("the trades rule has a switch");
+    app.wait_for_within("label:Số lệnh tối đa mỗi ngày: giá trị", WAIT).expect("its field shows once it is on");
+    // Typing gives the field the focus; then every digit is erased.
+    app.type_text("label:Số lệnh tối đa mỗi ngày: giá trị", "9").expect("the field takes the focus");
+    for _ in 0..6 {
+        app.press_key("Backspace").expect("a digit is erased");
+    }
+    // The field is still there to type in: read as off, the rule had taken it away.
+    app.type_text("label:Số lệnh tối đa mỗi ngày: giá trị", "2").expect("a new limit is typed");
+    app.press("role:button[Lưu quy tắc]").expect("the save button works");
+    let db = fixture.db();
+    wait_until("the new limit being saved", || db.rules(account).expect("rules read").max_daily_trades == Some(2));
+}
+
+#[test]
 fn a_rule_that_is_broken_is_listed_with_its_day() {
     let fixture = Fixture::new();
     let account = seed_today(&mut fixture.db(), -400.0);
@@ -208,8 +229,10 @@ fn a_daily_note_is_saved_and_comes_back_on_the_next_run() {
         app.press("role:button[Lưu nhật ký]").expect("saves");
         let db = fixture.db();
         wait_until("the note being saved", || db.day_note(0, today).expect("reads").plan.starts_with("Chờ tin"));
-        app.wait_until("the saved note", WAIT, |screen| screen.texts().iter().any(|t| t.starts_with("Đã lưu lúc")))
-            .expect("the page says when");
+        app.wait_until("the saved note", WAIT, |screen| {
+            screen.texts().iter().any(|t| t.starts_with("Tự động lưu · đã lưu lúc"))
+        })
+        .expect("the page says when");
     }
     let mut again = fixture.start();
     open_journal(&mut again);

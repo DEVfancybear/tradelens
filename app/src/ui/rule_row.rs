@@ -31,8 +31,18 @@ pub fn rule_row(
         .items_center()
         .gap_3()
         .child(
-            when(on, move || untracked(|| number_field(format!("{label}: giá trị"), unit, range, value, on_change)))
-                .otherwise(|| text("Tắt").text_sm().text_color(move || theme().muted_foreground)),
+            // An emptied field is a limit being typed, not a rule turned off: only the switch turns it
+            // off. Read as off, the field vanished under the trader's keys.
+            when(on, move || {
+                untracked(|| {
+                    number_field(format!("{label}: giá trị"), unit, range, value, move |typed| {
+                        if typed.is_some() {
+                            on_change(typed);
+                        }
+                    })
+                })
+            })
+            .otherwise(|| text("Tắt").text_sm().text_color(move || theme().muted_foreground)),
         )
         .child(switch_control(label, move || on.get(), move |next| on_change(next.then(|| kept.get_untracked()))));
     setting_row(label, Some(hint), control)

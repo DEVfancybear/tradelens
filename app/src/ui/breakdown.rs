@@ -1,5 +1,7 @@
 //! A breakdown as a table: a name and what the trades under it made.
 
+use std::rc::Rc;
+
 use nsh_base::theme;
 use nsh_core::prelude::*;
 
@@ -124,12 +126,16 @@ fn heading(title: &'static str, width: f32) -> Text {
 /// The table of a breakdown; `name_title` heads the first column and `net_title` the column of
 /// results. `rows` is read again when it changes, and an empty one shows `empty` instead. The figure
 /// columns are as wide as their widest figure or title, so none is cut, and the name takes the rest.
+/// Each line can be pressed: `on_pick` gets its name (a symbol, a setup, a tag, a session…), to open
+/// the trades under it.
 pub(crate) fn breakdown_table(
     name_title: &'static str,
     net_title: impl Fn() -> &'static str + 'static,
     rows: impl Fn() -> Vec<BreakdownRow> + 'static,
     empty: &'static str,
+    on_pick: impl Fn(&str) + 'static,
 ) -> impl IntoElement {
+    let on_pick: Rc<dyn Fn(&str)> = Rc::new(on_pick);
     dynamic(move || {
         let rows = rows();
         let net_title = net_title();
@@ -153,6 +159,8 @@ pub(crate) fn breakdown_table(
                 view()
                     .children(rows.into_iter().map(|row| {
                         let net = row.net;
+                        let name = row.name.clone();
+                        let pick = Rc::clone(&on_pick);
                         line(
                             name_of(text(row.name).text_sm().font_weight(FontWeight::MEDIUM)),
                             figures(widths)
@@ -171,6 +179,9 @@ pub(crate) fn breakdown_table(
                         .min_h(px(40.0))
                         .border_b_1()
                         .border_color(move || theme().border.opacity(0.5))
+                        .cursor_pointer()
+                        .hover(|s| s.bg(move || theme().accent))
+                        .on_press(move || pick(&name))
                     }))
                     .into_element()
             };

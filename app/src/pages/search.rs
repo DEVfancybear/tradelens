@@ -9,6 +9,7 @@ use super::{missed, playbook, review};
 use crate::{
     format,
     nav::{self, Route},
+    snapshot::{Snapshot, TradeRow},
     store::{query_with, store},
     ui::{
         controls::tag_picker,
@@ -71,6 +72,51 @@ fn arranged(hits: &[Hit], kind: Option<DocKind>) -> Vec<Hit> {
     let mut shown: Vec<Hit> = hits.iter().filter(|h| kind.is_none_or(|k| k == h.kind)).cloned().collect();
     shown.sort_by_key(|h| DocKind::ALL.iter().position(|k| *k == h.kind));
     shown
+}
+
+/// The trades whose symbol starts with, or contains, every word typed (`xag` finds `XAGUSDm`), or
+/// whose position number is a word typed, newest first, at most `limit`. The full-text index holds
+/// only what the trader wrote, so a trade without a journal (one the MT5 sync just stored) is found
+/// here; titles read like the index's (`XAGUSDm Buy 27/11`).
+fn trades_by_symbol(snapshot: &Snapshot, typed: &str, limit: usize) -> Vec<Hit> {
+    let words: Vec<String> = typed.split_whitespace().map(str::to_lowercase).collect();
+    if words.is_empty() {
+        return Vec::new();
+    }
+    let mut rows: Vec<&TradeRow> = snapshot
+        .rows
+        .iter()
+        .filter(|row| {
+            let symbol = row.trade.symbol.to_lowercase();
+            let ticket = row.trade.key.position_id.to_string();
+            words.iter().all(|word| symbol.contains(word.as_str()) || ticket == *word)
+        })
+        .collect();
+    rows.sort_by_key(|row| std::cmp::Reverse(row.sort_time()));
+    rows.into_iter()
+        .take(limit)
+        .map(|row| {
+            let trade = &row.trade;
+            let opened = chrono::DateTime::from_timestamp_millis(trade.open_time)
+                .map_or_else(String::new, |at| at.format(" %d/%m").to_string());
+            Hit {
+                kind: DocKind::Trade,
+                reference: trade.key.id(),
+                title: format!("{} {}{opened}", trade.symbol, trade.side.label()),
+                snippet: String::new(),
+            }
+        })
+        .collect()
+}
+
+/// The index's hits, then the trades found by symbol that the index did not already give.
+fn with_trades(mut hits: Vec<Hit>, by_symbol: Vec<Hit>) -> Vec<Hit> {
+    for hit in by_symbol {
+        if !hits.iter().any(|h| h.kind == hit.kind && h.reference == hit.reference) {
+            hits.push(hit);
+        }
+    }
+    hits
 }
 
 /// The filter's options: all results and each kind that has some, with how many.
@@ -137,10 +183,13 @@ fn layer() -> impl IntoElement {
     // Results of an earlier query stay in the reading while the next one is made: none show
     // for an empty field.
     let hits = computed(move || {
-        if typed.with(|t| t.trim().is_empty()) {
+        let text = typed.get();
+        if text.trim().is_empty() {
             return Vec::new();
         }
-        found.value().map_or_else(Vec::new, |h| h.to_vec())
+        let indexed = found.value().map_or_else(Vec::new, |h| h.to_vec());
+        let by_symbol = trades_by_symbol(&store.snapshot(), &text, usize::try_from(LIMIT).unwrap_or(usize::MAX));
+        with_trades(indexed, by_symbol)
     });
     let shown = computed(move || arranged(&hits.get(), kind.get()));
     let rows = move || {
@@ -204,6 +253,76 @@ mod tests {
 
     fn hit(kind: DocKind, reference: &str) -> Hit {
         Hit { kind, reference: reference.into(), title: String::new(), snippet: String::new() }
+    }
+
+    /// Two trades without a journal: `XAGUSDm` (position 5149465589) and `XAUUSDm`, the latter newer.
+    fn unjournaled() -> Snapshot {
+        use tradelens_core::{
+            Db, DealBatch, DealEntry, DealKind,
+            model::{AccountInfo, Deal},
+            time::parse_mt5_time,
+        };
+        let deal = |ticket: i64, position: i64, symbol: &str, at: &str, kind: DealKind, entry: DealEntry| Deal {
+            ticket,
+            order: ticket,
+            position_id: position,
+            time_msc: parse_mt5_time(at).expect("fixture times parse"),
+            symbol: symbol.into(),
+            kind,
+            entry,
+            volume: 10.0,
+            price: 30.0,
+            commission: 0.0,
+            swap: 0.0,
+            fee: 0.0,
+            profit: 0.0,
+            magic: 0,
+            comment: String::new(),
+            sl: 0.0,
+            tp: 0.0,
+            risk: None,
+            result_r: None,
+            gaps: tradelens_core::Gaps::NONE,
+            reason: None,
+        };
+        let deals = vec![
+            deal(1, 5_149_465_589, "XAGUSDm", "2026.11.27 02:33:03", DealKind::Buy, DealEntry::In),
+            deal(2, 5_149_465_589, "XAGUSDm", "2026.11.27 02:34:33", DealKind::Sell, DealEntry::Out),
+            deal(3, 5_149_518_021, "XAUUSDm", "2026.11.27 02:35:48", DealKind::Buy, DealEntry::In),
+            deal(4, 5_149_518_021, "XAUUSDm", "2026.11.27 02:36:33", DealKind::Sell, DealEntry::Out),
+        ];
+        let mut db = Db::in_memory().expect("a memory database opens");
+        let account = AccountInfo { login: "1".into(), server: "S".into(), ..AccountInfo::default() };
+        db.upsert_batch(&DealBatch { account, deals, positions: Vec::new() }, "test").expect("stored");
+        let now = parse_mt5_time("2026.11.27 03:00:00").expect("a valid time");
+        let query = crate::snapshot::Query {
+            account: None,
+            range: crate::snapshot::Range::All,
+            now_utc_ms: now,
+            local_offset_min: 420,
+        };
+        crate::snapshot::load(&db, &query).expect("loads")
+    }
+
+    #[test]
+    fn a_trade_without_a_journal_is_found_by_part_of_its_symbol_or_its_ticket() {
+        let snapshot = unjournaled();
+        let xag = trades_by_symbol(&snapshot, "xag", 40);
+        assert_eq!(xag.len(), 1, "{xag:?}");
+        assert_eq!(xag[0].title, "XAGUSDm Buy 27/11");
+        assert_eq!(xag[0].kind, DocKind::Trade);
+        let both: Vec<String> = trades_by_symbol(&snapshot, "USD", 40).into_iter().map(|h| h.title).collect();
+        assert_eq!(both, ["XAUUSDm Buy 27/11", "XAGUSDm Buy 27/11"], "newest first");
+        assert_eq!(trades_by_symbol(&snapshot, "5149465589", 40).len(), 1, "by ticket");
+        assert_eq!(trades_by_symbol(&snapshot, "  ", 40), [], "nothing typed");
+        assert_eq!(trades_by_symbol(&snapshot, "eurusd", 40), [], "no such symbol");
+
+        // A trade the index found already is not listed twice.
+        let indexed =
+            vec![Hit { title: "XAGUSDm Buy 27/11".into(), snippet: "[xag] breakout".into(), ..xag[0].clone() }];
+        let merged = with_trades(indexed, trades_by_symbol(&snapshot, "usd", 40));
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[0].snippet, "[xag] breakout", "the index's hit comes first and is kept");
     }
 
     #[test]

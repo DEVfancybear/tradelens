@@ -394,7 +394,22 @@ const COST_VALUE_WIDTH: f32 = 96.0;
 
 /// One mistake's cost: its name over a bar filled by its share of the money lost (0 to 1),
 /// how many trades carried it, and what they lost in money and in R.
-pub(crate) fn mistake_cost_bar(name: &str, trades: usize, net: String, r: String, share: f64) -> impl IntoElement {
+/// A [`mistake_cost_bar`] that opens the trades with the mistake when pressed.
+pub(crate) fn mistake_cost_bar_pickable(
+    name: &str,
+    trades: usize,
+    net: String,
+    r: String,
+    share: f64,
+    on_press: impl Fn() + 'static,
+) -> impl IntoElement {
+    mistake_cost_bar(name, trades, net, r, share)
+        .cursor_pointer()
+        .hover(|s| s.bg(move || theme().accent))
+        .on_press(on_press)
+}
+
+pub(crate) fn mistake_cost_bar(name: &str, trades: usize, net: String, r: String, share: f64) -> View {
     // The share is held to 0..=100 before the narrowing.
     #[expect(clippy::as_conversions, clippy::cast_possible_truncation, reason = "held to 0..=100 before the cast")]
     let percent = (share.clamp(0.0, 1.0) * 100.0) as f32;

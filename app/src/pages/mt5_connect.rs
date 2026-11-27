@@ -2,12 +2,12 @@
 //! form, the accounts signed in to with their open positions, and the plan prompt switch.
 //! The design's EA card is replaced by this one (`docs/design/README.md`, deviations).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local};
 use nsh_base::theme;
 use nsh_core::prelude::*;
-use tradelens_mt5::AccountRef;
+use tradelens_mt5::{AccountRef, install};
 
 use super::position;
 use crate::{
@@ -284,14 +284,15 @@ fn fields_row(form: Form) -> impl IntoElement {
 /// The installed terminal to copy, chosen among those found or picked with the file dialog.
 fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
     let owner = root_owner();
+    let choices = computed(move || mt5.state.with(|state| terminal_choices(state, form.picked.get().as_ref())));
     let pick = move || {
         owner.run(move || {
             spawn(async move {
                 match pick_files(TERMINAL_FILE, Pick::One).await {
                     Ok(paths) => {
                         if let Some(path) = paths.into_iter().next() {
-                            form.terminal.set(path.display().to_string());
-                            form.picked.set(Some(path));
+                            form.picked.set(Some(path.clone()));
+                            choose_terminal(form, &path.display().to_string());
                         }
                     }
                     Err(error) => mt5.state.update(|state| state.error = Some(error)),
@@ -307,7 +308,9 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
         .child(labelled(
             "Terminal MT5",
             dynamic(move || {
-                let none = mt5.state.with(|state| terminal_choices(state, form.picked.get().as_ref()).is_empty());
+                // Through a memo compared with `==`: the state changes at every poll (balance,
+                // positions), and rebuilding the select then closed its open list.
+                let none = choices.with(Vec::is_empty);
                 untracked(|| {
                     if none {
                         return text("Chưa thấy MetaTrader 5 trên máy: bấm \"Cài MetaTrader 5 tự động\" ở trên (bản của MetaQuotes, đăng nhập được mọi broker), hoặc chọn terminal64.exe nếu đã cài ở chỗ khác.")
@@ -317,15 +320,27 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
                     }
                     select_value(
                         "Terminal MT5",
-                        move || mt5.state.with(|state| terminal_choices(state, form.picked.get().as_ref())),
+                        move || choices.get(),
                         move || SharedString::from(form.terminal.get()),
-                        move |next| form.terminal.set(next.to_string()),
+                        move |next| choose_terminal(form, &next),
                     )
                     .into_element()
                 })
             }),
         ))
         .child(action("Chọn terminal64.exe…", Variant::Ghost, pick))
+}
+
+/// Chooses the terminal at `terminal` and fills the login and the server with the account it
+/// logged in to last, when it tells one (a terminal of the account the trader means to add).
+fn choose_terminal(form: Form, terminal: &str) {
+    form.terminal.set(terminal.to_owned());
+    if let Some((login, server)) = install::last_login(Path::new(terminal)) {
+        form.login.set(login);
+        if !server.is_empty() {
+            form.server.set(server);
+        }
+    }
 }
 
 /// A field with its label above it.

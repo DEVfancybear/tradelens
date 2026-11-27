@@ -509,6 +509,27 @@ fn rules_default_to_off_and_round_trip() {
 }
 
 #[test]
+fn an_account_added_later_is_judged_by_the_rules_the_trader_keeps() {
+    let mut db = Db::in_memory().expect("db");
+    let journal = db.upsert_account(&AccountInfo { login: "notion".into(), ..info(0.0) }).expect("first account");
+    let rules = Rules { max_daily_loss: Some(300.0), max_daily_trades: Some(5), ..Rules::default() };
+    db.save_rules(journal, &rules).expect("rules saved");
+
+    let mt5 = db.upsert_account(&info(1000.0)).expect("a new MT5 account");
+    assert_eq!(db.rules(mt5).expect("rules"), rules, "the new account takes the rules already kept");
+
+    // Rules the trader changed on the account stay its own, even all off.
+    db.save_rules(mt5, &Rules::default()).expect("turned off");
+    db.upsert_account(&info(1200.0)).expect("the account is seen again");
+    assert_eq!(db.rules(mt5).expect("rules"), Rules::default(), "rules saved on the account are kept");
+
+    // With no rules anywhere, a new account has none.
+    let mut empty = Db::in_memory().expect("db");
+    let only = empty.upsert_account(&info(1000.0)).expect("account");
+    assert_eq!(empty.rules(only).expect("rules"), Rules::default());
+}
+
+#[test]
 fn checklists_keep_item_ids_and_separate_global_from_account_items() {
     let mut db = Db::in_memory().unwrap();
     let account_id = db.upsert_account(&info(1000.0)).unwrap();

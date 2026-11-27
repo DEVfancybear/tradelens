@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use chrono::{Datelike, Days, NaiveDate};
 
 use crate::{
-    model::{Account, Trade},
+    model::{Account, Trade, TradeKey},
     time::Clock,
 };
 
@@ -299,6 +299,10 @@ pub struct EquityPoint {
 
 /// The balance after each closed trade and cash movement, with its drawdown from the
 /// running peak. Deposits raise the peak with the balance, so they are not gains.
+///
+/// An account that held nothing before its first cash movements (a new account funded inside
+/// the period) starts at the balance they bring: the empty balance before them is no state of
+/// the trading, and drawn as a point it would stretch a chart of a large balance down to zero.
 pub fn equity_curve(samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f64)]) -> Vec<EquityPoint> {
     enum Event {
         Cash(f64),
@@ -306,11 +310,19 @@ pub fn equity_curve(samples: &[Sample<'_>], start_balance: f64, cash: &[(i64, f6
     }
     let mut events: Vec<(i64, Event)> = cash.iter().map(|&(t, a)| (t, Event::Cash(a))).collect();
     events.extend(samples.iter().map(|x| (x.trade.close_time.unwrap_or(x.trade.open_time), Event::Trade(x.net()))));
+    // Stable: at the same instant, cash comes before the trades.
     events.sort_by_key(|e| e.0);
 
     let first = events.first().map_or(0, |e| e.0);
     let mut balance = start_balance;
     let mut peak = start_balance;
+    let mut events = events.into_iter().peekable();
+    if start_balance.abs() < FLAT {
+        while let Some((_, Event::Cash(amount))) = events.next_if(|e| matches!(e.1, Event::Cash(_))) {
+            balance += amount;
+            peak = balance;
+        }
+    }
     let mut out = vec![EquityPoint { time_ms: first, balance, peak, drawdown: 0.0 }];
     for (time_ms, event) in events {
         match event {
@@ -550,11 +562,14 @@ pub struct Group {
     /// R won and R lost (a negative sum) by the trades of the group: its profit factor in R.
     pub r_profit: f64,
     pub r_loss: f64,
+    /// The trades of the group, in the order met: what a pressed row of the analytics opens.
+    pub keys: Vec<TradeKey>,
 }
 
 impl Group {
     fn new(label: String) -> Self {
         Self {
+            keys: Vec::new(),
             label,
             trades: 0,
             wins: 0,
@@ -602,6 +617,7 @@ pub fn breakdown<K: Ord + Clone>(
         for key in keys(x) {
             let g = groups.entry(key.clone()).or_insert_with(|| Group::new(label(&key)));
             let net = x.net();
+            g.keys.push(x.trade.key.clone());
             g.trades += 1;
             g.net += net;
             if x.score() > FLAT {
@@ -652,6 +668,8 @@ pub struct MistakeCost {
     /// Net of the trades with the mistake (usually negative).
     pub net: f64,
     pub total_r: f64,
+    /// The trades with the mistake: what a pressed row opens.
+    pub keys: Vec<TradeKey>,
     /// The mistake's share of all money lost, 0 to 1.
     pub share_of_losses: f64,
     /// Expectancy of the trades with the mistake minus that of trades with no mistake:
@@ -679,6 +697,7 @@ pub fn mistake_cost(
             trades: g.trades,
             net: g.net,
             total_r: g.total_r,
+            keys: g.keys,
             key: g.label,
         })
         .collect();

@@ -123,6 +123,34 @@ class Leash:
             raise Failure(msg) from err
         self.tie(process.pid)
 
+    def watch(self, seconds: float) -> subprocess.Popen[bytes] | None:
+        """Starts a helper (this script with `--hide`) that hides the terminal's windows as soon as
+        they show, for at most `seconds`: the terminal shows its main window while `initialize`
+        logs in, which holds the interpreter's lock for up to two minutes, so no thread here can
+        hide it meanwhile. The helper is tied to the job; stop it with `end_watch`."""
+        if sys.platform != "win32":
+            return None
+        command = [sys.executable, "-X", "utf8", os.path.abspath(__file__), HIDE_FLAG, self.terminal, f"{seconds:.0f}"]
+        try:
+            helper = subprocess.Popen(  # noqa: S603 - this script, with the app's own Python
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                creationflags=CREATE_NO_WINDOW,
+            )
+        except OSError as err:
+            print(f"tradelens worker: window watch not started: {err}", file=sys.stderr)
+            return None
+        self.tie(helper.pid)
+        return helper
+
+    @staticmethod
+    def end_watch(helper: subprocess.Popen[bytes] | None) -> None:
+        if helper is None:
+            return
+        helper.kill()
+        helper.wait()
+
     def tie(self, pid: int) -> None:
         if self.job is None or pid in self.tied:
             return
@@ -134,10 +162,14 @@ class Leash:
 
     def tend(self) -> int:
         """Hides the terminal's visible windows (it shows its main window and dialogs by itself) and
-        ties each of its processes to the job. Returns how many windows it hid; never fails a request."""
+        ties each of its processes to the job, those without a window too: a terminal that
+        `initialize` started itself is not the one `start` tied, and was left running after a
+        failed login. Returns how many windows it hid; never fails a request."""
         if sys.platform != "win32":
             return 0
         try:
+            for pid in processes_of(self.terminal):
+                self.tie(pid)
             hidden = 0
             for hwnd, pid in visible_windows_of(self.terminal):
                 hide_window(hwnd)
@@ -179,6 +211,11 @@ PROCESS_TERMINATE = 0x0001
 PROCESS_SET_QUOTA = 0x0100
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 SW_HIDE = 0
+CREATE_NO_WINDOW = 0x08000000
+# The command-line flag that runs this script as the window watch of `Leash.watch`.
+HIDE_FLAG = "--hide"
+# How often the watch looks for the terminal's windows, in seconds.
+WATCH_EVERY = 0.1
 
 
 def win32() -> Any:
@@ -286,6 +323,51 @@ def image_of(pid: int) -> str | None:
         return os.path.normcase(os.path.abspath(buffer.value))
     finally:
         kernel32.CloseHandle(process)
+
+
+TH32CS_SNAPPROCESS = 0x00000002
+MAX_PATH = 260
+
+
+def processes_of(program: str) -> list[int]:
+    """The ids of the processes running `program` (a normalised path), from a process snapshot."""
+    ctypes, wintypes, kernel32, _ = win32()
+
+    class ProcessEntry(ctypes.Structure):
+        _fields_ = [  # noqa: RUF012 - ctypes layout of PROCESSENTRY32W
+            ("dwSize", wintypes.DWORD),
+            ("cntUsage", wintypes.DWORD),
+            ("th32ProcessID", wintypes.DWORD),
+            ("th32DefaultHeapID", ctypes.c_size_t),
+            ("th32ModuleID", wintypes.DWORD),
+            ("cntThreads", wintypes.DWORD),
+            ("th32ParentProcessID", wintypes.DWORD),
+            ("pcPriClassBase", ctypes.c_long),
+            ("dwFlags", wintypes.DWORD),
+            ("szExeFile", ctypes.c_wchar * MAX_PATH),
+        ]
+
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry)]
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry)]
+    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+    if not snapshot or snapshot == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    name = os.path.basename(program)
+    found: list[int] = []
+    try:
+        entry = ProcessEntry()
+        entry.dwSize = ctypes.sizeof(ProcessEntry)
+        more = kernel32.Process32FirstW(snapshot, ctypes.byref(entry))
+        while more:
+            pid = int(entry.th32ProcessID)
+            if os.path.normcase(entry.szExeFile) == name and image_of(pid) == program:
+                found.append(pid)
+            more = kernel32.Process32NextW(snapshot, ctypes.byref(entry))
+    finally:
+        kernel32.CloseHandle(snapshot)
+    return found
 
 
 def visible_windows_of(program: str) -> list[tuple[int, int]]:
@@ -440,19 +522,29 @@ class Session:
         # exact path it was started with.
         terminal = os.path.abspath(str(request["terminal"]))
         self.hide = bool(request.get("hide", True))
-        if self.hide and self.leash is None:
-            self.leash = Leash(terminal)
-            self.leash.start()
-        ok = self.mt5.initialize(
-            terminal,
-            login=int(request["login"]),
-            password=str(request["password"]),
-            server=str(request["server"]),
-            timeout=int(request.get("timeout_ms", 60_000)),
-            portable=True,
-        )
+        timeout_ms = int(request.get("timeout_ms", 60_000))
+        watch = None
+        if self.hide:
+            if self.leash is None:
+                self.leash = Leash(terminal)
+                self.leash.start()
+            watch = self.leash.watch(timeout_ms / 1000 + 15)
+        try:
+            ok = self.mt5.initialize(
+                terminal,
+                login=int(request["login"]),
+                password=str(request["password"]),
+                server=str(request["server"]),
+                timeout=timeout_ms,
+                portable=True,
+            )
+        finally:
+            Leash.end_watch(watch)
         if not ok:
             code, text = last_error(self.mt5)
+            # Hidden and tied to the job even so: the terminal `initialize` may have started ends
+            # with this worker instead of staying open after the failed login.
+            self.hide_terminal()
             msg = f"không đăng nhập được MT5: ({code}) {text}"
             raise Failure(msg, code)
         self.connected = True
@@ -553,7 +645,23 @@ def serve(mt5: Any, lines: Any, out: Any) -> int:
     return 0
 
 
+def hide_windows_for(program: str, seconds: float) -> int:
+    """The window watch (`Leash.watch`): hides every visible window of `program` (a normalised
+    path) as it shows, until `seconds` have passed or the worker stops it."""
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        try:
+            for hwnd, _pid in visible_windows_of(program):
+                hide_window(hwnd)
+        except OSError as err:
+            print(f"tradelens worker: window watch: {err}", file=sys.stderr)
+        time.sleep(WATCH_EVERY)
+    return 0
+
+
 def main() -> int:
+    if len(sys.argv) == 4 and sys.argv[1] == HIDE_FLAG:  # noqa: PLR2004 - flag, program, seconds
+        return hide_windows_for(sys.argv[2], float(sys.argv[3]))
     # The app reads and writes UTF-8; an isolated Python ignores PYTHONIOENCODING and would use the
     # console's code page on a pipe.
     for stream in (sys.stdin, sys.stdout, sys.stderr):

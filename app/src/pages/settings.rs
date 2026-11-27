@@ -129,6 +129,9 @@ pub(crate) fn settings() -> impl IntoElement {
     let remember = move |key: &'static str, value: String| {
         write.run(move |db: &mut Db| db.set_setting(key, &value), move |result| error.set(result.err()));
     };
+    // The design's two columns, with the shortcuts on the left: most of the design's left cards are
+    // not built yet, and with the shortcuts on the right that column was three times as tall as the
+    // left one and the page scrolled in a maximised window (see the design README's table).
     page(
         "Cài đặt",
         "Giao diện, giờ hiển thị và dữ liệu",
@@ -144,7 +147,8 @@ pub(crate) fn settings() -> impl IntoElement {
                         .min_w(px(520.0))
                         .gap_6()
                         .child(appearance_card(looks, remember))
-                        .child(time_card(clock, remember)),
+                        .child(time_card(clock, remember))
+                        .child(shortcuts_card()),
                 )
                 .child(
                     view()
@@ -153,7 +157,6 @@ pub(crate) fn settings() -> impl IntoElement {
                         .max_w(px(420.0))
                         .gap_6()
                         .child(data_card(stored))
-                        .child(shortcuts_card())
                         .child(about_card()),
                 ),
         ),
