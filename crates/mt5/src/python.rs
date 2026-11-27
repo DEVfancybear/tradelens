@@ -33,6 +33,9 @@ pub const SYNC_SCRIPT: &str = include_str!("../../../python/tradelens_sync.py");
 
 /// What the worker's `MetaTrader5` package calls a refused login.
 const AUTH_FAILED: i64 = -6;
+/// What the package says when the terminal never tells it it is ready (`RES_E_INTERNAL_FAIL_TIMEOUT`):
+/// seen when the terminal does not know the account's server and so never connects.
+const IPC_TIMEOUT: i64 = -10005;
 /// How long a login may take: a terminal's first start in a new folder downloads its updates.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long a poll, an order or a probe may take.
@@ -384,7 +387,9 @@ impl Terminal for Worker {
             "timeout_ms": timeout_ms,
             "hide": true,
         });
-        let data = self.call(request, CONNECT_TIMEOUT + Duration::from_secs(15))?;
+        let data = self
+            .call(request, CONNECT_TIMEOUT + Duration::from_secs(15))
+            .map_err(|error| explain_connect_failure(error, &login.account.server))?;
         serde_json::from_value(data)
             .map_err(|error| Mt5Error::Unreachable(format!("worker trả về tài khoản lạ: {error}")))
     }
@@ -405,6 +410,20 @@ impl Terminal for Worker {
         let request =
             json!({"op": "modify", "ticket": ticket, "sl": levels.sl.unwrap_or(0.0), "tp": levels.tp.unwrap_or(0.0)});
         self.call(request, CALL_TIMEOUT).map(drop).map_err(sent_order)
+    }
+}
+
+/// A failed login in words the trader can act on. An "IPC timeout" there means the terminal never
+/// got ready, which happens when it does not know `server` and opens no connection at all; it is
+/// worth trying again (another sign-in may bring the server list), so it is not a refusal.
+fn explain_connect_failure(error: Mt5Error, server: &str) -> Mt5Error {
+    match error {
+        Mt5Error::Refused { code: IPC_TIMEOUT, .. } => Mt5Error::Unreachable(format!(
+            "terminal không nối được tới server {server} (IPC timeout). Thường là terminal chưa có server \
+             này trong danh sách: hãy mở MetaTrader 5 bạn vẫn dùng cho tài khoản này, đăng nhập một lần để \
+             nó tải danh sách server, rồi bấm \"Kết nối lại\""
+        )),
+        other => other,
     }
 }
 
@@ -457,6 +476,18 @@ mod tests {
         let early = reply_data(&json!({"id": null, "ok": false, "code": -1, "error": "chưa cài gói MetaTrader5"}));
         assert_eq!(early, Err(Mt5Error::Setup("chưa cài gói MetaTrader5".to_owned())));
         assert_eq!(reply_data(&json!({"id": 3, "ok": true, "data": 7})), Ok(json!(7)));
+    }
+
+    #[test]
+    fn a_terminal_that_never_gets_ready_is_explained_and_tried_again() {
+        let timeout = Mt5Error::Refused { code: IPC_TIMEOUT, message: "(-10005) IPC timeout".to_owned() };
+        let explained = explain_connect_failure(timeout, "Exness-MT5Trial7");
+        let Mt5Error::Unreachable(message) = &explained else {
+            panic!("a terminal that is not ready is worth trying again: {explained:?}");
+        };
+        assert!(message.contains("Exness-MT5Trial7") && message.contains("Kết nối lại"), "{message}");
+        let refused = Mt5Error::LoginRefused("sai mật khẩu".to_owned());
+        assert_eq!(explain_connect_failure(refused.clone(), "S"), refused, "other failures are kept");
     }
 
     #[test]

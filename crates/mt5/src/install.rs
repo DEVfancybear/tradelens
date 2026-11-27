@@ -15,6 +15,13 @@ use crate::protocol::AccountRef;
 
 /// The terminal's program in an MT5 folder.
 pub const TERMINAL_EXE: &str = "terminal64.exe";
+/// The folder of a terminal's settings: beside the program in a portable copy, inside the data
+/// folder otherwise (Windows does not tell `Config` from `config`).
+const CONFIG_DIR: &str = "Config";
+/// The terminal's list of brokers' servers and their access points. Without the account's server
+/// in it the terminal never opens a connection, so `initialize` of the Python package waits for it
+/// until "IPC timeout".
+const SERVERS_FILE: &str = "servers.dat";
 
 /// An MT5 terminal installed on the machine.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -96,13 +103,67 @@ pub fn copy_folder(root: &Path, account: &AccountRef) -> PathBuf {
 }
 
 /// `account`'s portable terminal under `root`, copied from the installed `terminal` the first
-/// time. The copy is made beside its place and renamed into it, so a copy cut short is never taken
-/// for a finished one. Blocks while copying (a terminal's folder is a few hundred megabytes).
+/// time, with the fullest list of servers on the machine ([`give_server_list`]). The copy is made
+/// beside its place and renamed into it, so a copy cut short is never taken for a finished one.
+/// Blocks while copying (a terminal's folder is a few hundred megabytes).
 ///
 /// # Errors
 ///
-/// When the installed terminal is missing or the copy cannot be written.
+/// When the installed terminal is missing or the copy cannot be written. A server list that
+/// cannot be written is only logged: the terminal may still know the server.
 pub fn portable_copy(terminal: &Path, root: &Path, account: &AccountRef) -> io::Result<PathBuf> {
+    let copied = copy_once(terminal, root, account)?;
+    let data_folders =
+        std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("MetaQuotes").join("Terminal"));
+    let candidates = server_lists(terminal, data_folders.as_deref());
+    let folder = copy_folder(root, account);
+    if let Err(error) = give_server_list(&folder, &candidates) {
+        log::warn!("mt5 {account}: the server list of {} is not updated: {error}", folder.display());
+    }
+    Ok(copied)
+}
+
+/// The server lists the copy of `terminal` may take: the one in the program's own folder, and
+/// those of every terminal's data folder under `data_folders` (`%APPDATA%\MetaQuotes\Terminal`).
+/// An installed terminal keeps the list it downloaded in its data folder, not beside the program,
+/// so a copy of the program folder alone may not know the account's server.
+fn server_lists(terminal: &Path, data_folders: Option<&Path>) -> Vec<PathBuf> {
+    let own = terminal.parent().map(|folder| folder.join(CONFIG_DIR).join(SERVERS_FILE));
+    let installed = data_folders
+        .and_then(|root| fs::read_dir(root).ok())
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join(CONFIG_DIR).join(SERVERS_FILE));
+    own.into_iter().chain(installed).filter(|path| path.is_file()).collect()
+}
+
+/// Puts the largest of `candidates` into the portable copy at `folder` when it is larger than the
+/// copy's own list. The list only grows as a terminal learns servers, so the largest knows the
+/// most, and a copy that learned more than any candidate keeps its own. Written beside its place
+/// and renamed in, so a terminal never reads half a list. Tells whether the list was replaced.
+///
+/// # Errors
+///
+/// When the list cannot be read or written (a terminal still running in `folder` holds it).
+fn give_server_list(folder: &Path, candidates: &[PathBuf]) -> io::Result<bool> {
+    let config = folder.join(CONFIG_DIR);
+    let target = config.join(SERVERS_FILE);
+    let size = |path: &Path| fs::metadata(path).map_or(0, |meta| meta.len());
+    let current = size(&target);
+    let Some((_, best)) = candidates.iter().map(|path| (size(path), path)).filter(|(len, _)| *len > current).max()
+    else {
+        return Ok(false);
+    };
+    fs::create_dir_all(&config)?;
+    let partial = config.join(format!("{SERVERS_FILE}.copying"));
+    fs::copy(best, &partial)?;
+    crate::runtime::rename_patiently(&partial, &target).inspect_err(|_| drop(fs::remove_file(&partial)))?;
+    Ok(true)
+}
+
+/// `account`'s portable terminal under `root`, copied from `terminal` when it is not there yet.
+fn copy_once(terminal: &Path, root: &Path, account: &AccountRef) -> io::Result<PathBuf> {
     let target = copy_folder(root, account);
     let copied = target.join(TERMINAL_EXE);
     if copied.is_file() {
@@ -198,6 +259,48 @@ mod tests {
         assert!(root.join("123@Demo").join("Config.ini").is_file(), "a second call keeps the account's own data");
         remove_copy(&root, &account).expect("the copy is removed");
         assert!(!root.join("123@Demo").exists(), "nothing of the account is left");
+    }
+
+    /// Writes a `servers.dat` of `len` bytes into the settings of the terminal folder `folder`.
+    fn server_list(folder: &Path, len: usize) -> PathBuf {
+        let config = folder.join(CONFIG_DIR);
+        fs::create_dir_all(&config).expect("the settings folder is made");
+        let path = config.join(SERVERS_FILE);
+        fs::write(&path, vec![b's'; len]).expect("the server list is written");
+        path
+    }
+
+    #[test]
+    fn a_copy_takes_the_server_list_an_installed_terminal_downloaded() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let terminal = fake_install(dir.path(), "MetaTrader 5");
+        let program = terminal.parent().expect("the terminal has a folder");
+        server_list(program, 32);
+        let data_folders = dir.path().join("Terminal");
+        let downloaded = server_list(&data_folders.join("D0E8"), 666);
+        server_list(&data_folders.join("ABCD"), 100);
+        let candidates = server_lists(&terminal, Some(&data_folders));
+        assert_eq!(candidates.len(), 3, "the program's own list and both data folders': {candidates:?}");
+
+        let root = dir.path().join("mt5");
+        let account = AccountRef::new("123", "Exness-MT5Trial7");
+        copy_once(&terminal, &root, &account).expect("the copy is made");
+        let copy = copy_folder(&root, &account);
+        assert!(give_server_list(&copy, &candidates).expect("the list is written"), "the larger list is taken");
+        let taken = fs::read(copy.join(CONFIG_DIR).join(SERVERS_FILE)).expect("the copy has a list");
+        assert_eq!(taken, fs::read(&downloaded).expect("the downloaded list"), "the largest list is taken");
+        assert!(!copy.join(CONFIG_DIR).join(format!("{SERVERS_FILE}.copying")).exists(), "nothing is left beside it");
+        assert!(!give_server_list(&copy, &candidates).expect("nothing to do"), "the same list is not copied again");
+    }
+
+    #[test]
+    fn a_copy_that_learned_more_servers_keeps_its_own_list() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let copy = dir.path().join("123@Demo");
+        let learned = server_list(&copy, 900);
+        let candidate = server_list(&dir.path().join("Terminal").join("D0E8"), 666);
+        assert!(!give_server_list(&copy, &[candidate]).expect("nothing to do"));
+        assert_eq!(fs::metadata(learned).expect("the list is there").len(), 900);
     }
 
     #[test]
