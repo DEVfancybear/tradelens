@@ -238,5 +238,23 @@ The user is explicit: "kiểm tra = app thật" (check on the real app). Passing
 - Start the release build with `NSH_FPS=hidden RUST_LOG="nsh::fps=info,tradelens::i18n=debug"`, stderr to a file: once a second NSH logs fps, frame cost, commits, app code and core time per commit, mount items, CPU and memory.
 - Copy the exe to a name of its own before launching it when another `nsh-app-tradelens.exe` runs: computer-use grants by path, and the name resolves to the other copy, whose window you must not touch.
 
+### 8.5 A count in English chooses its plural
+- **Rule:** a text with a count that can be 1 is a `.one`/`.other` pair read with `i18n::plural!(n, "area.key", n = n)` (Vietnamese writes both alike). A ratio chooses on its total ("1 / 1 trade"). A line with several counts is worded so no plural is needed: "Deals: 1 new, 0 updated".
+- **Why:** the converted tables said "1 trades marked “Review later”", "1 new deals, 0 updated deals", "1 rows", "N trade(s)" on the real app.
+- **Check:** `rg -n '%\{\w+\} \w+s\b|\(s\)' app/locales` and look at each English text whose count can be 1.
+
+### 8.6 What is stored is in one language; the screen words it
+- **Rule:** text the app stores (the search index's titles, the names of the accounts it makes) never depends on the language of the moment. Store it as before (Vietnamese: `Period::title_in(start, Lang::Vi)`, `MANUAL_NAME`) and word it where it is shown (`Hit::shown_title`, `Account::shown_name`), leaving what the trader typed as typed.
+- **Why:** after the conversion a review written in English was indexed as "Week 47 …" (and synced), while the other titles stayed "Nhật ký ngày …", "Bỏ lỡ …"; the manual account showed "Nhập tay" in English.
+
+### 8.7 English is longer: check every label column on the real app in English
+- **Rule:** a label in a fixed column wraps (`number_of_lines(2)` in `ui/breakdown.rs`), or is bounded itself: a popover trigger (`ui/properties.rs` `name_button`) sizes by its content, so a bound on the column or the button does not reach the text; put `max_w` on the `text`.
+- **Why:** "Emotion before the trade" ran under the editor beside it in the trade journal, the sessions of Phân tích read "Asian sessi…", and "Journaled" wrapped in the Trades table's 8-glyph Journal column. Headless tests found none of them.
+- **Check:** start the review build in English (scratch `APPDATA`) and look at Phân tích, Lệnh, chi tiết lệnh, Tài khoản, Nguồn dữ liệu, Tổng kết.
+
+### 8.8 A test probe never runs its job under a lock
+- **Rule:** take the job out of a `Mutex` in its own statement, then run it. `if let Some(job) = JOB.lock()?.take() { job() }` keeps the guard alive for the whole block (temporaries of the scrutinee live to its end).
+- **Why:** one `with_text` check that failed poisoned `JOB`, and every later unit test reading text failed with "no probe panicked while holding its job": 40 failures for one wrong English string.
+
 ## 9. The Stop hook checks the main checkout
 - The `Stop` hook runs `scripts/quality.sh` in `$CLAUDE_PROJECT_DIR`, the main checkout, not the worktree you work in. When another session has unfinished edits there, the hook fails on code that is not yours: check your own worktree with the same commands and leave the other session's files alone.
