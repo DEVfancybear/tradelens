@@ -14,6 +14,8 @@ use tradelens_core::{
     model::{AccountInfo, Deal, DealBatch, DealEntry, DealKind},
 };
 
+#[expect(dead_code, reason = "this file turns no toggle on")]
+mod common;
 mod support;
 use support::{Fixture, wait_until};
 
@@ -111,8 +113,8 @@ fn the_plan_prompt_of_a_trade_in_r_shows_no_lot_and_names_its_source() {
     app.wait_for("BTCUSD").expect("the list");
     app.press("role:button[Mở nhật ký lệnh BTCUSD] >> nth=0").expect("a trade opens");
     app.wait_for("Chi tiết lệnh").expect("the trade's page");
-    app.press("role:button[Viết kế hoạch]").expect("the trade has no plan yet");
-    app.wait_for("Kế hoạch vào lệnh").expect("the prompt opens");
+    // The page draws again once the trade's data is read; a press that lands then is lost.
+    common::press_until(&mut app, "role:button[Viết kế hoạch]", |screen| screen.shows("Kế hoạch vào lệnh"));
     app.wait_for("text:/ · Notion$/").expect("the first line names the source of the deals, not a ticket");
     assert!(
         !app.screen().matches("text:/^[0-9.]+ lot/").expect("a selector"),
