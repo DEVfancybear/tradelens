@@ -123,7 +123,24 @@ fn last_login_in(terminal: &Path, data_folders: Option<&Path>) -> Option<(String
                 .is_some_and(|origin| normal(Path::new(origin.trim())) == normal(folder))
         })
         .map(|data| data.join(CONFIG_DIR).join(COMMON_INI));
-    std::iter::once(own).chain(installed).find_map(|ini| fs::read(ini).ok().and_then(|bytes| login_in_ini(&bytes)))
+    std::iter::once(own)
+        .chain(installed)
+        .find_map(|ini| fs::read(ini).ok().and_then(|bytes| login_in_ini(&bytes)))
+        .or_else(|| login_in_folder_name(folder))
+}
+
+/// The account an app's portable copy was made for, from its folder's name
+/// (`AccountRef::folder_name`, `434572089@Exness-MT5Trial7`): a copy whose login never went
+/// through has no login in its `common.ini`. The server is left out when the name had to replace
+/// characters of it (`_`), since the real name is then unknown.
+fn login_in_folder_name(folder: &Path) -> Option<(String, String)> {
+    let name = folder.file_name()?.to_str()?;
+    let (login, server) = name.split_once('@')?;
+    if login.is_empty() || !login.chars().all(|c| c.is_ascii_digit()) || server.is_empty() {
+        return None;
+    }
+    let server = if server.contains('_') { String::new() } else { server.to_owned() };
+    Some((login.to_owned(), server))
 }
 
 /// The terminal's settings file that names the last account.
@@ -385,6 +402,16 @@ mod tests {
             .expect("written");
         let found = last_login_in(&installed, Some(&dir.path().join("Terminal")));
         assert_eq!(found, Some(("52012345".to_owned(), "ICMarketsSC-Demo".to_owned())), "origin matched without case");
+
+        // A copy of the app whose login never went through is named after its account.
+        let failed = fake_install(dir.path(), "434572089@Exness-MT5Trial7");
+        fs::create_dir_all(dir.path().join("434572089@Exness-MT5Trial7").join(CONFIG_DIR)).expect("settings");
+        fs::write(dir.path().join("434572089@Exness-MT5Trial7").join(CONFIG_DIR).join(COMMON_INI), "[Common]\n")
+            .expect("written");
+        let found = last_login_in(&failed, None);
+        assert_eq!(found, Some(("434572089".to_owned(), "Exness-MT5Trial7".to_owned())));
+        let odd = fake_install(dir.path(), "77@Broker_Live");
+        assert_eq!(last_login_in(&odd, None), Some(("77".to_owned(), String::new())), "a changed server is left out");
 
         // A terminal that never logged in tells nothing.
         assert_eq!(login_in_ini(b"[Common]\nLogin=0\nServer=\n"), None);

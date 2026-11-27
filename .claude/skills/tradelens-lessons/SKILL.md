@@ -81,6 +81,11 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
 - **Why:** "Hiện trong thư mục" in the image viewer failed with "An attempt was made to reference a token that does not exist". `dir.join("images/x.png")` gave `…\attachments\images/x.png`; NSH's Windows `reveal` calls `ILCreateFromPathW`, which returns null on a mixed path, and the error read was a stale `GetLastError` (1008). `ShellExecuteW` (open) accepts it, so only reveal broke. The test passed because `Path`'s `==` reads `\` and `/` alike on Windows.
 - **Check:** `rg -n 'join\(&?\w+\.path\)' app/src crates` prints nothing; `a_picture_can_be_opened_with_another_program_and_shown_in_its_folder` fails on Windows if a `join(&item.path)` comes back.
 
+### 1.12 A curve's axes fit what the trader looks at: values by `value_axis`, points one trade apart
+- **Rule:** a curve's y scale gets its domain and its labels from `ui::chart::value_axis` (round ends around the values, not anchored at zero for a balance), passed to the plot's `y_scale`, the axis's `tick_values` and the grid's `y`. Points go one trade apart (`chart::TRADE_SPACING`), never by time. A point that is no state of the trading (the empty balance before an account's first deposit) is left out of the curve in `metrics::equity_curve`, not hidden by the chart.
+- **Why:** on a $1,000,000 demo account funded inside the 30-day period, the curve started at the $0 before the deposit; the balance line sat flat at the top of a $0–$1,400,000 axis and the few thousand dollars it moved were invisible. Points spread by time put every trade of the last two days at the right edge, so the drawdown was one vertical drop there.
+- **Check:** `a_balance_near_a_million_fills_the_plot_instead_of_starting_at_zero` (`ui/chart.rs`) and `an_account_funded_in_the_period_starts_at_its_deposit_not_at_zero` (`crates/core/tests/metrics.rs`).
+
 ## 2. Typing lost when data is read again
 
 - **Rule:**

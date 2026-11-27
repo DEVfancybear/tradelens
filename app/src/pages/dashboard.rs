@@ -30,7 +30,7 @@ use crate::{
         layout::{columns, titled_card},
         month_grid::mini_month,
         parts::{empty_state, page_with, stat_tile, stat_tile_with, warning_banner},
-        r_chart::{RPoint, r_curve_chart},
+        r_chart::r_curve_chart,
         table::recent_trades,
     },
 };
@@ -321,7 +321,7 @@ fn r_body(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
     view().child(dynamic(move || {
         if drawable.get() {
             r_curve_chart(
-                move || points.with(|p| p.iter().map(|&(time_ms, total_r)| RPoint { time_ms, total_r }).collect()),
+                move || points.with(|p| p.iter().map(|&(_, total_r)| total_r).collect()),
                 move || u32::try_from(Range::ALL.iter().position(|r| *r == range.get()).unwrap_or(0)).unwrap_or(0),
             )
             .into_element()

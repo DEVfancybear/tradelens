@@ -11,8 +11,8 @@ ui.chart.balance:
   vi: "Số dư %{amount}"
   en: "Balance %{amount}"
 ui.chart.balance_label:
-  vi: "Đường số dư theo thời gian"
-  en: "Balance line over time"
+  vi: "Đường số dư theo từng lệnh"
+  en: "Balance line, trade by trade"
 ui.chart.max_drawdown:
   vi: "tối đa %{amount}"
   en: "max %{amount}"
@@ -512,8 +512,8 @@ ui.r_chart.total:
   vi: "Tổng R %{r}"
   en: "Total R %{r}"
 ui.r_chart.label:
-  vi: "Tổng R tích luỹ theo thời gian"
-  en: "Cumulative total R over time"
+  vi: "Tổng R tích luỹ theo từng lệnh"
+  en: "Cumulative R, trade by trade"
 
 # Picture viewer.
 ui.viewer.no_file:
