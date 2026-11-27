@@ -176,7 +176,7 @@ impl Response {
     /// The body as JSON.
     pub(crate) fn json<T: DeserializeOwned>(&self) -> crate::Result<T> {
         serde_json::from_slice(&self.body)
-            .map_err(|e| CloudError::Network(format!("dịch vụ trả dữ liệu không đọc được: {e}")))
+            .map_err(|e| CloudError::Network(crate::tr!("cloud.http.unreadable_body", error = e)))
     }
 
     /// The body as a generic JSON value; `Null` when it is empty or not JSON.

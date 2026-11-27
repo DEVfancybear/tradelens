@@ -1,0 +1,137 @@
+_version: 2
+
+cloud.error.signed_out:
+  vi: "chưa đăng nhập"
+  en: "not signed in"
+cloud.error.auth:
+  vi: "đăng nhập bị huỷ hoặc thất bại: %{error}"
+  en: "sign-in was cancelled or failed: %{error}"
+cloud.error.cancelled:
+  vi: "đã huỷ đăng nhập"
+  en: "sign-in cancelled"
+cloud.error.config:
+  vi: "thiếu cấu hình: %{error}"
+  en: "missing configuration: %{error}"
+cloud.error.network:
+  vi: "lỗi mạng: %{error}"
+  en: "network error: %{error}"
+cloud.error.service:
+  vi: "dịch vụ trả lỗi %{status}: %{message}"
+  en: "the service returned an error %{status}: %{message}"
+cloud.error.store:
+  vi: "kho khoá của hệ điều hành báo lỗi: %{error}"
+  en: "the operating system's credential store reported an error: %{error}"
+cloud.error.drive_not_granted:
+  vi: "Bạn chưa cho phép TradeLens dùng Google Drive. Hãy đăng nhập lại và tick ô quyền Google Drive."
+  en: "You have not allowed TradeLens to use Google Drive. Sign in again and tick the Google Drive permission box."
+cloud.error.no_snapshot:
+  vi: "chưa có bản sao lưu nào trên đám mây"
+  en: "there is no backup in the cloud yet"
+cloud.error.corrupt:
+  vi: "dữ liệu đồng bộ hỏng: %{error}"
+  en: "the sync data is corrupt: %{error}"
+cloud.error.io:
+  vi: "lỗi đọc/ghi file: %{error}"
+  en: "file read/write error: %{error}"
+cloud.error.not_implemented:
+  vi: "chưa làm: %{what}"
+  en: "not implemented yet: %{what}"
+
+cloud.auth.no_client_id_hint:
+  vi: "chưa có client id của %{provider}: đặt %{setting} hoặc biến môi trường %{env} (xem docs/cloud-sync.md)"
+  en: "there is no client id for %{provider}: set %{setting} or the environment variable %{env} (see docs/cloud-sync.md)"
+cloud.auth.no_client_id:
+  vi: "chưa có client id của %{provider}"
+  en: "there is no client id for %{provider}"
+cloud.auth.no_random:
+  vi: "không lấy được số ngẫu nhiên: %{error}"
+  en: "cannot get a random number: %{error}"
+cloud.auth.port_failed:
+  vi: "không mở được cổng nhận đăng nhập: %{error}"
+  en: "cannot open the port that receives the sign-in: %{error}"
+cloud.auth.port_error:
+  vi: "cổng nhận đăng nhập bị lỗi: %{error}"
+  en: "the port that receives the sign-in failed: %{error}"
+cloud.auth.service_error:
+  vi: "dịch vụ trả lỗi %{status}"
+  en: "the service returned an error %{status}"
+cloud.auth.no_account_name:
+  vi: "không đọc được tên tài khoản từ nhà cung cấp"
+  en: "cannot read the account name from the provider"
+cloud.auth.timed_out:
+  vi: "hết thời gian chờ đăng nhập"
+  en: "timed out waiting for the sign-in"
+cloud.auth.page.bad_request.title:
+  vi: "Yêu cầu không hợp lệ"
+  en: "Invalid request"
+cloud.auth.page.bad_request.body:
+  vi: "Trang này chỉ dùng để đăng nhập TradeLens."
+  en: "This page is only used to sign in to TradeLens."
+cloud.auth.page.incomplete.title:
+  vi: "Đăng nhập chưa hoàn tất"
+  en: "Sign-in not completed"
+cloud.auth.page.incomplete.body:
+  vi: "Bạn đã từ chối hoặc có lỗi. Hãy quay lại TradeLens và thử lại."
+  en: "You declined, or something went wrong. Go back to TradeLens and try again."
+cloud.auth.page.success.title:
+  vi: "Đăng nhập thành công"
+  en: "Signed in"
+cloud.auth.page.success.body:
+  vi: "Bạn có thể đóng tab này và quay lại TradeLens."
+  en: "You can close this tab and go back to TradeLens."
+cloud.auth.page.no_code.title:
+  vi: "Thiếu mã đăng nhập"
+  en: "Sign-in code missing"
+cloud.auth.page.no_code.body:
+  vi: "Hãy quay lại TradeLens và thử lại."
+  en: "Go back to TradeLens and try again."
+
+cloud.drive.no_session_url:
+  vi: "Google Drive không trả địa chỉ phiên tải lên"
+  en: "Google Drive did not return the address of the upload session"
+cloud.drive.chunk_refused:
+  vi: "Google Drive không nhận phần dữ liệu vừa gửi"
+  en: "Google Drive did not accept the part of the data just sent"
+cloud.onedrive.chunk_refused:
+  vi: "OneDrive không nhận phần dữ liệu vừa gửi"
+  en: "OneDrive did not accept the part of the data just sent"
+cloud.http.unreadable_body:
+  vi: "dịch vụ trả dữ liệu không đọc được: %{error}"
+  en: "the service returned data that cannot be read: %{error}"
+cloud.memory.offline:
+  vi: "không có kết nối (ổ đĩa thử nghiệm đang ngắt)"
+  en: "no connection (the test drive is switched off)"
+cloud.memory.no_file:
+  vi: "không có file %{name}"
+  en: "there is no file %{name}"
+cloud.sync.image_hash:
+  vi: "ảnh %{path} tải về không khớp mã băm"
+  en: "the downloaded image %{path} does not match its hash"
+cloud.store.unreadable_token:
+  vi: "token đã lưu không đọc được: %{error}"
+  en: "the saved token cannot be read: %{error}"
+
+cloud.ai.off:
+  vi: "AI review đang tắt"
+  en: "AI review is off"
+cloud.ai.prompt.intro:
+  vi: "Bạn là người kèm cặp kỷ luật giao dịch. Dựa trên nhật ký tuần %{week} dưới đây, hãy:\n1. Chỉ ra tối đa 3 khuôn mẫu lặp lại (lỗi, cảm xúc, thời điểm, setup).\n2. Nêu setup nào đang hiệu quả, setup nào nên tạm dừng, kèm số liệu.\n3. Đề xuất 3 việc cụ thể cho tuần sau.\nKhông đưa ra khuyến nghị mua bán hay dự báo giá. Trả lời bằng tiếng Việt, ngắn gọn.\n"
+  en: "You are a trading discipline coach. Based on the journal of week %{week} below:\n1. Point out at most 3 repeated patterns (mistakes, emotions, timing, setups).\n2. Say which setup is working and which one should be paused, with figures.\n3. Suggest 3 concrete things to do next week.\nDo not recommend buying or selling or forecast prices. Answer in English, briefly.\n"
+cloud.ai.prompt.overview:
+  vi: "Tổng quan: %{trades} lệnh, win rate %{win_rate}%, tổng %{total_r}R, kỳ vọng %{expectancy}R/lệnh, %{violations} vi phạm quy tắc, %{missed} lệnh bỏ lỡ (%{missed_r}R)."
+  en: "Overview: %{trades} trades, win rate %{win_rate}%, total %{total_r}R, expectancy %{expectancy}R/trade, %{violations} rule violations, %{missed} missed trades (%{missed_r}R)."
+cloud.ai.prompt.by_setup:
+  vi: "\nTheo setup:"
+  en: "\nBy setup:"
+cloud.ai.prompt.setup_line:
+  vi: "- %{name}: %{trades} lệnh, win %{win}%, %{r}R"
+  en: "- %{name}: %{trades} trades, win %{win}%, %{r}R"
+cloud.ai.prompt.mistakes:
+  vi: "\nLỗi:"
+  en: "\nMistakes:"
+cloud.ai.prompt.mistake_line:
+  vi: "- %{name}: %{times} lần, %{r}R"
+  en: "- %{name}: %{times} times, %{r}R"
+cloud.ai.prompt.notes:
+  vi: "\nGhi chú của trader:"
+  en: "\nThe trader's notes:"

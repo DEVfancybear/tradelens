@@ -18,6 +18,17 @@
 //!
 //! Design: `docs/cloud-sync.md`.
 
+// The crate's text, from `locales/`; `tr!` reads it in the language of the process (the core's).
+rust_i18n::i18n!("locales", fallback = "vi");
+
+/// The text of `key` in `locales/`, in the language of the process, with `name = value` in its `%{name}`s.
+macro_rules! tr {
+    ($key:expr $(, $name:ident = $value:expr)* $(,)?) => {
+        ::rust_i18n::t!($key, locale = ::tradelens_core::i18n::current().key() $(, $name = $value)*).into_owned()
+    };
+}
+pub(crate) use tr;
+
 pub mod ai;
 mod api;
 pub mod auth;
@@ -37,20 +48,20 @@ pub use http::RetryPolicy;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CloudError {
-    #[error("chưa đăng nhập")]
+    #[error("{}", crate::tr!("cloud.error.signed_out"))]
     SignedOut,
-    #[error("đăng nhập bị huỷ hoặc thất bại: {0}")]
+    #[error("{}", crate::tr!("cloud.error.auth", error = .0))]
     Auth(String),
     /// The user closed the sign-in or pressed cancel; not an error to show.
-    #[error("đã huỷ đăng nhập")]
+    #[error("{}", crate::tr!("cloud.error.cancelled"))]
     Cancelled,
-    #[error("thiếu cấu hình: {0}")]
+    #[error("{}", crate::tr!("cloud.error.config", error = .0))]
     Config(String),
-    #[error("lỗi mạng: {0}")]
+    #[error("{}", crate::tr!("cloud.error.network", error = .0))]
     Network(String),
-    #[error("dịch vụ trả lỗi {status}: {message}")]
+    #[error("{}", crate::tr!("cloud.error.service", status = .status, message = .message))]
     Service { status: u16, message: String },
-    #[error("kho khoá của hệ điều hành báo lỗi: {0}")]
+    #[error("{}", crate::tr!("cloud.error.store", error = .0))]
     Store(String),
     #[error(transparent)]
     Db(#[from] tradelens_core::DbError),
@@ -60,16 +71,37 @@ pub enum CloudError {
     News(tradelens_core::news::FeedError),
     /// The user unticked Google's Drive permission on the consent screen (or took it back later);
     /// the message is the one for Google Drive because only Google reports it this way.
-    #[error("Bạn chưa cho phép TradeLens dùng Google Drive. Hãy đăng nhập lại và tick ô quyền Google Drive.")]
+    #[error("{}", crate::tr!("cloud.error.drive_not_granted"))]
     DriveNotGranted,
-    #[error("chưa có bản sao lưu nào trên đám mây")]
+    #[error("{}", crate::tr!("cloud.error.no_snapshot"))]
     NoSnapshot,
-    #[error("dữ liệu đồng bộ hỏng: {0}")]
+    #[error("{}", crate::tr!("cloud.error.corrupt", error = .0))]
     Corrupt(String),
-    #[error("lỗi đọc/ghi file: {0}")]
+    #[error("{}", crate::tr!("cloud.error.io", error = .0))]
     Io(#[from] std::io::Error),
-    #[error("chưa làm: {0}")]
+    #[error("{}", crate::tr!("cloud.error.not_implemented", what = .0))]
     NotImplemented(&'static str),
 }
 
 pub type Result<T> = std::result::Result<T, CloudError>;
+
+#[cfg(test)]
+mod locales {
+    #[test]
+    fn every_key_has_its_vietnamese_and_its_english_text() {
+        let problems = tradelens_core::i18n::testing::problems(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+            &|locale, key| rust_i18n::t!(key, locale = locale).into_owned(),
+            &["cloud."],
+        );
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    #[test]
+    fn a_message_comes_in_the_language_asked_for() {
+        let vi = rust_i18n::t!("cloud.error.signed_out", locale = "vi");
+        let en = rust_i18n::t!("cloud.error.signed_out", locale = "en");
+        assert_eq!((vi.as_ref(), en.as_ref()), ("chưa đăng nhập", "not signed in"));
+        assert_eq!(super::CloudError::SignedOut.to_string(), "chưa đăng nhập", "the process speaks Vietnamese");
+    }
+}
