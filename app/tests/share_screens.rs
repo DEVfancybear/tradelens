@@ -164,7 +164,8 @@ fn a_trade_is_shared_as_a_picture_that_follows_the_privacy_choice() {
     }
 
     app.press("role:button[Sao chép ảnh]").expect("the copy button");
-    app.wait_for("Đã sao chép ảnh vào clipboard.").expect("copying is reported");
+    // The copy renders the card and writes the clipboard on a blocking thread: slow under a full run.
+    app.wait_for_within("Đã sao chép ảnh vào clipboard.", WAIT).expect("copying is reported");
     app.press("role:button[Đóng]").expect("the close button");
     app.wait_for_gone("Chia sẻ kết quả", WAIT).expect("the dialog closes");
 }
