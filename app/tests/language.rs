@@ -8,6 +8,8 @@
 mod common;
 mod support;
 
+use std::time::Instant;
+
 use nsh_testing::Headless;
 use support::{WAIT, wait_until};
 
@@ -29,8 +31,11 @@ fn the_language_chosen_in_the_settings_turns_every_screen_and_comes_back_on_the_
     let mut app = fixture.start(1280.0, 1000.0, |_| {});
     common::press_until(&mut app, "role:button[Cài đặt]", |screen| screen.shows("Chế độ màu"));
 
+    let built = nsh_app_tradelens::window_builds();
+    let asked = Instant::now();
     choose(&mut app, "Ngôn ngữ", "English");
     app.wait_for_within("Color mode", WAIT).expect("the settings are in English at once");
+    eprintln!("the window turned to English {:?} after the choice", asked.elapsed());
     for sidebar in ["Overview", "Trades", "P/L calendar", "Daily journal", "Settings"] {
         app.wait_for_within(sidebar, WAIT).unwrap_or_else(|_| panic!("the sidebar reads {sidebar:?}"));
     }
@@ -40,6 +45,8 @@ fn the_language_chosen_in_the_settings_turns_every_screen_and_comes_back_on_the_
 
     common::press_until(&mut app, "role:button[Trades]", |screen| !screen.shows("Color mode"));
     common::press_until(&mut app, "role:button[Settings]", |screen| screen.shows("Color mode"));
+    // The choice built the window once: the stored setting, read back, builds nothing more.
+    assert_eq!(nsh_app_tradelens::window_builds(), built + 1, "one change of language, one new window");
     drop(app);
 
     // The next run opens in English.

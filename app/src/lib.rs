@@ -38,6 +38,7 @@ use nsh_base::theme;
 use nsh_core::{element::desktop::window, prelude::*};
 
 pub use cloud::CREDENTIALS_SETTING;
+pub use i18n::window_builds;
 pub use news::{OFF as NEWS_OFF, URL_SETTING as NEWS_URL_SETTING};
 pub use store::{Reading, Writer, data_changed, query, query_with, writer};
 

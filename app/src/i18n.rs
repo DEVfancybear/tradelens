@@ -11,7 +11,11 @@
 //!   where it builds it, and the store reads the database again for text made while reading. The
 //!   crates' text follows through [`tradelens_core::i18n::set_current`].
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Instant,
+};
 
 use nsh_core::{platform::Locale, prelude::*};
 pub(crate) use tradelens_core::i18n::Lang;
@@ -74,11 +78,28 @@ pub(crate) fn follow_language() {
     });
 }
 
-/// `content`, built again whenever the window's language changes.
+/// How many times [`translated`] has built its content, in this process.
+static BUILDS: AtomicUsize = AtomicUsize::new(0);
+
+/// How many times the window's content has been built, in this process: once at the start, then once
+/// per change of language. For the checks that a change builds it once, and the performance log.
+#[doc(hidden)]
+pub fn window_builds() -> usize {
+    BUILDS.load(Ordering::Relaxed)
+}
+
+/// `content`, built again whenever the window's language changes. Each build is logged with what
+/// it cost (`RUST_LOG=tradelens::i18n=debug`).
 pub(crate) fn translated<E: IntoElement + 'static>(content: impl Fn() -> E + 'static) -> impl IntoElement {
     dynamic(move || {
         let lang = language();
-        untracked(|| view().flex_1().key(lang.key()).child(content()))
+        untracked(|| {
+            let started = Instant::now();
+            let built = view().flex_1().key(lang.key()).child(content());
+            let count = BUILDS.fetch_add(1, Ordering::Relaxed) + 1;
+            log::debug!(target: "tradelens::i18n", "window built in {} (#{count}) in {:?}", lang.key(), started.elapsed());
+            built
+        })
     })
 }
 
