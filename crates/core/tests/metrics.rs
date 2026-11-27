@@ -131,3 +131,29 @@ fn start_balance_follows_the_trader_then_the_terminal() {
     account.initial_balance = Some(250.0);
     assert_eq!(metrics::start_balance(&account, &samples, &cash), 250.0, "the trader's figure wins");
 }
+
+#[test]
+fn an_account_funded_in_the_period_starts_at_its_deposit_not_at_zero() {
+    use DealEntry::*;
+    use DealKind::*;
+    let deals = vec![
+        deal(1, 7, "2026.11.25 09:00:00", Buy, In, 1.0, 1.1, 0.0),
+        deal(2, 7, "2026.11.25 10:00:00", Sell, Out, 1.0, 1.1, -2_200.0),
+    ];
+    let trades = build_trades(1, &deals);
+    let samples: Vec<Sample<'_>> = trades.iter().map(|t| Sample { trade: t, r: Option::None }).collect();
+    let funded = parse_mt5_time("2026.11.01 08:00:00").expect("fixture times parse");
+    let cash = [(funded, 1_000_000.0)];
+
+    let curve = metrics::equity_curve(&samples, 0.0, &cash);
+    let balances: Vec<f64> = curve.iter().map(|p| p.balance).collect();
+    assert_eq!(curve.len(), 2, "the deposit and the trade: {balances:?}");
+    assert!((curve[0].balance - 1_000_000.0).abs() < 1e-9, "no empty balance before the deposit: {balances:?}");
+    assert_eq!(curve[0].time_ms, funded);
+    assert!(curve.iter().all(|p| p.balance > 990_000.0), "{balances:?}");
+    assert!((curve[1].drawdown - (1_000_000.0 - curve[1].balance)).abs() < 1e-6, "{}", curve[1].drawdown);
+
+    let carried = metrics::equity_curve(&samples, 5_000.0, &cash);
+    assert_eq!(carried.len(), 3, "a balance carried in keeps the deposit as its own step");
+    assert!((carried[0].balance - 5_000.0).abs() < 1e-9);
+}
