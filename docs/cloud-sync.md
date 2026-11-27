@@ -64,7 +64,7 @@ Mã: lõi gộp nằm trong `crates/core` (`sync`, `db/sync.rs`, `db/views.rs`; 
 
 ## Ghi nhật ký thay đổi
 
-Mọi ghi cục bộ (qua `Db`: `upsert_batch`, `add_manual_trade`, `update_manual_trade`, `delete_trades`, import Notion, `save_journal`, `save_rules`,
+Mọi ghi cục bộ (qua `Db`: `upsert_batch`, `add_manual_trade`, `update_manual_trade`, `delete_trades`, `delete_account`, import Notion, `save_journal`, `save_rules`,
 `save_checklist`, `save_day_note`/`save_day_values`, `set_setting`, danh mục, field, form, playbook, lệnh bỏ lỡ,
 tổng kết, mẫu, xoá, và việc đổi kiểu field kéo theo các entry) đi qua `db::sync::logged`: đọc thực thể
 **trước và sau** dưới dạng trường di động rồi ghi *những trường khác nhau* thành một dòng `changes`
@@ -82,7 +82,9 @@ có tem thì ghi, tem = `updated_at` của journal, các thứ khác tem 0 để
 
 1. **Mỗi trường là một thanh ghi LWW:** ghi có tem lớn hơn thắng; bằng `at` thì **device id lớn hơn thắng**
    (so sánh tem `(at, device)`; hai máy luôn ra cùng kết quả). Áp lại cùng một thay đổi không làm gì (tem bằng
-   không thắng); thứ tự áp không ảnh hưởng kết quả (các lô được áp theo thứ tự thực thể rồi `(at, device, seq)`).
+   không thắng); thứ tự áp không ảnh hưởng kết quả (các lô được áp theo thứ tự thực thể rồi `(at, device, seq)`;
+   riêng lệnh **xoá tài khoản** được áp sau cùng, để thứ thuộc về tài khoản bị xoá trước, tombstone giữ nội dung
+   của nó, thay vì bị việc xoá tài khoản kéo theo).
 2. **Danh sách có thể cùng được thêm** (tag, lỗi, mục checklist đã tick) là **tập phần tử**: mỗi phần tử một
    trường `tags#london_open`, giá trị `true` hoặc vắng mặt. Mỗi phần tử có tem riêng nên thêm `A` ở máy 1 và
    bỏ `B` ở máy 2 đều giữ; cùng một phần tử bị thêm ở máy này, xoá ở máy kia thì ai ghi muộn hơn thắng
@@ -114,6 +116,18 @@ có tem thì ghi, tem = `updated_at` của journal, các thứ khác tem 0 để
    ở đâu). Import lại cùng báo cáo MT5 là một ghi mới nên mang lệnh đã xoá trở lại ở mọi máy. File ảnh của journal
    đã xoá bị xoá khỏi máy xoá nếu không journal, lệnh bỏ lỡ hay setup nào dùng; ở máy khác ảnh còn nằm trong thư mục
    dữ liệu.
+   Với **tài khoản** (`Db::delete_account`, nút "Xoá tài khoản", dùng để bỏ bản sao terminal ghi dưới login `0` khi
+   chưa đăng nhập xong): trước khi xoá, journal, ghi chú ngày và tổng kết của tài khoản được **chuyển** sang tài
+   khoản cùng server giữ cùng các deal (`AccountDeletion::twin`), khi tài khoản đó chưa có ghi chú riêng cho cùng
+   lệnh, ngày hay kỳ; số chuyển / số mất hiện trong câu hỏi xác nhận. Rồi từng deal, journal, quy tắc, ghi chú
+   ngày, tổng kết, mục checklist riêng và lệnh bỏ lỡ được xoá, mỗi thứ một tombstone, cuối cùng là tài khoản. Máy
+   nhận xoá các thứ đó trước tài khoản (lệnh xoá tài khoản áp sau cùng, quy tắc 1) nên tombstone ở mọi máy giữ cùng nội dung.
+   Sau đó `ensure_account` **không tạo lại** một tài khoản đã xoá cho thứ thuộc về nó (deal, journal… máy khác gửi
+   tới): thay đổi đó bị bỏ như dữ liệu hỏng, kể cả khi mới hơn lệnh xoá. Chỉ một ghi **của chính tài khoản** mới hơn
+   lệnh xoá (terminal báo lại tài khoản) đưa tài khoản trở lại; nó được áp trước thứ thuộc về tài khoản. Máy đã ghi
+   thứ bị bỏ cũng mất nó khi áp lệnh xoá tài khoản (xoá kéo theo mọi thứ thuộc tài khoản), nên các máy vẫn khớp.
+   Bản app chưa có nút "Xoá tài khoản" không biết xoá tài khoản: máy chạy bản đó giữ lại tài khoản trống (và terminal của nó còn báo
+   login `0` thì ghi lại bản sao), nên câu hỏi xác nhận nhắc cập nhật mọi máy trước.
 7. **Trùng tên playbook:** hai máy cùng tạo "Breakout" thì cả hai được giữ (bảng `playbooks` không còn UNIQUE
    trên `name`, giữ UNIQUE khi lưu bằng tay: lỗi "đã có setup tên …"); người dùng đổi tên một cái khi thấy.
 8. Thay đổi hỏng hoặc thuộc loại thực thể chưa biết (bản app mới hơn) bị bỏ qua và ghi log, không làm hỏng sync.

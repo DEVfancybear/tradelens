@@ -82,6 +82,9 @@ core.sync.sequence_too_large:
 core.sync.path_not_utf8:
   vi: "đường dẫn không phải UTF-8: %{path}"
   en: "the path is not UTF-8: %{path}"
+core.sync.account_deleted:
+  vi: "tài khoản %{key} đã bị xoá, dữ liệu cũ của nó không được dựng lại"
+  en: "account %{key} was deleted; its older data is not brought back"
 core.sync.bad_key:
   vi: "khoá đồng bộ không hợp lệ (%{entity}): %{key}"
   en: "invalid sync key (%{entity}): %{key}"

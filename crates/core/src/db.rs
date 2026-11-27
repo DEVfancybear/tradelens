@@ -1,7 +1,7 @@
 //! SQLite storage. One file per user; deals are the source of truth and trades are
 //! rebuilt from them. WAL mode lets a background writer and the UI write at once.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior};
@@ -83,6 +83,28 @@ pub struct UpsertReport {
     pub account_id: i64,
     pub inserted: usize,
     pub updated: usize,
+}
+
+/// What deleting an account does with the trader's own notes on it: its journal entries, own day
+/// notes and reviews.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct AccountDeletion {
+    /// The account the notes are moved to: another on a server of the same name holding the same
+    /// deals (the copy a terminal made under login `0` while it was signing in). `None` without one.
+    pub twin: Option<i64>,
+    /// The notes moved to [`AccountDeletion::twin`].
+    pub moved: usize,
+    /// The notes deleted with the account: there is no twin, the twin has its own note of the same
+    /// trade, day or period, or it does not hold the trade.
+    pub deleted: usize,
+}
+
+/// A note of an account to move to its twin, or to delete with it.
+struct Note {
+    kind: &'static str,
+    key: String,
+    /// Its key under the twin, when it moves there.
+    moved: Option<String>,
 }
 
 #[derive(Debug)]
@@ -235,6 +257,72 @@ impl Db {
         })?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// What [`Db::delete_account`] would do with the notes of the account `id`, for the trader to
+    /// read before confirming.
+    ///
+    /// # Errors
+    ///
+    /// As [`Db::delete_account`].
+    pub fn account_deletion(&self, id: i64) -> Result<AccountDeletion> {
+        let key = existing_account_key(&self.conn, id)?;
+        let (twin, notes) = account_notes(&self.conn, id, &key)?;
+        Ok(deletion_of(twin, &notes))
+    }
+
+    /// Deletes the account `id` with everything that belongs to it: its deals, journal entries,
+    /// rules, own day notes, reviews, checklist items and missed trades. The trader's notes (journal
+    /// entries, day notes, reviews) move first to the account holding the same deals, when there is
+    /// one and it has none of its own for the same trade, day or period ([`AccountDeletion`]). Each
+    /// write and removal is logged, so that other devices do the same; what they stored before the
+    /// deletion and send later is not brought back. An MT5 terminal that still reports the account
+    /// stores it again at its next poll. The image files that only what was deleted used are removed
+    /// from the data folder, as [`Db::delete_trades`] does.
+    ///
+    /// # Errors
+    ///
+    /// [`DbError::Invalid`] when the account does not exist; [`DbError::Sqlite`] when the database
+    /// fails, in which case nothing is deleted or moved.
+    pub fn delete_account(&mut self, id: i64) -> Result<AccountDeletion> {
+        let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let key = existing_account_key(&tx, id)?;
+        let (twin, notes) = account_notes(&tx, id, &key)?;
+        let images_before: BTreeSet<String> = views::attachment_paths(&tx)?.into_iter().collect();
+        for note in &notes {
+            let Some(moved) = &note.moved else { continue };
+            let Some(fields) = views::load(&tx, note.kind, &note.key)? else { continue };
+            sync::logged(&tx, note.kind, Some(moved), || {
+                views::store(&tx, note.kind, moved, &fields)?;
+                Ok((moved.clone(), ()))
+            })?;
+        }
+        let mut owned: Vec<(&str, String)> = Vec::new();
+        for kind in [entity::DEAL, entity::RULES] {
+            for child in views::keys(&tx, kind)? {
+                if views::owner_account(kind, &child).as_deref() == Some(key.as_str()) {
+                    owned.push((kind, child));
+                }
+            }
+        }
+        owned.extend(notes.iter().map(|note| (note.kind, note.key.clone())));
+        for (kind, table) in [(entity::CHECKLIST, "checklist"), (entity::MISSED, "missed_trades")] {
+            let mut stmt = tx.prepare(&format!("SELECT uid FROM {table} WHERE account_id = ?1 ORDER BY uid"))?;
+            let uids = stmt.query_map([id], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            owned.extend(uids.into_iter().map(|uid| (kind, uid)));
+        }
+        for (kind, child) in &owned {
+            sync::logged_delete(&tx, kind, child, || views::remove(&tx, kind, child))?;
+        }
+        sync::logged_delete(&tx, entity::ACCOUNT, &key, || views::remove(&tx, entity::ACCOUNT, &key))?;
+        let still_used: BTreeSet<String> = views::attachment_paths(&tx)?.into_iter().collect();
+        let unused: Vec<String> = images_before.difference(&still_used).cloned().collect();
+        tx.commit()?;
+        // The images only its notes and missed trades used, as `delete_trades` does.
+        if let Some(folder) = self.path.as_deref().and_then(Path::parent) {
+            crate::attachments::remove_unused(&folder.join(crate::legacy::ATTACHMENTS_DIR), &unused);
+        }
+        Ok(deletion_of(twin, &notes))
     }
 
     // --- deals -----------------------------------------------------------------
@@ -1076,6 +1164,45 @@ fn journal_on(conn: &Connection, key: &TradeKey) -> Result<Option<JournalEntry>>
         )
         .optional()?;
     Ok(json.map(|json| serde_json::from_str(&json)).transpose()?)
+}
+
+/// The portable key of the account `id`; [`DbError::Invalid`] when there is no such account.
+fn existing_account_key(conn: &Connection, id: i64) -> Result<String> {
+    match views::account_key(conn, id) {
+        Err(DbError::Sqlite(rusqlite::Error::QueryReturnedNoRows)) => {
+            Err(DbError::Invalid(crate::tr!("core.db.no_account", id = id)))
+        }
+        other => other,
+    }
+}
+
+/// The trader's notes of the account `id` (portable key `key`), each with the key it moves to
+/// under the account's twin when it does; and that twin.
+fn account_notes(conn: &Connection, id: i64, key: &str) -> Result<(Option<i64>, Vec<Note>)> {
+    let twin = views::twin_account(conn, id)?;
+    let twin_key = twin.map(|twin| views::account_key(conn, twin)).transpose()?;
+    let mut notes = Vec::new();
+    for kind in [entity::JOURNAL, entity::DAY_NOTE, entity::REVIEW] {
+        for child in views::keys(conn, kind)? {
+            if views::owner_account(kind, &child).as_deref() != Some(key) {
+                continue;
+            }
+            let mut moved = twin_key.as_deref().and_then(|owner| views::key_under(kind, &child, owner));
+            if let Some(target) = &moved {
+                let free = views::load(conn, kind, target)?.is_none();
+                if !free || (kind == entity::JOURNAL && !views::journal_has_trade(conn, target)?) {
+                    moved = None;
+                }
+            }
+            notes.push(Note { kind, key: child, moved });
+        }
+    }
+    Ok((twin, notes))
+}
+
+fn deletion_of(twin: Option<i64>, notes: &[Note]) -> AccountDeletion {
+    let moved = notes.iter().filter(|note| note.moved.is_some()).count();
+    AccountDeletion { twin, moved, deleted: notes.len() - moved }
 }
 
 /// Writes a journal entry, its changelog row and its index; saving what is stored does nothing.

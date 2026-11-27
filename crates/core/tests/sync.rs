@@ -6,6 +6,7 @@ use std::time::Duration;
 use tradelens_core::{
     Db,
     catalog::{CatalogItem, CatalogKind},
+    db::AccountDeletion,
     model::{AccountInfo, ChecklistItem, Deal, DealBatch, DealEntry, DealKind, JournalEntry, Rules, TradeKey},
     playbook::Playbook,
     sync::{Change, FieldOp, entity},
@@ -553,4 +554,199 @@ fn a_change_of_a_kind_this_version_does_not_know_is_skipped() {
         }])
         .expect("does not fail");
     assert_eq!((report.applied, report.stale), (0, 1));
+}
+
+/// A second account that must outlive the deletion of the first.
+fn other_account(db: &mut Db) -> i64 {
+    db.upsert_account(&AccountInfo { login: "notion".into(), name: "Nhật ký".into(), ..AccountInfo::default() })
+        .expect("account")
+}
+
+/// An account with deals, a journal entry, rules and a day note, beside another account.
+fn account_with_data(db: &mut Db) -> (i64, i64) {
+    let id = account(db);
+    let other = other_account(db);
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 11, 20).expect("a day");
+    db.upsert_batch(&batch(vec![deal(100, 0.0), deal(101, 25.0)]), "mt5").expect("stored");
+    db.save_journal(&trade(id), &entry("vào sớm trước tin")).expect("saved");
+    db.save_journal(&trade(other), &entry("giữ lại")).expect("saved");
+    db.save_rules(id, &Rules { max_daily_loss: Some(100.0), ..Rules::default() }).expect("saved");
+    db.save_day_note(id, day, &tradelens_core::DayNote { plan: "kế hoạch riêng".into(), ..Default::default() })
+        .expect("saved");
+    db.save_checklist(Some(id), &[ChecklistItem { id: 0, text: "Kiểm tra tin".into() }]).expect("saved");
+    let missed = tradelens_core::missed::MissedTrade {
+        id: 0,
+        account_id: Some(id),
+        symbol: "XAUUSD".into(),
+        side: tradelens_core::model::Side::Long,
+        seen_at: 1_763_000_000_000,
+        playbook_id: None,
+        setup_grade: None,
+        reason: None,
+        entry: None,
+        stop_loss: None,
+        take_profit: None,
+        outcome_price: None,
+        notes: "bỏ lỡ phiên Âu".into(),
+        screenshots: Vec::new(),
+        custom: tradelens_core::catalog::CustomValues::new(),
+    };
+    db.save_missed_trade(&missed).expect("saved");
+    (id, other)
+}
+
+/// The logins held, sorted: an account made again takes a new row id.
+fn logins(db: &Db) -> Vec<String> {
+    let mut logins: Vec<String> = db.accounts().expect("accounts").into_iter().map(|a| a.login).collect();
+    logins.sort();
+    logins
+}
+
+#[test]
+fn a_deleted_account_goes_with_everything_it_owns_here_and_on_the_other_device() {
+    let (mut a, mut b) = (db(), db());
+    let (id, other) = account_with_data(&mut a);
+    send(&a, &mut b);
+    assert_eq!(logins(&b), ["5012345", "notion"]);
+    tick();
+
+    // No other account holds its deals: its journal entry and day note go with it.
+    let deletion = AccountDeletion { twin: None, moved: 0, deleted: 2 };
+    assert_eq!(a.account_deletion(id).expect("planned"), deletion);
+    assert_eq!(a.delete_account(id).expect("deleted"), deletion);
+    assert_eq!(logins(&a), ["notion"]);
+    assert!(a.deals(None).expect("deals").is_empty(), "its deals are gone");
+    assert!(a.search("sớm", 10).expect("search").is_empty(), "its journal is no longer found");
+    assert_eq!(journal(&a, other).notes, "giữ lại", "the other account keeps its journal");
+    assert!(a.delete_account(id).is_err(), "an account that is gone cannot be deleted again");
+
+    send(&a, &mut b);
+    assert_eq!(logins(&b), ["notion"], "the other device deletes it too");
+    assert_eq!(b.deals(None).expect("deals").len(), 0, "its deals are gone there too");
+    assert_eq!(b.search("sớm", 10).expect("search").len(), 0, "its journal is not found there");
+    assert!(b.search("riêng", 10).expect("search").is_empty(), "nor is its day note");
+    for db in [&a, &b] {
+        assert!(db.search("phiên", 10).expect("search").is_empty(), "its missed trades are gone");
+        assert_eq!(db.missed_trades(0, i64::MAX).expect("missed").len(), 0, "no missed trade is left");
+        let checklist = db.checklist(None).expect("checklist");
+        assert!(checklist.iter().all(|item| item.text != "Kiểm tra tin"), "its checklist is gone");
+    }
+    assert_same(&a, &b);
+}
+
+#[test]
+fn a_device_that_learns_of_an_account_after_it_was_deleted_never_makes_it() {
+    let mut a = db();
+    let (id, _) = account_with_data(&mut a);
+    tick();
+    a.delete_account(id).expect("deleted");
+    // A new device receives the whole log at once: the account's creation, its data, its deletion.
+    let mut fresh = db();
+    send(&a, &mut fresh);
+    assert_eq!(logins(&fresh), ["notion"], "no bare account is made for its older data");
+    assert_eq!(fresh.deals(None).expect("deals").len(), 0, "nor any of its deals");
+    assert_same(&a, &fresh);
+}
+
+#[test]
+fn an_account_stored_again_after_its_deletion_comes_back_with_only_its_new_data() {
+    let (mut a, mut b) = (db(), db());
+    let (id, _) = account_with_data(&mut a);
+    send(&a, &mut b);
+    tick();
+    a.delete_account(id).expect("deleted");
+    tick();
+    // The terminal reports the account again: it is stored anew, with what it reads now.
+    a.upsert_batch(&batch(vec![deal(102, 10.0)]), "mt5").expect("stored again");
+    let mut fresh = db();
+    for device in [&mut b, &mut fresh] {
+        send(&a, device);
+        assert_eq!(logins(device), ["5012345", "notion"]);
+        let tickets: Vec<i64> = device.deals(None).expect("deals").iter().map(|(_, d)| d.ticket).collect();
+        assert_eq!(tickets, [102], "the deals deleted with it stay deleted");
+    }
+    assert_same(&a, &b);
+    assert_same(&a, &fresh);
+}
+
+/// The copy a terminal made of the account under login `0` while it was signing in: the same deals.
+fn copy_under_login_0(db: &mut Db) -> i64 {
+    let copy = DealBatch {
+        account: AccountInfo { login: "0".into(), server: "Broker-Live".into(), ..AccountInfo::default() },
+        ..batch(vec![deal(100, 0.0), deal(101, 25.0)])
+    };
+    db.upsert_batch(&copy, "mt5").expect("stored").account_id
+}
+
+fn account_id_of(db: &Db, login: &str) -> i64 {
+    db.accounts().expect("accounts").into_iter().find(|a| a.login == login).expect("the account is held").id
+}
+
+#[test]
+fn deleting_a_copy_under_login_0_moves_its_notes_to_the_account_with_the_same_deals() {
+    let (mut a, mut b) = (db(), db());
+    let real = account(&mut a);
+    a.upsert_batch(&batch(vec![deal(100, 0.0), deal(101, 25.0)]), "mt5").expect("stored");
+    let copy = copy_under_login_0(&mut a);
+    let day = chrono::NaiveDate::from_ymd_opt(2026, 11, 20).expect("a day");
+    // Written on the copy: a trade the account has no journal of, a trade it has one of, a day note.
+    let other_trade = |account_id| TradeKey { position_id: 101, ..trade(account_id) };
+    a.save_journal(&trade(copy), &entry("ghi trên bản sao")).expect("saved");
+    a.save_journal(&other_trade(copy), &entry("bản sao của 101")).expect("saved");
+    a.save_journal(&other_trade(real), &entry("của tài khoản")).expect("saved");
+    let note = tradelens_core::DayNote { plan: "kế hoạch trên bản sao".into(), ..Default::default() };
+    a.save_day_note(copy, day, &note).expect("saved");
+    send(&a, &mut b);
+    tick();
+
+    let planned = a.account_deletion(copy).expect("planned");
+    assert_eq!(planned, AccountDeletion { twin: Some(real), moved: 2, deleted: 1 });
+    assert_eq!(a.delete_account(copy).expect("deleted"), planned, "it does what it said it would");
+    send(&a, &mut b);
+    for device in [&a, &b] {
+        assert_eq!(logins(device), ["5012345"]);
+        let real = account_id_of(device, "5012345");
+        assert_eq!(journal(device, real).notes, "ghi trên bản sao", "the copy's note moved to the account");
+        let kept = device.journal(&other_trade(real)).expect("read").expect("a journal");
+        assert_eq!(kept.notes, "của tài khoản", "the account's own note is kept");
+        assert_eq!(device.day_note(real, day).expect("read").plan, "kế hoạch trên bản sao");
+        assert_eq!(device.deals(None).expect("deals").len(), 2, "the account keeps its deals");
+        assert_eq!(device.search("bản sao", 10).expect("search").len(), 2, "what moved is found under it");
+    }
+    assert_same(&a, &b);
+}
+
+#[test]
+fn a_journal_edited_after_its_account_was_deleted_comes_back_whole_on_every_device() {
+    let (mut a, mut b, mut c) = (db(), db(), db());
+    let id = account(&mut a);
+    a.upsert_batch(&batch(vec![deal(100, 0.0)]), "mt5").expect("stored");
+    let written = JournalEntry { setup: "phá đỉnh".into(), rating: 4, ..entry("vào đúng kế hoạch") };
+    a.save_journal(&trade(id), &written).expect("saved");
+    send(&a, &mut b);
+    send(&a, &mut c);
+    tick();
+    a.delete_account(id).expect("deleted");
+    // C learns of the deletion first; B, still connected to the account, has not and goes on.
+    send(&a, &mut c);
+    tick();
+    let on_b = account_id_of(&b, "5012345");
+    b.upsert_account(&AccountInfo {
+        login: "5012345".into(),
+        server: "Broker-Live".into(),
+        equity: Some(1_010.0),
+        ..AccountInfo::default()
+    })
+    .expect("stored");
+    b.save_journal(&trade(on_b), &JournalEntry { notes: "thêm sau".into(), ..written.clone() }).expect("saved");
+    for device in [&mut a, &mut c] {
+        send(&b, device);
+    }
+    send(&a, &mut b);
+    for device in [&a, &b, &c] {
+        let back = journal(device, account_id_of(device, "5012345"));
+        assert_eq!((back.notes.as_str(), back.setup.as_str(), back.rating), ("thêm sau", "phá đỉnh", 4));
+    }
+    assert_same(&a, &b);
+    assert_same(&a, &c);
 }

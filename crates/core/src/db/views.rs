@@ -111,15 +111,97 @@ fn account_row(conn: &Connection, login: &str, server: &str) -> Result<Option<i6
 }
 
 /// The row of an account by its key; a bare one is made when this database has not met it yet.
+///
+/// An account that was deleted is not made again for something that belongs to it: the write (a
+/// deal another device stored) is refused as bad data, so applying it is skipped. Only a write of
+/// the account itself newer than the deletion brings it back; it is applied before what belongs to
+/// the account. Every device agrees: the one that wrote the deal loses it too when it deletes the
+/// account, since the deletion takes along all that belongs to the account.
 fn ensure_account(conn: &Connection, key: &str) -> Result<i64> {
     let parts = split_key(key);
     let [login, server] = parts.as_slice() else { return Err(bad_key(entity::ACCOUNT, key)) };
+    if account_row(conn, login, server)?.is_none() && account_deleted(conn, key)? {
+        return Err(DbError::Invalid(crate::tr!("core.sync.account_deleted", key = key)));
+    }
     Ok(conn.query_row(
         "INSERT INTO accounts (login, server) VALUES (?1, ?2)
          ON CONFLICT(login, server) DO UPDATE SET login = login RETURNING id",
         [login, server],
         |r| r.get(0),
     )?)
+}
+
+/// Whether the account `key` was deleted (here or on another device) and not brought back since.
+fn account_deleted(conn: &Connection, key: &str) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM sync_tombstones WHERE entity = ?1 AND key = ?2)",
+        [entity::ACCOUNT, key],
+        |r| r.get(0),
+    )?)
+}
+
+/// The key of the account an entity belongs to, read from the entity's own key: deals, journal
+/// entries and rules, and the day notes and reviews of one account (not of all of them).
+pub(super) fn owner_account(kind: &str, key: &str) -> Option<String> {
+    let parts = split_key(key);
+    match kind {
+        entity::DEAL | entity::JOURNAL | entity::RULES => match parts.as_slice() {
+            [login, server, ..] => Some(join_key(&[login.as_str(), server.as_str()])),
+            [] | [_] => None,
+        },
+        entity::DAY_NOTE | entity::REVIEW => parts.into_iter().next().filter(|account| account != ALL_ACCOUNTS),
+        _ => None,
+    }
+}
+
+/// The key that the entity `key` of kind `kind`, which belongs to an account, has under the account
+/// `owner` instead: a journal entry of the same trade, a day note of the same day, a review of the
+/// same period. `None` for a kind that does not move between accounts, or a damaged key.
+pub(super) fn key_under(kind: &str, key: &str, owner: &str) -> Option<String> {
+    let parts = split_key(key);
+    match (kind, parts.as_slice()) {
+        (entity::JOURNAL, [_, _, position, segment]) => {
+            let owner = split_key(owner);
+            let [login, server] = owner.as_slice() else { return None };
+            Some(join_key(&[login, server, position, segment]))
+        }
+        (entity::DAY_NOTE | entity::REVIEW, [_, rest @ ..]) if !rest.is_empty() => {
+            let mut all = vec![owner];
+            all.extend(rest.iter().map(String::as_str));
+            Some(join_key(&all))
+        }
+        _ => None,
+    }
+}
+
+/// Whether the journal entry `key` has a trade to belong to: a deal of its position.
+pub(super) fn journal_has_trade(conn: &Connection, key: &str) -> Result<bool> {
+    let Some(trade) = trade_key_of(conn, key)? else { return Ok(false) };
+    Ok(conn.query_row(
+        "SELECT EXISTS (SELECT 1 FROM deals WHERE account_id = ?1 AND position_id = ?2)",
+        [trade.account_id, trade.position_id],
+        |r| r.get(0),
+    )?)
+}
+
+/// The account that holds the same deals as the account `id`, on a server of the same name: the
+/// copy a terminal made under another login (`0`, while it was still signing in). The one with the
+/// most deals in common; `None` when no other account shares a deal with it.
+pub(super) fn twin_account(conn: &Connection, id: i64) -> Result<Option<i64>> {
+    Ok(conn
+        .query_row(
+            "SELECT other.account_id FROM deals AS mine
+             JOIN accounts AS me ON me.id = mine.account_id
+             JOIN deals AS other ON other.ticket = mine.ticket AND other.account_id <> mine.account_id
+             JOIN accounts AS them ON them.id = other.account_id AND them.server = me.server COLLATE NOCASE
+             WHERE mine.account_id = ?1
+             GROUP BY other.account_id
+             ORDER BY COUNT(*) DESC, other.account_id
+             LIMIT 1",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?)
 }
 
 /// The account of a key part that may be [`ALL_ACCOUNTS`]: its row id, 0 for all of them.
@@ -340,6 +422,12 @@ fn load_rules(conn: &Connection, key: &str) -> Result<Option<Fields>> {
     let parts = split_key(key);
     let [login, server] = parts.as_slice() else { return Err(bad_key(entity::RULES, key)) };
     let Some(account_id) = account_row(conn, login, server)? else { return Ok(None) };
+    // An account that never had rules has none to sync, and none left once they are deleted.
+    let stored: bool =
+        conn.query_row("SELECT EXISTS (SELECT 1 FROM rules WHERE account_id = ?1)", [account_id], |r| r.get(0))?;
+    if !stored {
+        return Ok(None);
+    }
     let rules = super::rules_on(conn, account_id)?;
     let mut fields = Fields::new();
     put_number(&mut fields, "max_daily_loss", rules.max_daily_loss);
@@ -736,8 +824,99 @@ pub(super) fn remove(conn: &Connection, kind: &str, key: &str) -> Result<()> {
             }
             Ok(())
         }
+        entity::RULES => {
+            let parts = split_key(key);
+            let [login, server] = parts.as_slice() else { return Err(bad_key(entity::RULES, key)) };
+            if let Some(account_id) = account_row(conn, login, server)? {
+                conn.execute("DELETE FROM rules WHERE account_id = ?1", [account_id])?;
+            }
+            Ok(())
+        }
+        entity::DAY_NOTE => remove_day_note(conn, key),
+        entity::REVIEW => remove_review(conn, key),
+        entity::ACCOUNT => remove_account(conn, key),
         _ => Ok(()),
     }
+}
+
+/// The row id of a key part that may be [`ALL_ACCOUNTS`] (0), `None` for an account not held here.
+fn held_account_of_part(conn: &Connection, part: &str, kind: &str, key: &str) -> Result<Option<i64>> {
+    if part == ALL_ACCOUNTS {
+        return Ok(Some(0));
+    }
+    let parts = split_key(part);
+    let [login, server] = parts.as_slice() else { return Err(bad_key(kind, key)) };
+    account_row(conn, login, server)
+}
+
+fn remove_day_note(conn: &Connection, key: &str) -> Result<()> {
+    let parts = split_key(key);
+    let [account, day] = parts.as_slice() else { return Err(bad_key(entity::DAY_NOTE, key)) };
+    let Ok(date) = day.parse::<chrono::NaiveDate>() else { return Err(bad_key(entity::DAY_NOTE, key)) };
+    let Some(account_id) = held_account_of_part(conn, account, entity::DAY_NOTE, key)? else { return Ok(()) };
+    conn.execute("DELETE FROM day_notes WHERE account_id = ?1 AND day = ?2", rusqlite::params![account_id, day])?;
+    let reference = day_document(account_id, date, &DayNote::default(), &CustomValues::default()).reference;
+    conn.execute(
+        "DELETE FROM search_index WHERE kind = ?1 AND reference = ?2",
+        [enum_name(&crate::search::DocKind::Day)?, reference],
+    )?;
+    Ok(())
+}
+
+fn remove_review(conn: &Connection, key: &str) -> Result<()> {
+    let (account, period, start) = review_parts(key)?;
+    let Some(account_id) = held_account_of_part(conn, &account, entity::REVIEW, key)? else { return Ok(()) };
+    conn.execute(
+        "DELETE FROM reviews WHERE account_id = ?1 AND period = ?2 AND start = ?3",
+        rusqlite::params![account_id, period.name(), start.to_string()],
+    )?;
+    let review = PeriodReview {
+        id: 0,
+        account_id: Some(account_id).filter(|id| *id != 0),
+        period,
+        start,
+        answers: Vec::new(),
+        rating: 0,
+        custom: CustomValues::new(),
+    };
+    conn.execute(
+        "DELETE FROM search_index WHERE kind = ?1 AND reference = ?2",
+        [enum_name(&crate::search::DocKind::Review)?, review_document(&review).reference],
+    )?;
+    Ok(())
+}
+
+/// Removes an account with everything that belongs to it. The deals, journal entries and rules go
+/// with the row (`ON DELETE CASCADE`); the day notes, reviews, checklist items and missed trades
+/// that name it, and the search entries of all of these, are removed here.
+fn remove_account(conn: &Connection, key: &str) -> Result<()> {
+    let parts = split_key(key);
+    let [login, server] = parts.as_slice() else { return Err(bad_key(entity::ACCOUNT, key)) };
+    let Some(id) = account_row(conn, login, server)? else { return Ok(()) };
+    let index = |kind: crate::search::DocKind, pattern: String| -> Result<()> {
+        conn.execute("DELETE FROM search_index WHERE kind = ?1 AND reference LIKE ?2", [enum_name(&kind)?, pattern])?;
+        Ok(())
+    };
+    // References: a trade is `account:position:segment`; a day `day:account`; a review
+    // `period:start:account`; a missed trade its row id.
+    index(crate::search::DocKind::Trade, format!("{id}:%"))?;
+    index(crate::search::DocKind::Day, format!("%:{id}"))?;
+    index(crate::search::DocKind::Review, format!("%:{id}"))?;
+    conn.execute(
+        "DELETE FROM search_index WHERE kind = ?1
+             AND reference IN (SELECT CAST(id AS TEXT) FROM missed_trades WHERE account_id = ?2)",
+        rusqlite::params![enum_name(&crate::search::DocKind::Missed)?, id],
+    )?;
+    for sql in [
+        "DELETE FROM day_notes WHERE account_id = ?1",
+        "DELETE FROM reviews WHERE account_id = ?1",
+        "DELETE FROM checklist WHERE account_id = ?1",
+        "DELETE FROM missed_trades WHERE account_id = ?1",
+        "DELETE FROM accounts WHERE id = ?1",
+    ] {
+        conn.execute(sql, [id])?;
+    }
+    Ok(())
 }
 
 // --- listing ---------------------------------------------------------------------------------

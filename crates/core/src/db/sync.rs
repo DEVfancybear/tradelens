@@ -143,7 +143,15 @@ fn log_ops(conn: &Connection, kind: &str, key: &str, ops: &[FieldOp], at: Option
 /// `after`, or its deletion when `after` is `None`.
 fn record(conn: &Connection, kind: &str, key: &str, before: Option<&Fields>, after: Option<&Fields>) -> Result<()> {
     match (before, after) {
-        (_, Some(after)) => log_ops(conn, kind, key, &diff(before.unwrap_or(&Fields::new()), after), None),
+        (Some(before), Some(after)) => log_ops(conn, kind, key, &diff(before, after), None),
+        (None, Some(after)) => {
+            // Made again after a deletion (an account its terminal reports again): another device
+            // brings it back from what it held when deleted, so what it no longer has is unset too.
+            let gone = tombstone(conn, kind, key)?.map_or_default(|gone| gone.data);
+            let mut ops = diff(&Fields::new(), after);
+            ops.extend(diff(&gone, after).into_iter().filter(|op| op.value.is_none()));
+            log_ops(conn, kind, key, &ops, None)
+        }
         (Some(before), None) => {
             let at = next_at(conn, kind, key)?;
             let device = device_id(conn)?;
@@ -200,13 +208,25 @@ pub(super) fn log_setting(conn: &Connection, key: &str, value: &str) -> Result<(
 
 // --- applying remote changes -----------------------------------------------------------
 
+/// The changes of one batch that could not be stored and are logged one by one; the rest are only
+/// counted, in one line.
+const LOGGED_SKIPS: usize = 5;
+
 fn apply_on(conn: &Connection, changes: &[Change]) -> Result<ApplyReport> {
     let own = device_id(conn)?;
-    let rank = |kind: &str| entity::APPLY_ORDER.iter().position(|known| *known == kind);
+    // What others refer to first. The deletion of an account comes last of all: what belongs to it
+    // is deleted before (its tombstone keeping its content, as on the device that deleted it) rather
+    // than taken along by the account's removal, which leaves nothing to keep.
+    let rank = |change: &Change| {
+        let rank = entity::APPLY_ORDER.iter().position(|known| *known == change.entity)?;
+        let account_deleted = change.value.is_none() && change.entity == entity::ACCOUNT;
+        Some(if account_deleted { entity::APPLY_ORDER.len() } else { rank })
+    };
     let mut ordered: Vec<(usize, &Change)> = Vec::with_capacity(changes.len());
     let mut report = ApplyReport::default();
+    let mut skipped: usize = 0;
     for change in changes.iter().filter(|c| c.device_id != own) {
-        if let Some(rank) = rank(&change.entity) {
+        if let Some(rank) = rank(change) {
             ordered.push((rank, change));
         } else {
             log::warn!("sync: bỏ qua loại thay đổi chưa biết {:?}", change.entity);
@@ -225,11 +245,18 @@ fn apply_on(conn: &Connection, changes: &[Change]) -> Result<ApplyReport> {
             }
             Err(error) if is_bad_data(&error) => {
                 conn.execute_batch("ROLLBACK TO sync_change; RELEASE sync_change")?;
-                log::warn!("sync: bỏ qua thay đổi {}/{} không lưu được: {error}", change.entity, change.key);
+                skipped += 1;
+                if skipped <= LOGGED_SKIPS {
+                    log::warn!("sync: bỏ qua thay đổi {}/{} không lưu được: {error}", change.entity, change.key);
+                }
                 report.stale += 1;
             }
             Err(error) => return Err(error),
         }
+    }
+    if skipped > LOGGED_SKIPS {
+        // A device that learns of a deleted account with its whole history refuses every deal of it.
+        log::warn!("sync: bỏ qua thêm {} thay đổi không lưu được", skipped - LOGGED_SKIPS);
     }
     Ok(report)
 }
