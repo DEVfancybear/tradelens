@@ -33,11 +33,16 @@ impl Fixture {
         let dir = tempfile::tempdir().expect("a temp dir");
         // The app opens the database the tests seed and read. Its sign-ins stay in memory: the
         // operating system's credential store holds those of whoever runs the tests. It fetches no
-        // news: a test that wants some serves a feed and names it.
+        // news: a test that wants some serves a feed and names it. A copied picture is checked but
+        // kept off the system clipboard, which another program may hold and the developer uses.
         Db::open(dir.path().join("tradelens.db"))
             .and_then(|mut db| {
                 db.set_setting(nsh_app_tradelens::CREDENTIALS_SETTING, "memory")?;
-                db.set_setting(nsh_app_tradelens::NEWS_URL_SETTING, nsh_app_tradelens::NEWS_OFF)
+                db.set_setting(nsh_app_tradelens::NEWS_URL_SETTING, nsh_app_tradelens::NEWS_OFF)?;
+                db.set_setting(
+                    nsh_app_tradelens::ui::files::CLIPBOARD_SETTING,
+                    nsh_app_tradelens::ui::files::CLIPBOARD_IN_MEMORY,
+                )
             })
             .expect("the database opens");
         Self { dir: Some(dir) }

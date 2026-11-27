@@ -134,6 +134,9 @@ an item in the same shape: **Rule**, **Why** (the bug), **Check**.
 - **The OS credential store is the developer's, not the test's:** `support::Fixture` sets `cloud.credentials = memory` (`CREDENTIALS_SETTING`), so sessions and secrets stay in memory. Anything new in `app/src/cloud.rs` that keeps a token goes through `Env::token_store()` / `Env::{load,save,clear}_secret`, never `KeyringStore::new()` directly.
   - Why: after the user signed in to Google in the real app, four screen tests failed ("nobody is signed in" was false). They read the real Windows Credential Manager, and a test pressing "Đăng xuất" would have deleted the user's real token.
   - Check: `credentials_kept_in_memory_never_reach_the_operating_system_store` in `cloud.rs`; with a real sign-in on the machine, `cargo test -p nsh-app-tradelens --test cloud_screens` still passes.
+- **The system clipboard is the developer's too:** `support::Fixture` sets `share.clipboard = memory` (`ui::files::CLIPBOARD_SETTING`), so "Sao chép ảnh" decodes the card but writes nothing to Windows' clipboard. Anything new that writes the clipboard reads that setting first.
+  - Why: during a full quality-gate run, `a_trade_is_shared_as_a_picture_that_follows_the_privacy_choice` failed with "Không ghi được ảnh vào clipboard." because another process held the clipboard. Waiting longer (2be1cc4 raised it to `WAIT`) could not help, and every run overwrote what the developer had copied.
+  - Check: `copies_stay_off_the_system_clipboard_only_when_the_setting_says_memory` in `ui/files.rs`; with Paint holding the clipboard open, `cargo test -p nsh-app-tradelens --test share_screens` still passes.
 - **Temp dirs:** every test database lives in a `tempfile::TempDir` through `Fixture`, so it is removed afterwards. Leaked `.tmp*` folders once filled the disk.
 - **Regression tests:** before trusting a new test, revert the fix, confirm the test fails, then restore the fix.
 
