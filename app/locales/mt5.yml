@@ -1,0 +1,129 @@
+_version: 2
+
+# The MT5 connection (mt5.rs): what it is busy with and the lines it says to the trader.
+mt5.megabytes:
+  vi: "%{whole},%{tenth} MB"
+  en: "%{whole}.%{tenth} MB"
+mt5.busy.checking:
+  vi: "Đang kiểm tra Python và MetaTrader 5…"
+  en: "Checking Python and MetaTrader 5…"
+mt5.busy.download_installer:
+  vi: "Đang tải trình cài MetaTrader 5 của MetaQuotes (khoảng %{size})…"
+  en: "Downloading MetaQuotes’s MetaTrader 5 installer (about %{size})…"
+mt5.busy.install_terminal:
+  vi: "Đang cài MetaTrader 5 rồi chép vào thư mục của TradeLens: Windows sẽ hỏi hai lần có cho phép MetaQuotes cài rồi gỡ bản trong Program Files không, hãy bấm \"Có\" cả hai. Thường mất vài phút…"
+  en: "Installing MetaTrader 5 and copying it into TradeLens’s folder: Windows will ask twice whether to allow MetaQuotes to install it and then remove the copy in Program Files, click \"Yes\" both times. It usually takes a few minutes…"
+mt5.busy.install_package:
+  vi: "Đang cài gói MetaTrader5 (pip), có thể mất vài phút…"
+  en: "Installing the MetaTrader5 package (pip), this may take a few minutes…"
+mt5.busy.download_python:
+  vi: "Đang tải Python cho TradeLens (%{size})…"
+  en: "Downloading Python for TradeLens (%{size})…"
+mt5.busy.install_private_package:
+  vi: "Đang cài gói MetaTrader5 vào Python của TradeLens, có thể mất vài phút…"
+  en: "Installing the MetaTrader5 package into TradeLens’s Python, this may take a few minutes…"
+mt5.busy.recheck:
+  vi: "Đang kiểm tra lại Python…"
+  en: "Checking Python again…"
+mt5.notice.not_windows:
+  vi: "Kết nối MT5 chỉ chạy trên Windows (gói Python MetaTrader5 chỉ có cho Windows)."
+  en: "The MT5 connection only runs on Windows (the MetaTrader5 Python package only exists for Windows)."
+mt5.notice.checking_machine:
+  vi: "Đang kiểm tra Python và MetaTrader 5 trên máy…"
+  en: "Checking Python and MetaTrader 5 on this machine…"
+mt5.notice.no_python:
+  vi: "Máy chưa có Python: bấm \"Cài Python tự động\" để TradeLens cài một bản Python %{version} riêng cho app (khoảng 40 MB, không ảnh hưởng phần còn lại của máy), rồi đăng nhập."
+  en: "This machine has no Python: press \"Install Python automatically\" so TradeLens installs its own Python %{version} for the app (about 40 MB, with no effect on the rest of the machine), then sign in."
+mt5.notice.no_package:
+  vi: "Python %{version} chưa có gói MetaTrader5: bấm \"Cài gói MetaTrader5\" rồi đăng nhập."
+  en: "Python %{version} does not have the MetaTrader5 package: press \"Install the MetaTrader5 package\", then sign in."
+mt5.notice.python_not_found:
+  vi: "Chưa thấy Python 3 trên máy."
+  en: "Python 3 was not found on this machine."
+mt5.notice.no_folder:
+  vi: "Ứng dụng không có thư mục dữ liệu để chạy MT5."
+  en: "The app has no data folder to run MT5 in."
+mt5.notice.script_failed:
+  vi: "Không ghi được script kết nối MT5: %{error}"
+  en: "Could not write the MT5 connection script: %{error}"
+mt5.notice.copy_failed:
+  vi: "Không chép được terminal MT5 cho tài khoản này: %{error}"
+  en: "Could not copy an MT5 terminal for this account: %{error}"
+mt5.notice.prepare_stopped:
+  vi: "Luồng chuẩn bị MT5 bị dừng: %{error}"
+  en: "The MT5 preparation task stopped: %{error}"
+mt5.notice.setting_broken:
+  vi: "Cài đặt %{setting} bị hỏng (%{error}): không ghi đè lên nó."
+  en: "The %{setting} setting is damaged (%{error}): it is not written over."
+mt5.notice.check_failed:
+  vi: "Không kiểm tra được Python và MetaTrader 5: %{error}"
+  en: "Could not check Python and MetaTrader 5: %{error}"
+mt5.notice.keep_failed:
+  vi: "Không lưu được tài khoản MT5: %{error}"
+  en: "Could not save the MT5 account: %{error}"
+mt5.notice.no_password:
+  vi: "Chưa có mật khẩu của tài khoản này: hãy đăng nhập lại."
+  en: "There is no password for this account: sign in again."
+mt5.notice.not_loaded:
+  vi: "Đang đọc cài đặt, hãy thử lại sau giây lát."
+  en: "Reading the settings, try again in a moment."
+mt5.notice.login_digits:
+  vi: "Số tài khoản MT5 chỉ gồm chữ số."
+  en: "An MT5 account number has digits only."
+mt5.notice.incomplete:
+  vi: "Hãy nhập đủ số tài khoản, mật khẩu và server."
+  en: "Enter the account number, the password and the server."
+mt5.notice.already_starting:
+  vi: "Tài khoản này đang được kết nối, hãy chờ một chút."
+  en: "This account is being connected, wait a moment."
+mt5.notice.busy_login:
+  vi: "TradeLens đang cài đặt hoặc kiểm tra máy, hãy chờ xong rồi đăng nhập."
+  en: "TradeLens is installing or checking the machine; sign in once it is done."
+mt5.notice.checking_retry:
+  vi: "Đang kiểm tra Python và MetaTrader 5 trên máy, hãy thử lại sau giây lát."
+  en: "Checking Python and MetaTrader 5 on this machine, try again in a moment."
+mt5.notice.no_database:
+  vi: "Chưa mở được cơ sở dữ liệu."
+  en: "The database could not be opened yet."
+mt5.notice.busy_retry:
+  vi: "TradeLens đang cài đặt hoặc kiểm tra máy, hãy chờ xong rồi thử lại."
+  en: "TradeLens is installing or checking the machine; try again once it is done."
+mt5.notice.no_installer_folder:
+  vi: "Ứng dụng không có thư mục dữ liệu để tải trình cài MetaTrader 5."
+  en: "The app has no data folder to download the MetaTrader 5 installer to."
+mt5.notice.installing:
+  vi: "TradeLens đang cài đặt, hãy chờ xong rồi thử lại."
+  en: "TradeLens is installing; try again once it is done."
+mt5.notice.no_python_folder:
+  vi: "Ứng dụng không có thư mục dữ liệu để cài Python."
+  en: "The app has no data folder to install Python in."
+mt5.notice.unusable:
+  vi: "Đã cài xong nhưng chưa dùng được Python với gói MetaTrader5."
+  en: "The installation finished but Python with the MetaTrader5 package is not usable yet."
+mt5.notice.no_terminal:
+  vi: "Chưa có terminal MetaTrader 5 nào: cài MT5 hoặc chọn terminal64.exe."
+  en: "There is no MetaTrader 5 terminal yet: install MT5 or pick terminal64.exe."
+mt5.notice.login_refused:
+  vi: "MT5 từ chối đăng nhập: %{message}"
+  en: "MT5 refused the login: %{message}"
+mt5.notice.refused:
+  vi: "MT5 từ chối: %{message}"
+  en: "MT5 refused: %{message}"
+mt5.notice.unreachable:
+  vi: "Không kết nối được MT5: %{message}"
+  en: "Could not connect to MT5: %{message}"
+mt5.notice.uncertain:
+  vi: "Không rõ kết quả: %{message}"
+  en: "Outcome unknown: %{message}"
+mt5.notice.install_stopped:
+  vi: "Luồng cài đặt bị dừng: %{error}"
+  en: "The installation task stopped: %{error}"
+mt5.notice.order_stopped:
+  vi: "luồng gửi lệnh bị dừng: %{error}"
+  en: "the order task stopped: %{error}"
+mt5.notice.not_connected:
+  vi: "Tài khoản MT5 này chưa kết nối: lệnh chưa được gửi."
+  en: "This MT5 account is not connected: the order was not sent."
+mt5.position_opened:
+  vi: "%{title} · lệnh %{ticket} vừa mở"
+  en: "%{title} · trade %{ticket} just opened"

@@ -1,0 +1,150 @@
+_version: 2
+
+# The Overview screen (pages/dashboard.rs).
+dashboard.summary.one:
+  vi: "%{range} · %{accounts} tài khoản"
+  en: "%{range} · %{accounts} account"
+dashboard.summary.other:
+  vi: "%{range} · %{accounts} tài khoản"
+  en: "%{range} · %{accounts} accounts"
+dashboard.range:
+  vi: "Khoảng thời gian"
+  en: "Time range"
+dashboard.add_trade:
+  vi: "Thêm lệnh"
+  en: "Add trade"
+dashboard.drawdown.r:
+  vi: "sụt giảm sâu nhất của R tích luỹ"
+  en: "deepest fall of cumulative R"
+dashboard.drawdown.none:
+  vi: "chưa có đợt sụt giảm"
+  en: "no drawdown yet"
+dashboard.drawdown.from_peak:
+  vi: "−%{pct} từ đỉnh"
+  en: "−%{pct} from the peak"
+dashboard.none_hint:
+  vi: "Chưa có lệnh đóng trong khoảng này"
+  en: "No trade closed in this period"
+dashboard.net_note.r:
+  vi: "%{trades} đã đóng, tính theo R"
+  en: "%{trades} closed, counted in R"
+dashboard.net_note.balance:
+  vi: "%{pct} so với số dư đầu kỳ"
+  en: "%{pct} of the starting balance"
+dashboard.net_note.closed:
+  vi: "%{trades} đã đóng"
+  en: "%{trades} closed"
+dashboard.win_note:
+  vi: "%{wins} thắng · %{losses} thua"
+  en: "%{wins} won · %{losses} lost"
+dashboard.pf_note.money:
+  vi: "Lãi gộp %{profit} / lỗ %{loss}"
+  en: "Gross profit %{profit} / loss %{loss}"
+dashboard.pf_note.r:
+  vi: "tổng R thắng / tổng R thua"
+  en: "total R won / total R lost"
+dashboard.expectancy_note.money:
+  vi: "trung bình mỗi lệnh"
+  en: "average per trade"
+dashboard.expectancy_note.r:
+  vi: "R trung bình mỗi lệnh"
+  en: "average R per trade"
+dashboard.closed_trades:
+  vi: "Lệnh đã đóng"
+  en: "Closed trades"
+dashboard.avg_r:
+  vi: "R trung bình"
+  en: "Average R"
+dashboard.r_note.r:
+  vi: "%{trades} có R"
+  en: "%{trades} with R"
+dashboard.r_note.money:
+  vi: "%{trades} có SL"
+  en: "%{trades} with a stop loss"
+dashboard.curve.r_title:
+  vi: "R tích luỹ"
+  en: "Cumulative R"
+dashboard.curve.chart:
+  vi: "Biểu đồ"
+  en: "Chart"
+dashboard.balance.in_r:
+  vi: "Nhật ký này ghi kết quả theo R — xem tab R"
+  en: "This journal records results in R — see the R tab"
+dashboard.balance.in_r_hint:
+  vi: "Chưa có số tiền để vẽ đường số dư."
+  en: "There is no money amount to draw the balance line yet."
+dashboard.balance.loading:
+  vi: "Đang tải dữ liệu…"
+  en: "Loading data…"
+dashboard.balance.few:
+  vi: "Chưa có đủ lệnh đóng để vẽ đường số dư"
+  en: "Not enough closed trades to draw the balance line"
+dashboard.balance.few_hint:
+  vi: "Chọn khoảng thời gian dài hơn hoặc import thêm lệnh ở Nguồn dữ liệu."
+  en: "Choose a longer period or import more trades in Data sources."
+dashboard.r.none:
+  vi: "Chưa có lệnh nào đo được R"
+  en: "No trade has a measurable R yet"
+dashboard.r.none_hint:
+  vi: "Đặt SL hoặc ghi rủi ro dự định ở nhật ký lệnh để tính R."
+  en: "Set a stop loss or write the planned risk in a trade’s journal to work out R."
+dashboard.recent.title:
+  vi: "Lệnh gần đây"
+  en: "Recent trades"
+dashboard.recent.all:
+  vi: "Xem tất cả"
+  en: "View all"
+dashboard.recent.empty:
+  vi: "Chưa có lệnh nào trong khoảng này"
+  en: "No trades in this period"
+dashboard.recent.empty_hint:
+  vi: "Chọn khoảng thời gian dài hơn để thấy thêm."
+  en: "Choose a longer period to see more."
+dashboard.rule.daily_loss:
+  vi: "Lỗ trong ngày"
+  en: "Daily loss"
+dashboard.rule.daily_trades:
+  vi: "Số lệnh"
+  en: "Trade count"
+dashboard.rule.risk_per_trade:
+  vi: "Risk lệnh lớn nhất"
+  en: "Largest trade risk"
+dashboard.rule.losing_streak:
+  vi: "Thua liên tiếp"
+  en: "Losing streak"
+dashboard.rule.over:
+  vi: "%{name} đã chạm giới hạn (%{summary})"
+  en: "%{name} has hit its limit (%{summary})"
+dashboard.rule.near:
+  vi: "%{name} gần chạm giới hạn (%{summary})"
+  en: "%{name} is close to its limit (%{summary})"
+dashboard.discipline.title:
+  vi: "Kỷ luật hôm nay"
+  en: "Today’s discipline"
+dashboard.discipline.violations.one:
+  vi: "%{count} vi phạm"
+  en: "%{count} violation"
+dashboard.discipline.violations.other:
+  vi: "%{count} vi phạm"
+  en: "%{count} violations"
+dashboard.discipline.none:
+  vi: "Chưa đặt quy tắc kỷ luật"
+  en: "No discipline rules set"
+dashboard.discipline.none_hint:
+  vi: "Đặt giới hạn lỗ và số lệnh mỗi ngày ở Tài khoản & kỷ luật."
+  en: "Set the daily loss and trade limits in Accounts & discipline."
+dashboard.discipline.set:
+  vi: "Đặt quy tắc"
+  en: "Set rules"
+dashboard.month:
+  vi: "Tháng %{month}/%{year}"
+  en: "%{name} %{year}"
+dashboard.month.open:
+  vi: "Mở lịch"
+  en: "Open calendar"
+dashboard.symbols.title:
+  vi: "Theo symbol"
+  en: "By symbol"
+dashboard.symbols.view:
+  vi: "Xem phân tích"
+  en: "View analytics"

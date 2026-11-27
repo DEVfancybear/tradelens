@@ -140,18 +140,18 @@ impl Env {
             .or_else(|| std::env::var("COMPUTERNAME").ok())
             .or_else(|| std::env::var("HOSTNAME").ok())
             .filter(|name| !name.trim().is_empty())
+            // The name other devices list this one under: data shared through the drive, so one language.
             .unwrap_or_else(|| "Máy này".to_owned())
     }
 
-    /// What is missing to sign in with `provider`, in Vietnamese; `None` when it can be done (the
-    /// demo needs nothing).
-    pub(crate) fn missing_client(&self, provider: Provider) -> Option<String> {
+    /// What is missing to sign in with `provider`; `None` when it can be done (the demo needs nothing).
+    pub(crate) fn missing_client(&self, provider: Provider) -> Option<Fault> {
         if self.is_demo() {
             return None;
         }
         match ClientConfig::resolve(provider, |key| self.get(key)) {
             Ok(_) => None,
-            Err(error) => Some(describe(&error)),
+            Err(error) => Some(Fault::of(&error)),
         }
     }
 }
@@ -194,11 +194,11 @@ impl Env {
     ///
     /// # Errors
     ///
-    /// The credential store's failure, in Vietnamese.
+    /// The credential store's failure, in the words of the language chosen when it happened.
     pub(crate) fn load_secret(&self, name: &str) -> Result<Option<String>, String> {
         match self.secret_key(name) {
             Some(key) => Ok(demo_secrets().lock().expect("lock poisoned").get(&key).cloned()),
-            None => KeyringStore::new().load_secret(name).map_err(|e| describe(&e)),
+            None => KeyringStore::new().load_secret(name).map_err(|e| e.to_string()),
         }
     }
 
@@ -206,14 +206,14 @@ impl Env {
     ///
     /// # Errors
     ///
-    /// The credential store's failure, in Vietnamese.
+    /// The credential store's failure, in the words of the language chosen when it happened.
     pub(crate) fn save_secret(&self, name: &str, secret: &str) -> Result<(), String> {
         match self.secret_key(name) {
             Some(key) => {
                 demo_secrets().lock().expect("lock poisoned").insert(key, secret.to_owned());
                 Ok(())
             }
-            None => KeyringStore::new().save_secret(name, secret).map_err(|e| describe(&e)),
+            None => KeyringStore::new().save_secret(name, secret).map_err(|e| e.to_string()),
         }
     }
 
@@ -221,14 +221,14 @@ impl Env {
     ///
     /// # Errors
     ///
-    /// The credential store's failure, in Vietnamese.
+    /// The credential store's failure, in the words of the language chosen when it happened.
     pub(crate) fn clear_secret(&self, name: &str) -> Result<(), String> {
         match self.secret_key(name) {
             Some(key) => {
                 demo_secrets().lock().expect("lock poisoned").remove(&key);
                 Ok(())
             }
-            None => KeyringStore::new().clear_secret(name).map_err(|e| describe(&e)),
+            None => KeyringStore::new().clear_secret(name).map_err(|e| e.to_string()),
         }
     }
 
@@ -243,22 +243,107 @@ impl Env {
     }
 }
 
-/// What a session that is gone says; sync tells it apart from other failures by this text, so both use the constant.
-const SIGNED_OUT: &str = "Phiên đăng nhập đã hết hạn hoặc bị thu hồi: hãy đăng nhập lại.";
+/// What went wrong with the cloud, as a code with its facts. Sign-in, sync and restore run on
+/// blocking threads, which cannot read the app's text, and a failure stays on screen while the language
+/// may change: [`Fault::text`] makes the words on the UI thread. What the cloud crate already worded
+/// is carried as it is ([`Fault::Words`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Fault {
+    /// Words that were already made.
+    Words(String),
+    /// The provider has no client id (the crate's explanation of what is missing).
+    NotConfigured(String),
+    /// The session is gone: sync tells it apart from other failures by this.
+    SignedOut,
+    /// The Drive has no backup to restore.
+    NoSnapshot,
+    /// The trader cancelled the sign-in.
+    Cancelled,
+    SignInStopped(String),
+    SignOutStopped(String),
+    SyncStopped(String),
+    /// Sync was pressed with nobody signed in.
+    NotSignedIn,
+    /// The app has no data folder to sync.
+    NoDataFolder,
+    /// Restore was asked without a session or a data folder.
+    RestoreNeedsSignIn,
+    /// A device-local setting could not be written back after a restore.
+    SettingNotKept(String),
+    /// The database could not be opened to sync.
+    CannotOpen(String),
+}
 
-/// An error of the cloud crate, in words for the trader.
-pub(crate) fn describe(error: &CloudError) -> String {
-    match error {
-        CloudError::Config(message) => {
-            format!(
-                "Chưa cấu hình đăng nhập: {message}. Mục «Client id đọc ở đâu» trong docs/cloud-sync.md chỉ cách đăng ký."
-            )
+impl From<&str> for Fault {
+    fn from(words: &str) -> Self {
+        Self::Words(words.to_owned())
+    }
+}
+
+impl Fault {
+    /// What an error of the cloud crate comes to.
+    pub(crate) fn of(error: &CloudError) -> Self {
+        match error {
+            CloudError::Config(message) => Self::NotConfigured(message.clone()),
+            CloudError::SignedOut => Self::SignedOut,
+            CloudError::NoSnapshot => Self::NoSnapshot,
+            CloudError::Cancelled => Self::Cancelled,
+            other => Self::Words(other.to_string()),
         }
-        CloudError::SignedOut => SIGNED_OUT.to_owned(),
-        CloudError::NoSnapshot => {
-            "Trên Drive chưa có bản sao lưu nào để khôi phục: hãy sync từ máy cũ trước.".to_owned()
+    }
+
+    /// The fault as a string, for the one place that can only pass a string (a restore's closure).
+    /// A code starts with `~`; [`Fault::decode`] reads it back.
+    fn encode(&self) -> String {
+        match self {
+            Self::Words(words) => words.clone(),
+            Self::NotConfigured(message) => format!("~config:{message}"),
+            Self::SignedOut => "~signed_out".to_owned(),
+            Self::NoSnapshot => "~no_snapshot".to_owned(),
+            Self::Cancelled => "~cancelled".to_owned(),
+            Self::SettingNotKept(error) => format!("~setting:{error}"),
+            Self::CannotOpen(error) => format!("~open:{error}"),
+            // Made on the UI thread, never passed as a string.
+            Self::SignInStopped(error) | Self::SignOutStopped(error) | Self::SyncStopped(error) => error.clone(),
+            Self::NotSignedIn | Self::NoDataFolder | Self::RestoreNeedsSignIn => String::new(),
         }
-        other => other.to_string(),
+    }
+
+    /// The fault a string stands for: a code of [`Fault::encode`], or else words as they are.
+    fn decode(code: &str) -> Self {
+        if let Some(message) = code.strip_prefix("~config:") {
+            Self::NotConfigured(message.to_owned())
+        } else if let Some(error) = code.strip_prefix("~setting:") {
+            Self::SettingNotKept(error.to_owned())
+        } else if let Some(error) = code.strip_prefix("~open:") {
+            Self::CannotOpen(error.to_owned())
+        } else {
+            match code {
+                "~signed_out" => Self::SignedOut,
+                "~no_snapshot" => Self::NoSnapshot,
+                "~cancelled" => Self::Cancelled,
+                words => Self::Words(words.to_owned()),
+            }
+        }
+    }
+
+    /// The words for the trader; call it on the UI thread.
+    pub(crate) fn text(&self) -> String {
+        match self {
+            Self::Words(words) => words.clone(),
+            Self::NotConfigured(message) => t!("cloud.fault.not_configured", message = message),
+            Self::SignedOut => t!("cloud.fault.signed_out"),
+            Self::NoSnapshot => t!("cloud.fault.no_snapshot"),
+            Self::Cancelled => CloudError::Cancelled.to_string(),
+            Self::SignInStopped(error) => t!("cloud.fault.sign_in_stopped", error = error),
+            Self::SignOutStopped(error) => t!("cloud.fault.sign_out_stopped", error = error),
+            Self::SyncStopped(error) => t!("cloud.fault.sync_stopped", error = error),
+            Self::NotSignedIn => t!("cloud.fault.not_signed_in"),
+            Self::NoDataFolder => t!("cloud.fault.no_folder"),
+            Self::RestoreNeedsSignIn => t!("cloud.fault.restore_needs_sign_in"),
+            Self::SettingNotKept(error) => t!("cloud.fault.setting_not_kept", error = error),
+            Self::CannotOpen(error) => t!("cloud.fault.cannot_open", error = error),
+        }
     }
 }
 
@@ -319,7 +404,7 @@ fn identities(env: &Env) -> Vec<Identity> {
         .filter_map(|provider| match store.load_identity(provider) {
             Ok(found) => found,
             Err(error) => {
-                log::warn!("cloud: không đọc được phiên đăng nhập của {}: {error}", provider.key());
+                log::warn!("cloud: cannot read the {} session: {error}", provider.key());
                 None
             }
         })
@@ -336,7 +421,7 @@ fn open_in_browser(url: &str) {
     #[cfg(all(unix, not(target_os = "macos")))]
     let started = std::process::Command::new("xdg-open").arg(url).spawn();
     if let Err(error) = started {
-        log::warn!("cloud: không mở được trình duyệt: {error}");
+        log::warn!("cloud: cannot open the browser: {error}");
     }
 }
 
@@ -377,7 +462,7 @@ pub(crate) enum Phase {
 pub(crate) struct Outcome {
     /// Unix milliseconds.
     pub(crate) at: i64,
-    pub(crate) result: Result<SyncReport, String>,
+    pub(crate) result: Result<SyncReport, Fault>,
     /// Set for a restore.
     pub(crate) restored: bool,
 }
@@ -396,8 +481,8 @@ pub(crate) struct State {
     pub(crate) devices: Vec<DeviceInfo>,
     /// The id this device's changes are filed under, to mark it in the list of devices.
     pub(crate) device_id: String,
-    /// The last thing that went wrong when signing in or out, in Vietnamese.
-    pub(crate) notice: Option<String>,
+    /// The last thing that went wrong when signing in or out.
+    pub(crate) notice: Option<Fault>,
 }
 
 impl State {
@@ -496,7 +581,7 @@ impl Cloud {
                         });
                     });
                 }
-                Err(message) => self.state.update(|s| s.notice = Some(message)),
+                Err(message) => self.state.update(|s| s.notice = Some(Fault::Words(message))),
             },
         );
     }
@@ -522,28 +607,28 @@ impl Cloud {
             s.notice = None;
         });
         spawn(async move {
-            let attempt = blocking(move || -> Result<(), String> {
+            let attempt = blocking(move || -> Result<(), Fault> {
                 if env.is_demo() {
                     return Ok(());
                 }
-                let source = session(provider, &env).map_err(|e| describe(&e))?;
+                let source = session(provider, &env).map_err(|e| Fault::of(&e))?;
                 let options = SignInOptions { cancel, ..SignInOptions::default() };
-                source.sign_in(&options, open_in_browser).map(drop).map_err(|e| describe(&e))
+                source.sign_in(&options, open_in_browser).map(drop).map_err(|e| Fault::of(&e))
             })
             .await
-            .unwrap_or_else(|error| Err(format!("Luồng đăng nhập bị dừng: {error}")));
+            .unwrap_or_else(|error| Err(Fault::SignInStopped(error.to_string())));
             self.cancel.replace(None);
             match attempt {
                 Ok(()) => {
                     self.state.update(|s| s.phase = Phase::Idle);
                     self.remember_signed_in(provider);
                 }
-                Err(message) if message == CloudError::Cancelled.to_string() => {
+                Err(Fault::Cancelled) => {
                     self.state.update(|s| s.phase = Phase::Idle);
                 }
-                Err(message) => self.state.update(|s| {
+                Err(fault) => self.state.update(|s| {
                     s.phase = Phase::Idle;
-                    s.notice = Some(message);
+                    s.notice = Some(fault);
                 }),
             }
         });
@@ -582,18 +667,18 @@ impl Cloud {
         let env = self.state.get_untracked().env;
         spawn(async move {
             let demo = env.is_demo();
-            let result = blocking(move || -> Result<(), String> {
+            let result = blocking(move || -> Result<(), Fault> {
                 if demo {
                     return Ok(());
                 }
                 match session(provider, &env) {
-                    Ok(source) => source.sign_out().map_err(|e| describe(&e)),
+                    Ok(source) => source.sign_out().map_err(|e| Fault::of(&e)),
                     // Nothing to revoke without a registration: forget what is stored.
-                    Err(_) => env.token_store().clear(provider).map_err(|e| describe(&e)),
+                    Err(_) => env.token_store().clear(provider).map_err(|e| Fault::of(&e)),
                 }
             })
             .await
-            .unwrap_or_else(|error| Err(format!("Luồng đăng xuất bị dừng: {error}")));
+            .unwrap_or_else(|error| Err(Fault::SignOutStopped(error.to_string())));
             match result {
                 Ok(()) => self.write.run(
                     move |db| {
@@ -607,7 +692,7 @@ impl Cloud {
                     },
                     move |_| self.refresh(),
                 ),
-                Err(message) => self.state.update(|s| s.notice = Some(message)),
+                Err(fault) => self.state.update(|s| s.notice = Some(fault)),
             }
         });
     }
@@ -637,12 +722,8 @@ impl Cloud {
         let state = self.state.get_untracked();
         let (Some(provider), Some(path), false) = (state.active(), Store::database_path(), state.busy()) else {
             if why == Why::Pressed && !state.busy() {
-                let notice = if state.active().is_none() {
-                    "Chưa đăng nhập: bấm Đăng nhập với Google hoặc Microsoft trước."
-                } else {
-                    "Ứng dụng không có thư mục dữ liệu nên chưa sync được."
-                };
-                self.state.update(|s| s.notice = Some(notice.to_owned()));
+                let notice = if state.active().is_none() { Fault::NotSignedIn } else { Fault::NoDataFolder };
+                self.state.update(|s| s.notice = Some(notice));
             }
             return then();
         };
@@ -653,14 +734,14 @@ impl Cloud {
         });
         spawn(async move {
             let done = blocking(move || run_sync(&env, provider, &path)).await;
-            let result = done.unwrap_or_else(|error| Err(format!("Luồng sync bị dừng: {error}")));
+            let result = done.unwrap_or_else(|error| Err(Fault::SyncStopped(error.to_string())));
             self.finish(result, Kind::Sync);
             then();
         });
     }
 
     /// Records how a sync or restore went and wakes the pages.
-    fn finish(self, result: Result<Synced, String>, kind: Kind) {
+    fn finish(self, result: Result<Synced, Fault>, kind: Kind) {
         let restored = kind == Kind::Restore;
         let at = Utc::now().timestamp_millis();
         match result {
@@ -674,11 +755,11 @@ impl Cloud {
                 });
                 data_changed();
             }
-            Err(message) => {
-                let signed_out = message == SIGNED_OUT;
+            Err(fault) => {
+                let signed_out = fault == Fault::SignedOut;
                 self.state.update(|s| {
                     s.phase = Phase::Idle;
-                    s.last = Some(Outcome { at, result: Err(message), restored });
+                    s.last = Some(Outcome { at, result: Err(fault), restored });
                 });
                 if signed_out {
                     self.refresh();
@@ -694,9 +775,9 @@ impl Cloud {
     pub(crate) fn confirm_sign_out(self, provider: Provider, name: &'static str) {
         confirm_then(
             self.owner,
-            format!("Đăng xuất khỏi {name}?"),
-            "Dữ liệu trên Drive vẫn còn; TradeLens chỉ ngừng sync trên máy này cho tới khi bạn đăng nhập lại.",
-            "Đăng xuất",
+            t!("cloud.confirm.sign_out_title", name = name),
+            t!("cloud.confirm.sign_out_body"),
+            t!("cloud.confirm.sign_out"),
             move || self.sign_out(provider),
         );
     }
@@ -706,11 +787,9 @@ impl Cloud {
     pub(crate) fn confirm_restore(self) {
         confirm_then(
             self.owner,
-            "Thay toàn bộ dữ liệu trên máy này?",
-            "Dữ liệu đang có trên máy này sẽ bị thay bằng bản sao lưu gần nhất trên Drive, cộng các thay đổi sau đó. \
-             Một bản của dữ liệu cũ được giữ cạnh file dữ liệu (tradelens.before-restore.db). \
-             Chỉ làm khi đây là máy mới. Không hoàn tác được.",
-            "Thay dữ liệu",
+            t!("cloud.confirm.restore_title"),
+            t!("cloud.confirm.restore_body"),
+            t!("cloud.confirm.restore"),
             move || self.restore(),
         );
     }
@@ -724,9 +803,7 @@ impl Cloud {
     fn restore_now(self) {
         let state = self.state.get_untracked();
         let (Some(provider), Some(path), false) = (state.active(), Store::database_path(), state.busy()) else {
-            self.state.update(|s| {
-                s.notice = Some("Cần đăng nhập (và có thư mục dữ liệu) trước khi khôi phục.".to_owned());
-            });
+            self.state.update(|s| s.notice = Some(Fault::RestoreNeedsSignIn));
             return;
         };
         let env = state.env;
@@ -744,18 +821,19 @@ impl Cloud {
                 // The device-local settings (which drive, which account) belong to this machine, not to
                 // the snapshot: they are written back after it.
                 let keep = local_settings(target);
-                let connection = connect(provider, &env).map_err(|e| describe(&e))?;
+                // A string is all this closure can give back, so a failure goes as a code ([`Fault::encode`]).
+                let connection = connect(provider, &env).map_err(|e| Fault::of(&e).encode())?;
                 let engine = SyncEngine::new(connection.drive.as_ref(), connection.name, env.device_name())
                     .with_attachments(attachments);
-                let (mut db, report) = engine.restore(target).map_err(|e| describe(&e))?;
+                let (mut db, report) = engine.restore(target).map_err(|e| Fault::of(&e).encode())?;
                 for (key, value) in keep {
-                    db.set_setting(&key, &value).map_err(|e| format!("Không ghi lại được cài đặt: {e}"))?;
+                    db.set_setting(&key, &value).map_err(|e| Fault::SettingNotKept(e.to_string()).encode())?;
                 }
-                let devices = engine.devices().map_err(|e| describe(&e))?;
+                let devices = engine.devices().map_err(|e| Fault::of(&e).encode())?;
                 let device_id = db.device_id().map_err(|e| e.to_string())?;
                 Ok((db, Synced { report, devices, device_id }))
             },
-            move |result| self.finish(result, Kind::Restore),
+            move |result| self.finish(result.map_err(|code| Fault::decode(&code)), Kind::Restore),
         );
     }
 
@@ -801,14 +879,14 @@ struct Synced {
     device_id: String,
 }
 
-fn run_sync(env: &Env, provider: Provider, database: &Path) -> Result<Synced, String> {
-    let connection = connect(provider, env).map_err(|e| describe(&e))?;
+fn run_sync(env: &Env, provider: Provider, database: &Path) -> Result<Synced, Fault> {
+    let connection = connect(provider, env).map_err(|e| Fault::of(&e))?;
     let engine = SyncEngine::new(connection.drive.as_ref(), connection.name, env.device_name())
         .with_attachments(attachments_folder(database));
-    let mut db = Db::open(database).map_err(|e| format!("Không mở được dữ liệu để sync: {e}"))?;
-    let report = engine.sync(&mut db).map_err(|e| describe(&e))?;
-    let devices = engine.devices().map_err(|e| describe(&e))?;
-    let device_id = db.device_id().map_err(|e| e.to_string())?;
+    let mut db = Db::open(database).map_err(|e| Fault::CannotOpen(e.to_string()))?;
+    let report = engine.sync(&mut db).map_err(|e| Fault::of(&e))?;
+    let devices = engine.devices().map_err(|e| Fault::of(&e))?;
+    let device_id = db.device_id().map_err(|e| Fault::Words(e.to_string()))?;
     Ok(Synced { report, devices, device_id })
 }
 
@@ -873,7 +951,8 @@ mod tests {
     fn a_missing_client_id_is_explained_with_the_setting_the_variable_and_the_doc() {
         let message = env(&[]).missing_client(Provider::Google);
         if option_env!("TRADELENS_GOOGLE_CLIENT_ID").is_none() && std::env::var("TRADELENS_GOOGLE_CLIENT_ID").is_err() {
-            let message = message.expect("no client id is configured");
+            let fault = message.expect("no client id is configured");
+            let message = crate::i18n::with_text(crate::i18n::Lang::Vi, move || fault.text());
             assert!(message.contains("cloud.google.client_id"), "{message}");
             assert!(message.contains("TRADELENS_GOOGLE_CLIENT_ID"), "{message}");
             assert!(message.contains("docs/cloud-sync.md"), "{message}");
