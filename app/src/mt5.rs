@@ -104,26 +104,20 @@ impl Setup {
         !self.demo && cfg!(windows) && self.checked && self.installs.is_empty()
     }
 
-    /// Why an account cannot be connected yet, in Vietnamese; `None` when it can.
-    pub(crate) fn missing(&self) -> Option<String> {
+    /// Why an account cannot be connected yet; `None` when it can.
+    pub(crate) fn missing(&self) -> Option<Notice> {
         if self.demo {
             return None;
         }
         if !cfg!(windows) {
-            return Some("Kết nối MT5 chỉ chạy trên Windows (gói Python MetaTrader5 chỉ có cho Windows).".to_owned());
+            return Some(Notice::NotWindows);
         }
         if !self.checked {
-            return Some("Đang kiểm tra Python và MetaTrader 5 trên máy…".to_owned());
+            return Some(Notice::CheckingMachine);
         }
         match &self.python {
-            None => Some(format!(
-                "Máy chưa có Python: bấm \"Cài Python tự động\" để TradeLens cài một bản Python {} riêng cho app (khoảng 40 MB, không ảnh hưởng phần còn lại của máy), rồi đăng nhập.",
-                runtime::VERSION
-            )),
-            Some(python) if !python.has_package => Some(format!(
-                "Python {} chưa có gói MetaTrader5: bấm \"Cài gói MetaTrader5\" rồi đăng nhập.",
-                python.version
-            )),
+            None => Some(Notice::NoPython),
+            Some(python) if !python.has_package => Some(Notice::NoPackage(python.version.clone())),
             Some(_) => None,
         }
     }
@@ -137,9 +131,9 @@ pub(crate) enum Status {
     Connecting,
     Connected,
     /// The terminal could not be reached; the link tries again by itself.
-    Retrying(String),
+    Retrying(Notice),
     /// The server refused the login.
-    Refused(String),
+    Refused(Notice),
     Stopped,
 }
 
@@ -205,9 +199,9 @@ pub(crate) struct State {
     /// A position that opens puts the plan prompt on screen.
     pub(crate) prompt_plans: bool,
     /// What the connection is busy with (installing the package, checking the machine).
-    pub(crate) busy: Option<String>,
+    pub(crate) busy: Option<Busy>,
     /// Why the last sign-in or setting up failed.
-    pub(crate) error: Option<String>,
+    pub(crate) error: Option<Notice>,
     /// The settings were read: the saved accounts are being connected.
     pub(crate) loaded: bool,
     env: Option<Env>,
@@ -279,23 +273,178 @@ enum Plan {
     Private,
 }
 
-/// A size as the busy line says it: `12,6 MB`.
+/// A size as the busy line says it: `12,6 MB` (`12.6 MB`).
 fn megabytes(bytes: u64) -> String {
     let tenths = bytes.saturating_add(50_000) / 100_000;
-    format!("{},{} MB", tenths / 10, tenths % 10)
+    t!("mt5.megabytes", whole = tenths / 10, tenth = tenths % 10)
+}
+
+/// What the connection is busy with. Kept as a code, not words, so that the card says it in the
+/// language chosen when it is shown: [`Busy::text`], on the UI thread.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Busy {
+    /// Looking at the machine for Python and terminals.
+    Checking,
+    /// Downloading MetaQuotes' installer of this many bytes.
+    DownloadingInstaller(u64),
+    /// MetaQuotes' installer is running.
+    InstallingTerminal,
+    /// `pip` is putting the package into a Python of the machine.
+    InstallingPackage,
+    /// Downloading the app's own Python of this many bytes.
+    DownloadingPython(u64),
+    /// Putting the package into the app's own Python.
+    InstallingPrivatePackage,
+    /// Looking at Python again once it was installed.
+    CheckingAgain,
+}
+
+impl Busy {
+    /// The words for the trader; call it on the UI thread.
+    pub(crate) fn text(&self) -> String {
+        match self {
+            Self::Checking => t!("mt5.busy.checking"),
+            Self::DownloadingInstaller(size) => t!("mt5.busy.download_installer", size = megabytes(*size)),
+            Self::InstallingTerminal => t!("mt5.busy.install_terminal"),
+            Self::InstallingPackage => t!("mt5.busy.install_package"),
+            Self::DownloadingPython(size) => t!("mt5.busy.download_python", size = megabytes(*size)),
+            Self::InstallingPrivatePackage => t!("mt5.busy.install_private_package"),
+            Self::CheckingAgain => t!("mt5.busy.recheck"),
+        }
+    }
+}
+
+/// A line the connection says to the trader: why something cannot be done or failed. It is a code
+/// with its facts, not words: it is made where the app's text cannot be read (a blocking thread) and
+/// kept while the language may change, so [`Notice::text`] makes the words on the UI thread. What
+/// the crates already worded (the worker's, the installer's) is carried as it is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Notice {
+    /// The connection only runs on Windows.
+    NotWindows,
+    /// The machine is still being looked at.
+    CheckingMachine,
+    /// No Python: the app can install its own.
+    NoPython,
+    /// A Python (this version) without the `MetaTrader5` package.
+    NoPackage(String),
+    /// No Python was found when a terminal was to be prepared.
+    PythonNotFound,
+    /// The app has no data folder to run the connection in.
+    NoFolder,
+    /// The worker's script could not be written.
+    ScriptFailed(String),
+    /// The account's terminal could not be copied.
+    CopyFailed(String),
+    /// The thread preparing the terminal stopped.
+    PrepareStopped(String),
+    /// The setting of the accounts cannot be read (its parse error), so nothing writes over it.
+    SettingBroken(String),
+    /// Looking at the machine failed.
+    CheckFailed(String),
+    /// The account could not be kept, for this reason.
+    KeepFailed(Box<Notice>),
+    /// No password is kept for an account.
+    NoPassword,
+    /// The settings are not read yet.
+    NotLoaded,
+    /// The account number is not made of digits.
+    LoginDigits,
+    /// The sign-in form has a field empty.
+    Incomplete,
+    /// The account is being connected already.
+    AlreadyStarting,
+    /// Something installs or checks: sign in later.
+    BusyLogin,
+    /// The machine is being looked at: try again.
+    CheckingRetry,
+    /// The database is not open yet.
+    NoDatabase,
+    /// Something installs or checks: try again later.
+    BusyRetry,
+    /// The app has no data folder to put the installer in.
+    NoInstallerFolder,
+    /// Python is installing: try again later.
+    Installing,
+    /// The app has no data folder to install Python in.
+    NoPythonFolder,
+    /// Python was installed but cannot be used yet.
+    Unusable,
+    /// No MetaTrader 5 terminal to sign in with.
+    NoTerminal,
+    /// The server refused the login.
+    LoginRefused(String),
+    /// The terminal refused a request.
+    Refused(String),
+    /// The terminal cannot be reached.
+    Unreachable(String),
+    /// An order was sent and not answered.
+    Uncertain(String),
+    /// Words that were already made.
+    Words(String),
+}
+
+impl From<&Mt5Error> for Notice {
+    fn from(error: &Mt5Error) -> Self {
+        match error {
+            Mt5Error::LoginRefused(message) => Self::LoginRefused(message.clone()),
+            Mt5Error::Refused { message, .. } => Self::Refused(message.clone()),
+            Mt5Error::Unreachable(message) => Self::Unreachable(message.clone()),
+            Mt5Error::Uncertain(message) => Self::Uncertain(message.clone()),
+            Mt5Error::Setup(message) => Self::Words(message.clone()),
+        }
+    }
+}
+
+impl Notice {
+    /// The words for the trader; call it on the UI thread.
+    pub(crate) fn text(&self) -> String {
+        match self {
+            Self::NotWindows => t!("mt5.notice.not_windows"),
+            Self::CheckingMachine => t!("mt5.notice.checking_machine"),
+            Self::NoPython => t!("mt5.notice.no_python", version = runtime::VERSION),
+            Self::NoPackage(version) => t!("mt5.notice.no_package", version = version),
+            Self::PythonNotFound => t!("mt5.notice.python_not_found"),
+            Self::NoFolder => t!("mt5.notice.no_folder"),
+            Self::ScriptFailed(error) => t!("mt5.notice.script_failed", error = error),
+            Self::CopyFailed(error) => t!("mt5.notice.copy_failed", error = error),
+            Self::PrepareStopped(error) => t!("mt5.notice.prepare_stopped", error = error),
+            Self::SettingBroken(error) => t!("mt5.notice.setting_broken", setting = ACCOUNTS_SETTING, error = error),
+            Self::CheckFailed(error) => t!("mt5.notice.check_failed", error = error),
+            Self::KeepFailed(why) => t!("mt5.notice.keep_failed", error = why.text()),
+            Self::NoPassword => t!("mt5.notice.no_password"),
+            Self::NotLoaded => t!("mt5.notice.not_loaded"),
+            Self::LoginDigits => t!("mt5.notice.login_digits"),
+            Self::Incomplete => t!("mt5.notice.incomplete"),
+            Self::AlreadyStarting => t!("mt5.notice.already_starting"),
+            Self::BusyLogin => t!("mt5.notice.busy_login"),
+            Self::CheckingRetry => t!("mt5.notice.checking_retry"),
+            Self::NoDatabase => t!("mt5.notice.no_database"),
+            Self::BusyRetry => t!("mt5.notice.busy_retry"),
+            Self::NoInstallerFolder => t!("mt5.notice.no_installer_folder"),
+            Self::Installing => t!("mt5.notice.installing"),
+            Self::NoPythonFolder => t!("mt5.notice.no_python_folder"),
+            Self::Unusable => t!("mt5.notice.unusable"),
+            Self::NoTerminal => t!("mt5.notice.no_terminal"),
+            Self::LoginRefused(message) => t!("mt5.notice.login_refused", message = message),
+            Self::Refused(message) => t!("mt5.notice.refused", message = message),
+            Self::Unreachable(message) => t!("mt5.notice.unreachable", message = message),
+            Self::Uncertain(message) => t!("mt5.notice.uncertain", message = message),
+            Self::Words(words) => words.clone(),
+        }
+    }
 }
 
 /// Takes the app's copy of MetaTrader 5 into `setup`, first among the terminals; what to tell the
-/// trader, in Vietnamese: why it did not work, or that MetaQuotes' copy in `Program Files` is still
-/// there.
-fn take_installed(setup: &mut Setup, installed: Result<installer::Installed, Mt5Error>) -> Option<String> {
+/// trader: why it did not work, or that MetaQuotes' copy in `Program Files` is still there.
+fn take_installed(setup: &mut Setup, installed: Result<installer::Installed, Mt5Error>) -> Option<Notice> {
     match installed {
         Ok(installed) => {
             setup.installs.retain(|install| install.terminal != installed.install.terminal);
             setup.installs.insert(0, installed.install);
-            installed.left_behind
+            installed.left_behind.map(Notice::Words)
         }
-        Err(error) => Some(describe(&error)),
+        Err(error) => Some(Notice::from(&error)),
     }
 }
 
@@ -413,20 +562,19 @@ struct Config {
     prompt: bool,
 }
 
-/// The accounts the setting keeps; the inner error (in Vietnamese) when the setting cannot be read,
-/// so that nothing writes over it.
-fn saved_accounts(db: &Db) -> Result<Result<Vec<Saved>, String>, DbError> {
+/// The accounts the setting keeps; the inner error when the setting cannot be read, so that nothing
+/// writes over it.
+fn saved_accounts(db: &Db) -> Result<Result<Vec<Saved>, Notice>, DbError> {
     Ok(match db.setting(ACCOUNTS_SETTING)? {
         None => Ok(Vec::new()),
         Some(json) if json.trim().is_empty() => Ok(Vec::new()),
-        Some(json) => serde_json::from_str(&json)
-            .map_err(|error| format!("Cài đặt {ACCOUNTS_SETTING} bị hỏng ({error}): không ghi đè lên nó.")),
+        Some(json) => serde_json::from_str(&json).map_err(|error| Notice::SettingBroken(error.to_string())),
     })
 }
 
 fn read_config(db: &Db) -> Result<Config, DbError> {
     let saved = saved_accounts(db)?.unwrap_or_else(|error| {
-        log::error!("mt5: {error}");
+        log::error!("mt5: {error:?}");
         Vec::new()
     });
     let demo = db.setting(MODE_SETTING)?.as_deref() == Some("memory")
@@ -441,7 +589,7 @@ fn read_config(db: &Db) -> Result<Config, DbError> {
 }
 
 /// Rewrites the kept accounts with `change`; refuses (inner error) when the setting cannot be read.
-fn change_saved(db: &mut Db, change: impl FnOnce(&mut Vec<Saved>)) -> Result<Result<(), String>, DbError> {
+fn change_saved(db: &mut Db, change: impl FnOnce(&mut Vec<Saved>)) -> Result<Result<(), Notice>, DbError> {
     let mut saved = match saved_accounts(db)? {
         Ok(saved) => saved,
         Err(error) => return Ok(Err(error)),
@@ -494,7 +642,7 @@ fn prepare(
     account: &AccountRef,
     terminal: &Path,
     password: Password,
-) -> Result<Prepared, String> {
+) -> Result<Prepared, Notice> {
     if setup.demo {
         // Any login works in the demo: the first sign-in opens a sample account with that password.
         memory::Broker::named(&account.server).open_demo_account(
@@ -508,12 +656,12 @@ fn prepare(
     if let Some(why) = setup.missing() {
         return Err(why);
     }
-    let python = setup.python.clone().ok_or_else(|| "Chưa thấy Python 3 trên máy.".to_owned())?;
-    let folder = folder.ok_or_else(|| "Ứng dụng không có thư mục dữ liệu để chạy MT5.".to_owned())?;
-    let script = python::install_scripts(&folder.join("scripts"))
-        .map_err(|error| format!("Không ghi được script kết nối MT5: {error}"))?;
+    let python = setup.python.clone().ok_or(Notice::PythonNotFound)?;
+    let folder = folder.ok_or(Notice::NoFolder)?;
+    let script =
+        python::install_scripts(&folder.join("scripts")).map_err(|error| Notice::ScriptFailed(error.to_string()))?;
     let copy = install::portable_copy(terminal, &folder.join("terminals"), account)
-        .map_err(|error| format!("Không chép được terminal MT5 cho tài khoản này: {error}"))?;
+        .map_err(|error| Notice::CopyFailed(error.to_string()))?;
     Ok(Prepared {
         open: python::opener(python, script),
         login: Login { account: account.clone(), password, terminal: copy },
@@ -541,15 +689,9 @@ fn store_poll(db: &SharedDb, batch: &DealBatch) -> Option<i64> {
     }
 }
 
-/// An error of the connection, in words for the trader.
+/// An error of the connection, in words for the trader; call it on the UI thread.
 pub(crate) fn describe(error: &Mt5Error) -> String {
-    match error {
-        Mt5Error::LoginRefused(message) => format!("MT5 từ chối đăng nhập: {message}"),
-        Mt5Error::Refused { message, .. } => format!("MT5 từ chối: {message}"),
-        Mt5Error::Unreachable(message) => format!("Không kết nối được MT5: {message}"),
-        Mt5Error::Uncertain(message) => format!("Không rõ kết quả: {message}"),
-        Mt5Error::Setup(message) => message.clone(),
-    }
+    Notice::from(error).text()
 }
 
 /// The plan prompt of a position that just opened.
@@ -560,7 +702,7 @@ fn plan_request(live: &Live, account_id: i64, position: &Position) -> PlanReques
         symbol: position.symbol.clone(),
         side: position.side.side(),
         volume: Some(position.volume),
-        origin: format!("{} · lệnh {} vừa mở", live.title(), position.ticket),
+        origin: t!("mt5.position_opened", title = live.title(), ticket = position.ticket),
         seed: EntryPlan {
             entry: level(position.open_price),
             stop_loss: level(position.sl),
@@ -630,7 +772,7 @@ impl Mt5 {
                     });
                 }
             }
-            Err(error) => self.state.update(|state| state.error = Some(error)),
+            Err(error) => self.state.update(|state| state.error = Some(Notice::Words(error))),
         });
     }
 
@@ -654,7 +796,7 @@ impl Mt5 {
             (if state.setup.demo { Mode::Demo } else { Mode::Terminal }, state.python_choice.clone())
         });
         let files = folder();
-        self.state.update(|state| state.busy = Some("Đang kiểm tra Python và MetaTrader 5…".to_owned()));
+        self.state.update(|state| state.busy = Some(Busy::Checking));
         self.owner.run(move || {
             spawn(async move {
                 let looked = blocking(move || look(mode, python.as_deref(), files.as_deref())).await;
@@ -662,7 +804,7 @@ impl Mt5 {
                     match looked {
                         Ok(setup) => state.setup = setup,
                         Err(error) => {
-                            state.error = Some(format!("Không kiểm tra được Python và MetaTrader 5: {error}"));
+                            state.error = Some(Notice::CheckFailed(error.to_string()));
                         }
                     }
                     state.busy = None;
@@ -690,11 +832,8 @@ impl Mt5 {
                         Ok(Some(password)) => {
                             self.start(saved.account(), saved.terminal, Password::new(password), None);
                         }
-                        Ok(None) => self.set_status(
-                            &saved.account(),
-                            Status::Refused("Chưa có mật khẩu của tài khoản này: hãy đăng nhập lại.".to_owned()),
-                        ),
-                        Err(error) => self.set_status(&saved.account(), Status::Refused(error)),
+                        Ok(None) => self.set_status(&saved.account(), Status::Refused(Notice::NoPassword)),
+                        Err(error) => self.set_status(&saved.account(), Status::Refused(Notice::Words(error))),
                     }
                 }
             });
@@ -712,24 +851,24 @@ impl Mt5 {
     /// Signs in to `account` with `password`, running it in a copy of the installed `terminal`.
     /// The account is kept (with its password) once this login succeeds.
     pub(crate) fn sign_in(self, account: AccountRef, terminal: PathBuf, password: &str) {
-        let refuse = |why: &str| self.state.update(|state| state.error = Some(why.to_owned()));
+        let refuse = |why: Notice| self.state.update(|state| state.error = Some(why));
         if !self.state.with_untracked(|state| state.loaded) {
-            return refuse("Đang đọc cài đặt, hãy thử lại sau giây lát.");
+            return refuse(Notice::NotLoaded);
         }
         if account.login.is_empty() || !account.login.chars().all(|c| c.is_ascii_digit()) {
-            return refuse("Số tài khoản MT5 chỉ gồm chữ số.");
+            return refuse(Notice::LoginDigits);
         }
         if account.server.is_empty() || password.is_empty() {
-            return refuse("Hãy nhập đủ số tài khoản, mật khẩu và server.");
+            return refuse(Notice::Incomplete);
         }
         if self.state.with_untracked(|state| state.live(&account).is_some_and(|live| live.starting)) {
-            return refuse("Tài khoản này đang được kết nối, hãy chờ một chút.");
+            return refuse(Notice::AlreadyStarting);
         }
         if self.state.with_untracked(|state| state.busy.is_some()) {
-            return refuse("TradeLens đang cài đặt hoặc kiểm tra máy, hãy chờ xong rồi đăng nhập.");
+            return refuse(Notice::BusyLogin);
         }
         if self.state.with_untracked(|state| !state.setup.demo && !state.setup.checked) {
-            return refuse("Đang kiểm tra Python và MetaTrader 5 trên máy, hãy thử lại sau giây lát.");
+            return refuse(Notice::CheckingRetry);
         }
         self.state.update(|state| {
             state.error = None;
@@ -764,7 +903,7 @@ impl Mt5 {
             return;
         }
         let Some(db) = self.store.database() else {
-            return self.set_status(&account, Status::Retrying("Chưa mở được cơ sở dữ liệu.".to_owned()));
+            return self.set_status(&account, Status::Retrying(Notice::NoDatabase));
         };
         let id = self.next_link.with(|next| {
             *next += 1;
@@ -795,7 +934,7 @@ impl Mt5 {
                     prepare(&setup, files.as_deref(), &wanted, &terminal, password)
                 })
                 .await
-                .unwrap_or_else(|error| Err(format!("Luồng chuẩn bị MT5 bị dừng: {error}")));
+                .unwrap_or_else(|error| Err(Notice::PrepareStopped(error.to_string())));
                 // The trader may have forgotten the account, or started it again, meanwhile.
                 let current = self.state.with_untracked(|state| state.of_link(id).is_some_and(|live| !live.removing));
                 if !current {
@@ -900,10 +1039,10 @@ impl Mt5 {
                 if let Err(error) = change_saved(db, |saved| saved.retain(|kept| kept.account() != wanted))? {
                     return Ok(Err(error));
                 }
-                Ok(env.map_or(Ok(()), |env| env.clear_secret(&secret_name(&wanted))))
+                Ok(env.map_or(Ok(()), |env| env.clear_secret(&secret_name(&wanted)).map_err(Notice::Words)))
             },
             move |result| {
-                if let Err(error) = result.and_then(|cleared| cleared) {
+                if let Err(error) = result.map_err(Notice::Words).and_then(|cleared| cleared) {
                     self.state.update(|state| state.error = Some(error));
                 }
             },
@@ -925,11 +1064,11 @@ impl Mt5 {
                 })? {
                     return Ok(Err(error));
                 }
-                Ok(env.save_secret(&secret_name(&wanted), password.expose()))
+                Ok(env.save_secret(&secret_name(&wanted), password.expose()).map_err(Notice::Words))
             },
             move |result| {
-                if let Err(error) = result.and_then(|saved| saved) {
-                    self.state.update(|state| state.error = Some(format!("Không lưu được tài khoản MT5: {error}")));
+                if let Err(error) = result.map_err(Notice::Words).and_then(|saved| saved) {
+                    self.state.update(|state| state.error = Some(Notice::KeepFailed(Box::new(error))));
                 }
             },
         );
@@ -972,19 +1111,19 @@ impl Mt5 {
                     self.keep(account, password);
                 }
             }
-            LinkState::Retrying(error) => set(Status::Retrying(describe(&error))),
+            LinkState::Retrying(error) => set(Status::Retrying(Notice::from(&error))),
             LinkState::Refused(error) => {
                 self.pending.with(|pending| pending.remove(&id));
                 if live.saved {
                     // An account kept before stays listed (with the password it had), saying why.
-                    set(Status::Refused(describe(&error)));
-                    self.state.update(|s| s.error = Some(describe(&error)));
+                    set(Status::Refused(Notice::from(&error)));
+                    self.state.update(|s| s.error = Some(Notice::from(&error)));
                 } else {
                     // A first sign-in that failed: nothing is kept, the form says why.
                     self.stop_link(account);
                     self.state.update(|s| {
                         s.accounts.retain(|live| live.link_id != Some(id));
-                        s.error = Some(describe(&error));
+                        s.error = Some(Notice::from(&error));
                     });
                 }
             }
@@ -1052,7 +1191,7 @@ impl Mt5 {
             move |db: &mut Db| db.set_setting(PROMPT_SETTING, if prompt == PlanPrompt::Ask { "1" } else { "0" }),
             move |result| {
                 if let Err(error) = result {
-                    self.state.update(|state| state.error = Some(error));
+                    self.state.update(|state| state.error = Some(Notice::Words(error)));
                 }
             },
         );
@@ -1075,33 +1214,26 @@ impl Mt5 {
             return;
         }
         if self.state.with_untracked(|state| state.busy.is_some()) {
-            return self.state.update(|state| {
-                state.error = Some("TradeLens đang cài đặt hoặc kiểm tra máy, hãy chờ xong rồi thử lại.".to_owned());
-            });
+            return self.state.update(|state| state.error = Some(Notice::BusyRetry));
         }
         let Some(files) = folder() else {
-            return self.state.update(|state| {
-                state.error = Some("Ứng dụng không có thư mục dữ liệu để tải trình cài MetaTrader 5.".to_owned());
-            });
+            return self.state.update(|state| state.error = Some(Notice::NoInstallerFolder));
         };
         let downloads = files.join("installer");
         let TerminalSetup { download, run } = self.terminal_setup.with(|setup| setup.clone());
         let state = self.state;
-        let busy = move |text: String| state.update(|s| s.busy = Some(text));
+        let busy = move |what: Busy| state.update(|s| s.busy = Some(what));
         state.update(|s| s.error = None);
-        busy(format!(
-            "Đang tải trình cài MetaTrader 5 của MetaQuotes (khoảng {})…",
-            megabytes(installer::INSTALLER_SIZE)
-        ));
+        busy(Busy::DownloadingInstaller(installer::INSTALLER_SIZE));
         self.owner.run(move || {
             spawn(async move {
                 fn stopped<T>(error: &dyn std::fmt::Display) -> Result<T, Mt5Error> {
-                    Err(Mt5Error::Setup(format!("Luồng cài đặt bị dừng: {error}")))
+                    Err(Mt5Error::Setup(t!("mt5.notice.install_stopped", error = error.to_string())))
                 }
                 let downloaded = blocking(move || download(&downloads)).await.unwrap_or_else(|e| stopped(&e));
                 let installed = match downloaded {
                     Ok(installer) => {
-                        busy("Đang cài MetaTrader 5 rồi chép vào thư mục của TradeLens: Windows sẽ hỏi hai lần có cho phép MetaQuotes cài rồi gỡ bản trong Program Files không, hãy bấm \"Có\" cả hai. Thường mất vài phút…".to_owned());
+                        busy(Busy::InstallingTerminal);
                         blocking(move || run(&installer, &files)).await.unwrap_or_else(|e| stopped(&e))
                     }
                     Err(error) => Err(error),
@@ -1117,19 +1249,19 @@ impl Mt5 {
 
     /// Makes Python ready for the connection, then runs `then`: on a machine without Python the app
     /// installs its own ([`runtime`]), and its own gets the pinned packages; a Python of the machine
-    /// without the package gets it for the user. `failed` hears why it could not, in Vietnamese.
+    /// without the package gets it for the user. `failed` hears why it could not.
     /// Nothing is installed in the demo or when Python is ready already. The connection is marked
     /// busy before this returns, so a second press while it runs is refused.
-    fn ensure_python(self, then: impl FnOnce() + 'static, failed: impl FnOnce(String) + 'static) {
+    fn ensure_python(self, then: impl FnOnce() + 'static, failed: impl FnOnce(Notice) + 'static) {
         let setup = self.state.with_untracked(|state| state.setup.clone());
         if !setup.needs_python() {
             return then();
         }
         if self.state.with_untracked(|state| state.busy.is_some()) {
-            return failed("TradeLens đang cài đặt, hãy chờ xong rồi thử lại.".to_owned());
+            return failed(Notice::Installing);
         }
         let Some(files) = folder() else {
-            return failed("Ứng dụng không có thư mục dữ liệu để cài Python.".to_owned());
+            return failed(Notice::NoPythonFolder);
         };
         let root = runtime_in(&files);
         let plan = match setup.python {
@@ -1138,16 +1270,17 @@ impl Mt5 {
         };
         let source = runtime::Source::official();
         let state = self.state;
-        let busy = move |text: String| state.update(|s| s.busy = Some(text));
+        let busy = move |what: Busy| state.update(|s| s.busy = Some(what));
         busy(match &plan {
-            Plan::Package(_) => "Đang cài gói MetaTrader5 (pip), có thể mất vài phút…".to_owned(),
-            Plan::Private => format!("Đang tải Python cho TradeLens ({})…", megabytes(source.python.size)),
+            Plan::Package(_) => Busy::InstallingPackage,
+            Plan::Private => Busy::DownloadingPython(source.python.size),
         });
         let choice = self.state.with_untracked(|state| state.python_choice.clone());
         self.owner.run(move || {
             spawn(async move {
-                let stopped =
-                    |error: &dyn std::fmt::Display| Err(Mt5Error::Setup(format!("Luồng cài đặt bị dừng: {error}")));
+                let stopped = |error: &dyn std::fmt::Display| {
+                    Err(Mt5Error::Setup(t!("mt5.notice.install_stopped", error = error.to_string())))
+                };
                 let installed = match plan {
                     Plan::Package(python) => {
                         blocking(move || python::install_package(&python)).await.unwrap_or_else(|e| stopped(&e))
@@ -1159,10 +1292,7 @@ impl Mt5 {
                             .unwrap_or_else(|e| stopped(&e));
                         match python {
                             Ok(()) => {
-                                busy(
-                                    "Đang cài gói MetaTrader5 vào Python của TradeLens, có thể mất vài phút…"
-                                        .to_owned(),
-                                );
+                                busy(Busy::InstallingPrivatePackage);
                                 blocking(move || runtime::install_packages(&root, &source))
                                     .await
                                     .unwrap_or_else(|e| stopped(&e))
@@ -1171,7 +1301,7 @@ impl Mt5 {
                         }
                     }
                 };
-                busy("Đang kiểm tra lại Python…".to_owned());
+                busy(Busy::CheckingAgain);
                 // A look that could not run is not taken for a machine ready to connect.
                 let looked = blocking(move || look(Mode::Terminal, choice.as_deref(), Some(&files))).await.ok();
                 let ready = looked.as_ref().is_some_and(|setup| setup.checked && !setup.needs_python());
@@ -1183,17 +1313,15 @@ impl Mt5 {
                 });
                 match (installed, ready) {
                     (_, true) => then(),
-                    (Err(error), false) => failed(describe(&error)),
-                    (Ok(()), false) => {
-                        failed("Đã cài xong nhưng chưa dùng được Python với gói MetaTrader5.".to_owned());
-                    }
+                    (Err(error), false) => failed(Notice::from(&error)),
+                    (Ok(()), false) => failed(Notice::Unusable),
                 }
             });
         });
     }
 
     /// Closes `volume` lots of position `ticket` of `account` (all of it when `None`); `done` hears
-    /// how it went, in Vietnamese.
+    /// how it went, in words.
     pub(crate) fn close(
         self,
         account: &AccountRef,
@@ -1225,13 +1353,13 @@ impl Mt5 {
             self.state.with_untracked(|state| state.live(account).is_some_and(|l| l.status == Status::Connected));
         let link = self.link(account).filter(|_| connected);
         let Some(link) = link else {
-            return done(Err("Tài khoản MT5 này chưa kết nối: lệnh chưa được gửi.".to_owned()));
+            return done(Err(t!("mt5.notice.not_connected")));
         };
         self.owner.run(move || {
             spawn(async move {
-                let result = blocking(move || ask(&link))
-                    .await
-                    .unwrap_or_else(|error| Err(Mt5Error::Uncertain(format!("luồng gửi lệnh bị dừng: {error}"))));
+                let result = blocking(move || ask(&link)).await.unwrap_or_else(|error| {
+                    Err(Mt5Error::Uncertain(t!("mt5.notice.order_stopped", error = error.to_string())))
+                });
                 done(result.map_err(|error| describe(&error)));
             });
         });
@@ -1246,19 +1374,51 @@ mod tests {
     fn what_is_missing_is_said_in_order() {
         let mut setup = Setup { checked: true, ..Setup::default() };
         if cfg!(windows) {
-            assert!(setup.missing().is_some_and(|why| why.contains("Cài Python tự động")), "{:?}", setup.missing());
+            assert_eq!(setup.missing(), Some(Notice::NoPython));
             assert!(setup.needs_python(), "without Python the app installs its own");
             setup.python =
                 Some(Python { program: "python".into(), args: Vec::new(), version: "3.12".into(), has_package: false });
-            assert!(setup.missing().is_some_and(|why| why.contains("MetaTrader5")));
+            assert!(matches!(setup.missing(), Some(Notice::NoPackage(version)) if version == "3.12"));
             assert!(setup.needs_python(), "a Python without the package gets it");
             setup.python.as_mut().expect("set above").has_package = true;
             assert_eq!(setup.missing(), None);
             assert!(!setup.needs_python());
         } else {
-            assert!(setup.missing().is_some_and(|why| why.contains("Windows")));
+            assert_eq!(setup.missing(), Some(Notice::NotWindows));
         }
         assert_eq!(Setup { demo: true, ..Setup::default() }.missing(), None, "the demo needs nothing");
+    }
+
+    #[test]
+    fn what_the_connection_says_follows_the_language() {
+        let say = |lang| {
+            crate::i18n::with_text(lang, || {
+                [
+                    Notice::NoPassword.text(),
+                    Notice::LoginRefused("bad password".into()).text(),
+                    Notice::KeepFailed(Box::new(Notice::Words("disk full".into()))).text(),
+                    Busy::DownloadingPython(12_600_000).text(),
+                ]
+            })
+        };
+        assert_eq!(
+            say(crate::i18n::Lang::Vi),
+            [
+                "Chưa có mật khẩu của tài khoản này: hãy đăng nhập lại.",
+                "MT5 từ chối đăng nhập: bad password",
+                "Không lưu được tài khoản MT5: disk full",
+                "Đang tải Python cho TradeLens (12,6 MB)…",
+            ]
+        );
+        assert_eq!(
+            say(crate::i18n::Lang::En),
+            [
+                "There is no password for this account: sign in again.",
+                "MT5 refused the login: bad password",
+                "Could not save the MT5 account: disk full",
+                "Downloading Python for TradeLens (12.6 MB)…",
+            ]
+        );
     }
 
     #[test]
@@ -1284,10 +1444,10 @@ mod tests {
         assert_eq!(setup.installs, vec![own.clone(), picked.clone()], "the app's copy comes first");
         let left =
             installer::Installed { left_behind: Some("bản trong Program Files còn đó".into()), ..installed };
-        assert_eq!(take_installed(&mut setup, Ok(left)).as_deref(), Some("bản trong Program Files còn đó"));
+        assert_eq!(take_installed(&mut setup, Ok(left)), Some(Notice::Words("bản trong Program Files còn đó".into())));
         assert_eq!(setup.installs, vec![own.clone(), picked.clone()], "taken once");
         let refused = take_installed(&mut setup, Err(Mt5Error::Setup("Trình cài đã dừng".to_owned())));
-        assert_eq!(refused.as_deref(), Some("Trình cài đã dừng"));
+        assert_eq!(refused, Some(Notice::Words("Trình cài đã dừng".into())));
         assert_eq!(setup.installs, vec![own, picked], "a failure keeps what was found");
     }
 
@@ -1346,8 +1506,8 @@ mod tests {
                         let installs: Vec<&str> = state.setup.installs.iter().map(|i| i.name.as_str()).collect();
                         format!(
                             "busy: {} | error: {} | installs: {}",
-                            state.busy.as_deref().unwrap_or("-"),
-                            state.error.as_deref().unwrap_or("-"),
+                            state.busy.as_ref().map_or_else(|| "-".to_owned(), Busy::text),
+                            state.error.as_ref().map_or_else(|| "-".to_owned(), Notice::text),
                             installs.join(",")
                         )
                     })
@@ -1358,6 +1518,7 @@ mod tests {
         #[component]
         fn Installs() -> impl IntoElement {
             crate::ui::theme::install();
+            crate::i18n::install();
             store::provide();
             provide_root_owner();
             provide_with(TerminalSetup {
@@ -1372,12 +1533,14 @@ mod tests {
                     Ok(installer::Installed { install: terminal(), left_behind: None })
                 }),
             });
-            shown(mt5())
+            let mt5 = mt5();
+            crate::i18n::translated(move || shown(mt5))
         }
 
         #[component]
         fn Refused() -> impl IntoElement {
             crate::ui::theme::install();
+            crate::i18n::install();
             store::provide();
             provide_root_owner();
             provide_with(TerminalSetup {
@@ -1386,7 +1549,8 @@ mod tests {
                     Err(Mt5Error::Setup("Trình cài MetaTrader 5 đã dừng mà chưa cài xong".to_owned()))
                 }),
             });
-            shown(mt5())
+            let mt5 = mt5();
+            crate::i18n::translated(move || shown(mt5))
         }
 
         fn start(root: Root) -> (tempfile::TempDir, Headless) {
