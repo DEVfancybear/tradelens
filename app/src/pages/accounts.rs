@@ -229,7 +229,7 @@ pub(crate) fn accounts() -> impl IntoElement {
             }))
             .child(dynamic(move || {
                 let id = current.get();
-                untracked(|| id.map(|id| detail(data, write, id, notice)))
+                untracked(|| id.map(|id| detail(data, write, id, chosen, notice)))
             })),
     )
 }
@@ -292,7 +292,13 @@ fn account_cards(
 }
 
 /// The two columns under the cards, for the account `id`.
-fn detail(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signal<Option<String>>) -> impl IntoElement {
+fn detail(
+    data: Reading<AccountsData>,
+    write: Writer,
+    id: i64,
+    chosen: Signal<Option<i64>>,
+    notice: Signal<Option<String>>,
+) -> impl IntoElement {
     view()
         .flex_row()
         .flex_wrap()
@@ -303,7 +309,7 @@ fn detail(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signal<Op
                 .flex_1()
                 .min_w(px(520.0))
                 .gap_6()
-                .child(rules_card(data, write, id, notice))
+                .child(rules_card(data, write, id, chosen, notice))
                 .child(info_card(data, write, id, notice)),
         )
         .child(
@@ -355,7 +361,13 @@ impl RuleDraft {
     }
 }
 
-fn rules_card(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signal<Option<String>>) -> impl IntoElement {
+fn rules_card(
+    data: Reading<AccountsData>,
+    write: Writer,
+    id: i64,
+    chosen: Signal<Option<i64>>,
+    notice: Signal<Option<String>>,
+) -> impl IntoElement {
     let saved = read(data, id, |a| a.rules.clone());
     let currency = read(data, id, |a| a.account.currency.clone());
     let unit = unit_of(&currency);
@@ -391,6 +403,7 @@ fn rules_card(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signa
     card(
         "Quy tắc kỷ luật",
         view()
+            .child(rules_account_row(data, id, chosen))
             .child(rule_row(
                 "Lỗ tối đa trong ngày",
                 "Chạm ngưỡng: thanh trạng thái chuyển đỏ và các lệnh vi phạm được ghi lại",
@@ -455,6 +468,40 @@ fn rules_card(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signa
                     .child(action("Lưu quy tắc", Variant::Primary, save)),
             ),
     )
+}
+
+/// Which account the rules below belong to, as a select: the cards above choose it too, but they
+/// sit far from the rules, and rules were saved on the wrong account (the Notion journal) unseen.
+fn rules_account_row(data: Reading<AccountsData>, id: i64, chosen: Signal<Option<i64>>) -> impl IntoElement {
+    let choices = computed(move || {
+        data.value().map_or_default(|d| {
+            d.accounts.iter().map(|a| Choice::new(a.account.id.to_string(), a.account.title())).collect::<Vec<_>>()
+        })
+    });
+    view()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .justify_between()
+        .gap_4()
+        .pb_2()
+        .child(
+            view().gap_1().child(text("Áp dụng cho tài khoản").text_sm().font_weight(FontWeight::MEDIUM)).child(
+                text("Mỗi tài khoản có quy tắc riêng; tài khoản mới nhận quy tắc đang dùng")
+                    .text_xs()
+                    .text_color(move || theme().muted_foreground),
+            ),
+        )
+        .child(view().min_w(px(240.0)).child(select_value(
+            "Tài khoản áp dụng quy tắc",
+            move || choices.get(),
+            move || SharedString::from(id.to_string()),
+            move |next| {
+                if let Ok(picked) = next.parse::<i64>() {
+                    chosen.set(Some(picked));
+                }
+            },
+        )))
 }
 
 /// The account's own details: name, broker, currency, starting balance and the server's zone.
