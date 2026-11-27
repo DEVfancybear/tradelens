@@ -3111,7 +3111,7 @@ dependencies = [
 
 [[package]]
 name = "nsh-app-tradelens"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "arboard",
  "base64 0.23.1",
@@ -5744,7 +5744,7 @@ dependencies = [
 
 [[package]]
 name = "tradelens-cloud"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -5764,7 +5764,7 @@ dependencies = [
 
 [[package]]
 name = "tradelens-core"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
  "calamine",
@@ -5787,7 +5787,7 @@ dependencies = [
 
 [[package]]
 name = "tradelens-mt5"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "log",
  "serde",
@@ -5803,7 +5803,7 @@ dependencies = [
 
 [[package]]
 name = "tradelens-update"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek 2.2.0",
