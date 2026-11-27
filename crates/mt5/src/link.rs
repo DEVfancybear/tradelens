@@ -38,6 +38,12 @@ pub struct LinkSettings {
     /// The longest an order taken by the thread waits for the terminal's answer. Longer than the
     /// worker's own limit on a call, so that the worker's answer (even a timeout) arrives first.
     pub order_timeout: Duration,
+    /// Between two reads of a terminal that reports another account than the link's (login `0`
+    /// while it is still signing in): it is read again, not started again.
+    pub settle_every: Duration,
+    /// The reads in a row that may report another account before the link logs in again: with
+    /// [`LinkSettings::settle_every`], how long a terminal may take to finish signing in.
+    pub settle_reads: u32,
 }
 
 impl LinkSettings {
@@ -58,6 +64,8 @@ impl Default for LinkSettings {
             first_days: 365,
             order_queue: Duration::from_secs(10),
             order_timeout: Duration::from_secs(90),
+            settle_every: Duration::from_secs(2),
+            settle_reads: 30,
         }
     }
 }
@@ -260,9 +268,13 @@ fn run(login: &Login, open: &Opener, settings: LinkSettings, listen: &Listener, 
     let mut failures: u32 = 0;
     loop {
         listen(Event::State(account.clone(), LinkState::Connecting));
-        let terminal = open(login).and_then(|mut terminal| terminal.connect(login).map(|info| (terminal, info)));
+        let terminal = open(login).and_then(|mut terminal| {
+            let info = terminal.connect(login)?;
+            Ok(settle(terminal.as_mut(), account, info, settings, inbox)?.map(|info| (terminal, info)))
+        });
         let (mut terminal, info) = match terminal {
-            Ok(connected) => connected,
+            Ok(Some(connected)) => connected,
+            Ok(None) => break,
             Err(error @ Mt5Error::LoginRefused(_)) => {
                 log::warn!("mt5 {account}: {error}");
                 listen(Event::State(account.clone(), LinkState::Refused(error)));
@@ -312,9 +324,30 @@ fn poll_until_failure(
 ) -> Next {
     let mut since: Option<i64> = None;
     let mut first = true;
+    // Polls in a row that reported another account: each is left out, and the terminal is read
+    // again at the next poll; only after [`LinkSettings::settle_reads`] of them does it log in again.
+    let mut strays: u32 = 0;
     loop {
         match terminal.poll(since, settings.first_days) {
+            Ok(poll) if !account.has_login(&poll.account.login) => {
+                if strays == 0 {
+                    log_other_account(account, &poll.account);
+                }
+                strays = strays.saturating_add(1);
+                if strays >= settings.settle_reads.max(1) {
+                    let error = other_account(account, &poll.account);
+                    log::warn!("mt5 {account}: poll failed: {error}");
+                    listen(Event::State(account.clone(), LinkState::Retrying(error)));
+                    return Next::Go;
+                }
+                // Not passed on, and no orders carried meanwhile: they would go to that account.
+                if matches!(wait(inbox, settings.settle_every, None), Next::Stop) {
+                    return Next::Stop;
+                }
+                continue;
+            }
             Ok(poll) => {
+                strays = 0;
                 // The next poll reads from the newest deal (with the worker's day of slack); an
                 // account without deals reads from now.
                 let newest = poll.newest_deal().or_else(|| since.or_else(now_ms));
@@ -356,6 +389,50 @@ fn wait(inbox: &Receiver<Order>, pause: Duration, mut terminal: Option<&mut dyn 
             },
         }
     }
+}
+
+/// Waits, after a login, for the terminal to report the link's account, reading it again every
+/// [`LinkSettings::settle_every`]: the account it reports then (`None` when the app stopped the
+/// link meanwhile). A terminal still signing in reports login `0`, and one switched by hand reports
+/// another account; what it reads then is not this account's, and stored under the login it
+/// reports it would make a second copy of the deals. The terminal is kept meanwhile: starting it
+/// again would start its sign-in again.
+///
+/// # Errors
+///
+/// [`Mt5Error::Unreachable`] when it still reports another account after
+/// [`LinkSettings::settle_reads`] reads; the terminal's error when it cannot be read.
+fn settle(
+    terminal: &mut dyn Terminal,
+    account: &AccountRef,
+    mut info: AccountInfo,
+    settings: LinkSettings,
+    inbox: &Receiver<Order>,
+) -> Result<Option<AccountInfo>, Mt5Error> {
+    let mut reads: u32 = 1;
+    while !account.has_login(&info.login) {
+        if reads == 1 {
+            log_other_account(account, &info);
+        }
+        if reads >= settings.settle_reads.max(1) {
+            return Err(other_account(account, &info));
+        }
+        reads = reads.saturating_add(1);
+        if matches!(wait(inbox, settings.settle_every, None), Next::Stop) {
+            return Ok(None);
+        }
+        // Only the account is wanted: the last day of deals is the least the terminal reads.
+        info = terminal.poll(now_ms(), 1)?.account;
+    }
+    Ok(Some(info))
+}
+
+fn log_other_account(account: &AccountRef, info: &AccountInfo) {
+    log::warn!("mt5 {account}: the terminal reports account {:?}, its data is left out", info.login.trim());
+}
+
+fn other_account(account: &AccountRef, info: &AccountInfo) -> Mt5Error {
+    Mt5Error::Unreachable(crate::tr!("mt5.link.other_account", reported = info.login.trim(), wanted = account.login))
 }
 
 /// Does an order on the terminal and answers it, unless the app already gave up on it.

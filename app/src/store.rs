@@ -159,6 +159,7 @@ impl Store {
     pub(crate) fn reload(self) {
         let Some(db) = self.db.get() else { return };
         let query = Query::now(self.accounts.get_untracked().id(), self.range.get_untracked());
+        let chosen = query.account;
         let generation = self.generation.with(|g| {
             *g += 1;
             *g
@@ -174,8 +175,13 @@ impl Store {
             }
             match read {
                 Ok(Ok(next)) => batch(|| {
+                    // The account chosen is gone (deleted here or on another device): show them all.
+                    let gone = chosen.is_some_and(|id| next.accounts.iter().all(|account| account.id != id));
                     self.snapshot.set(Arc::new(next));
                     self.load.set(Load::Ready);
+                    if gone {
+                        self.accounts.set(AccountFilter::All);
+                    }
                 }),
                 Ok(Err(error)) => self.load.set(Load::Failed(t!("store.read_failed", error = error))),
                 Err(error) => self.load.set(Load::Failed(t!("store.read_stopped", error = error))),

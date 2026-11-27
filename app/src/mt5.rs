@@ -65,6 +65,43 @@ fn secret_name(account: &AccountRef) -> String {
     format!("mt5:{account}")
 }
 
+/// Whether a sign-in's password is kept for the next start of the app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PasswordChoice {
+    /// Kept in the operating system's credential store (on Windows, Credential Manager encrypts it
+    /// for the Windows user); the account connects on its own at the next start.
+    Remember,
+    /// Used for this run only, and any password kept before is removed: the next start asks for it.
+    ThisRunOnly,
+}
+
+/// What a sign-in keeps once it has logged in: the account always, its password when asked to.
+#[derive(Debug, Clone)]
+enum Keep {
+    WithPassword(Password),
+    /// The password is used until the app closes (kept in memory), never in the credential store.
+    ForThisRun(Password),
+}
+
+/// What the connection holds for sign-ins, on the UI thread.
+#[derive(Debug, Default)]
+struct Pending {
+    /// What a sign-in that has not logged in yet keeps, by link, once that link has.
+    by_link: BTreeMap<u64, Keep>,
+    /// The passwords of the accounts signed in to for this run only: what "Kết nối lại" and a
+    /// restore log in with, since the credential store holds none for them.
+    this_run: BTreeMap<AccountRef, Password>,
+}
+
+impl Keep {
+    fn of(choice: PasswordChoice, password: &Password) -> Self {
+        match choice {
+            PasswordChoice::Remember => Self::WithPassword(password.clone()),
+            PasswordChoice::ThisRunOnly => Self::ForThisRun(password.clone()),
+        }
+    }
+}
+
 /// An account signed in to, as the setting keeps it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Saved {
@@ -490,8 +527,8 @@ pub(crate) struct Mt5 {
     links: Stored<Links>,
     /// What the links' threads tell the UI thread: the sending half is given to each link.
     heard: Stored<(Sender<Heard>, Receiver<Heard>)>,
-    /// The password of a sign-in that has not logged in yet, by link: kept once that link has.
-    pending: Stored<BTreeMap<u64, Password>>,
+    /// What sign-ins keep: by link until it logs in, and the passwords used for this run only.
+    pending: Stored<Pending>,
     /// The id the next link gets.
     next_link: Stored<u64>,
     store: Store,
@@ -519,7 +556,7 @@ fn provide_with(terminal_setup: TerminalSetup) {
         state: signal(State { prompt_plans: true, ..State::default() }),
         links: stored(Links::default()),
         heard: stored((sender, receiver)),
-        pending: stored(BTreeMap::new()),
+        pending: stored(Pending::default()),
         next_link: stored(1),
         store: store(),
         write: writer(),
@@ -605,6 +642,20 @@ fn change_saved(db: &mut Db, change: impl FnOnce(&mut Vec<Saved>)) -> Result<Res
 /// NSH tells the data folder only there (on a blocking thread it panics: no reactive runtime).
 fn folder() -> Option<PathBuf> {
     Store::database_path().and_then(|path| path.parent().map(|dir| dir.join("mt5")))
+}
+
+/// Whether `terminal` is one of the portable copies the app made for an account (under
+/// `mt5/terminals`): it names that account, but it is no terminal to copy for another. Call it on
+/// the UI thread, as [`folder`].
+pub(crate) fn is_own_copy(terminal: &Path) -> bool {
+    folder().is_some_and(|files| is_copy_in(terminal, &files))
+}
+
+/// Whether `terminal` lies under the portable terminals of the connection's folder `files`, compared
+/// as Windows compares paths (without case or the kind of slash).
+fn is_copy_in(terminal: &Path, files: &Path) -> bool {
+    let normal = |path: &Path| path.to_string_lossy().replace('/', "\\").to_lowercase();
+    normal(terminal).starts_with(&format!("{}\\", normal(&files.join("terminals"))))
 }
 
 /// Where the app's own Python goes ([`runtime`]) under the connection's folder `files`.
@@ -822,6 +873,16 @@ impl Mt5 {
 
     /// Connects each saved account with the password the credential store keeps for it.
     fn connect_saved(self, saved: Vec<Saved>) {
+        // Signed in to for this run only: its password is in memory, not in the credential store.
+        let (in_memory, saved): (Vec<_>, Vec<_>) = saved
+            .into_iter()
+            .partition(|saved| self.pending.with(|Pending { this_run: run, .. }| run.contains_key(&saved.account())));
+        for saved in in_memory {
+            let password = self.pending.with(|Pending { this_run: run, .. }| run.get(&saved.account()).cloned());
+            if let Some(password) = password {
+                self.start(saved.account(), saved.terminal, password, None);
+            }
+        }
         let Some(env) = self.state.with_untracked(|state| state.env.clone()) else { return };
         self.owner.run(move || {
             spawn(async move {
@@ -855,14 +916,18 @@ impl Mt5 {
     }
 
     /// Signs in to `account` with `password`, running it in a copy of the installed `terminal`.
-    /// The account is kept (with its password) once this login succeeds.
-    pub(crate) fn sign_in(self, account: AccountRef, terminal: PathBuf, password: &str) {
+    /// The account is kept once this login succeeds, with its password when `choice` says so.
+    pub(crate) fn sign_in(self, account: AccountRef, terminal: PathBuf, password: &str, choice: PasswordChoice) {
         let refuse = |why: Notice| self.state.update(|state| state.error = Some(why));
         if !self.state.with_untracked(|state| state.loaded) {
             return refuse(Notice::NotLoaded);
         }
         if account.login.is_empty() || !account.login.chars().all(|c| c.is_ascii_digit()) {
             return refuse(Notice::LoginDigits);
+        }
+        // A copy made for another account is no terminal to copy: only MetaTrader itself is.
+        if is_own_copy(&terminal) {
+            return refuse(Notice::NoTerminal);
         }
         if account.server.is_empty() || password.is_empty() {
             return refuse(Notice::Incomplete);
@@ -886,12 +951,14 @@ impl Mt5 {
                 None => state.accounts.push(Live::new(account.clone(), terminal.clone())),
             }
         });
-        // Python first (installed by the app when the machine has none), then the login. The
-        // password is kept once it logs in: for a new account, and as the new one of an account kept.
+        // Python first (installed by the app when the machine has none), then the login. What the
+        // trader chose is done once it logs in: the password kept (for a new account, and as the new
+        // one of an account kept), or the one kept before removed.
         let password = Password::new(password);
+        let keep = Keep::of(choice, &password);
         let wanted = account.clone();
         self.ensure_python(
-            move || self.start(account, terminal, password.clone(), Some(password)),
+            move || self.start(account, terminal, password, Some(keep)),
             move |why| {
                 self.state.update(|state| {
                     state.accounts.retain(|live| live.saved || live.account != wanted);
@@ -902,9 +969,9 @@ impl Mt5 {
     }
 
     /// Makes the account's terminal ready, then starts a new link for it once the old one (if any)
-    /// has stopped: two workers never drive one portable terminal. `keep` is the password to keep
-    /// once this link logs in. A start while another is making the terminal ready is dropped.
-    fn start(self, account: AccountRef, terminal: PathBuf, password: Password, keep: Option<Password>) {
+    /// has stopped: two workers never drive one portable terminal. `keep` is what to keep once this
+    /// link logs in. A start while another is making the terminal ready is dropped.
+    fn start(self, account: AccountRef, terminal: PathBuf, password: Password, keep: Option<Keep>) {
         if self.state.with_untracked(|state| state.live(&account).is_none_or(|live| live.starting)) {
             return;
         }
@@ -925,7 +992,7 @@ impl Mt5 {
             }
         });
         if let Some(keep) = keep {
-            self.pending.with(|pending| pending.insert(id, keep));
+            self.pending.with(|Pending { by_link: pending, .. }| pending.insert(id, keep));
         }
         let setup = self.state.with_untracked(|state| state.setup.clone());
         let sender = self.heard.with(|(sender, _)| sender.clone());
@@ -944,7 +1011,7 @@ impl Mt5 {
                 // The trader may have forgotten the account, or started it again, meanwhile.
                 let current = self.state.with_untracked(|state| state.of_link(id).is_some_and(|live| !live.removing));
                 if !current {
-                    self.pending.with(|pending| pending.remove(&id));
+                    self.pending.with(|Pending { by_link: pending, .. }| pending.remove(&id));
                     return;
                 }
                 match prepared {
@@ -963,7 +1030,7 @@ impl Mt5 {
                         });
                     }
                     Err(why) => {
-                        self.pending.with(|pending| pending.remove(&id));
+                        self.pending.with(|Pending { by_link: pending, .. }| pending.remove(&id));
                         // A new sign-in that cannot start is not listed: the form says why.
                         self.state.update(|state| {
                             state.accounts.retain(|live| live.saved || live.link_id != Some(id));
@@ -1029,6 +1096,7 @@ impl Mt5 {
     /// credential store; its portable terminal is removed once the link has stopped.
     pub(crate) fn forget(self, account: &AccountRef) {
         let had_link = self.link(account).is_some();
+        self.pending.with(|Pending { this_run: run, .. }| run.remove(account));
         self.state.update(|state| {
             if let Some(live) = state.live_mut(account) {
                 live.removing = true;
@@ -1055,8 +1123,9 @@ impl Mt5 {
         );
     }
 
-    /// Keeps `account` in the settings and its password in the credential store, after a login.
-    fn keep(self, account: &AccountRef, password: Password) {
+    /// Keeps `account` in the settings after a login, and its password in the credential store, or
+    /// none there when the trader chose not to keep it.
+    fn keep(self, account: &AccountRef, keep: Keep) {
         let Some(live) = self.state.with_untracked(|state| state.live(account).cloned()) else { return };
         let Some(env) = self.state.with_untracked(|state| state.env.clone()) else { return };
         let kept = Saved { login: live.account.login, server: live.account.server, terminal: live.terminal };
@@ -1070,7 +1139,12 @@ impl Mt5 {
                 })? {
                     return Ok(Err(error));
                 }
-                Ok(env.save_secret(&secret_name(&wanted), password.expose()).map_err(Notice::Words))
+                let name = secret_name(&wanted);
+                let stored = match keep {
+                    Keep::WithPassword(password) => env.save_secret(&name, password.expose()),
+                    Keep::ForThisRun(_) => env.clear_secret(&name),
+                };
+                Ok(stored.map_err(Notice::Words))
             },
             move |result| {
                 if let Err(error) = result.map_err(Notice::Words).and_then(|saved| saved) {
@@ -1105,7 +1179,7 @@ impl Mt5 {
         match state {
             LinkState::Connecting => set(Status::Connecting),
             LinkState::Connected(info) => {
-                let keep = self.pending.with(|pending| pending.remove(&id));
+                let keep = self.pending.with(|Pending { by_link: pending, .. }| pending.remove(&id));
                 self.state.update(|s| {
                     if let Some(live) = s.of_link_mut(id) {
                         live.status = Status::Connected;
@@ -1113,15 +1187,25 @@ impl Mt5 {
                         live.saved |= keep.is_some();
                     }
                 });
-                if let Some(password) = keep {
-                    self.keep(account, password);
+                if let Some(keep) = keep {
+                    self.pending.with(|Pending { this_run: run, .. }| match &keep {
+                        Keep::ForThisRun(password) => run.insert(account.clone(), password.clone()),
+                        Keep::WithPassword(_) => run.remove(account),
+                    });
+                    self.keep(account, keep);
                 }
             }
             LinkState::Retrying(error) => set(Status::Retrying(Notice::from(&error))),
             LinkState::Refused(error) => {
-                self.pending.with(|pending| pending.remove(&id));
+                let keep = self.pending.with(|Pending { by_link: pending, .. }| pending.remove(&id));
                 if live.saved {
-                    // An account kept before stays listed (with the password it had), saying why.
+                    self.pending.with(|Pending { this_run: run, .. }| run.remove(account));
+                    if matches!(keep, Some(Keep::ForThisRun(_))) {
+                        // Signing in again with "Lưu mật khẩu" unticked: none stays kept, even refused.
+                        self.forget_password(account);
+                    }
+                    // An account kept before stays listed (with the password it had, unless the
+                    // trader chose not to keep it), saying why.
                     set(Status::Refused(Notice::from(&error)));
                     self.state.update(|s| s.error = Some(Notice::from(&error)));
                 } else {
@@ -1142,6 +1226,21 @@ impl Mt5 {
                 }
             }
         }
+    }
+
+    /// Removes the password kept for `account` from the credential store: the trader chose not to
+    /// keep it, even though this login was refused.
+    fn forget_password(self, account: &AccountRef) {
+        let Some(env) = self.state.with_untracked(|state| state.env.clone()) else { return };
+        let name = secret_name(account);
+        self.owner.run(move || {
+            spawn(async move {
+                let cleared = blocking(move || env.clear_secret(&name)).await;
+                if let Some(error) = cleared.map_or_else(|error| Some(error.to_string()), Result::err) {
+                    self.state.update(|state| state.error = Some(Notice::Words(error)));
+                }
+            });
+        });
     }
 
     fn remove_copy(self, account: &AccountRef) {
@@ -1377,6 +1476,17 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_copy_made_for_an_account_is_told_apart_from_a_terminal() {
+        let files = Path::new(r"C:\Users\T\AppData\Roaming\vn.dat.tradelens\mt5");
+        let copy =
+            Path::new("c:/users/t/appdata/roaming/vn.dat.tradelens/mt5/terminals/434572098@exness/terminal64.exe");
+        assert!(is_copy_in(copy, files), "the app's copy, whatever the case or the slashes");
+        assert!(!is_copy_in(Path::new(r"C:\Program Files\MetaTrader 5\terminal64.exe"), files));
+        assert!(!is_copy_in(&files.join("metatrader").join("terminal64.exe"), files), "the app's own MetaTrader");
+        assert!(!is_copy_in(Path::new(r"C:\Users\T\AppData\Roaming\vn.dat.tradelens\mt5\terminals-old\x.exe"), files));
+    }
+
+    #[test]
     fn what_is_missing_is_said_in_order() {
         let mut setup = Setup { checked: true, ..Setup::default() };
         if cfg!(windows) {
@@ -1410,7 +1520,7 @@ mod tests {
         assert_eq!(
             say(crate::i18n::Lang::Vi),
             [
-                "Chưa có mật khẩu của tài khoản này: hãy đăng nhập lại.",
+                "Mật khẩu của tài khoản này không được lưu: hãy đăng nhập lại.",
                 "MT5 từ chối đăng nhập: bad password",
                 "Không lưu được tài khoản MT5: disk full",
                 "Đang tải Python cho TradeLens (12,6 MB)…",
@@ -1419,7 +1529,7 @@ mod tests {
         assert_eq!(
             say(crate::i18n::Lang::En),
             [
-                "There is no password for this account: sign in again.",
+                "This account's password is not saved: sign in again.",
                 "MT5 refused the login: bad password",
                 "Could not save the MT5 account: disk full",
                 "Downloading Python for TradeLens (12.6 MB)…",

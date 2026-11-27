@@ -2,7 +2,7 @@
 //! form, the accounts signed in to with their open positions, and the plan prompt switch.
 //! The design's EA card is replaced by this one (`docs/design/README.md`, deviations).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Local};
 use nsh_base::theme;
@@ -12,14 +12,14 @@ use tradelens_mt5::{AccountRef, install};
 use super::position;
 use crate::{
     format::{self, Sign},
-    mt5::{Live, Mt5, Notice, PlanPrompt, State, Status, mt5},
+    mt5::{Live, Mt5, Notice, PasswordChoice, PlanPrompt, State, Status, mt5},
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{
             Choice, Variant, action, action_when, confirm_then, root_owner, secret_field, select_value, text_field,
         },
         files::{Accept, Pick, pick_files},
-        forms::switch_row,
+        forms::{check_box, switch_row},
         parts::{card, error_line, warning_banner},
         theme as tokens,
     },
@@ -33,6 +33,8 @@ const TERMINAL_FILE: Accept = Accept { name: || "terminal64.exe".to_owned(), ext
 struct Form {
     login: Signal<String>,
     password: Signal<String>,
+    /// Whether the password is kept for the next start (ticked unless the trader unticks it).
+    remember: Signal<bool>,
     server: Signal<String>,
     /// The installed terminal chosen (its `terminal64.exe`), empty for the first one found.
     terminal: Signal<String>,
@@ -41,6 +43,9 @@ struct Form {
     /// The login and server last filled in from a chosen terminal: a field still holding them may be
     /// filled again, one the trader typed in is left alone.
     filled: Signal<(String, String)>,
+    /// The terminal (or account copy) chosen last, whose account is being read: a read that arrives
+    /// after another was chosen is dropped.
+    reading: Signal<String>,
 }
 
 pub(super) fn mt5_card() -> impl IntoElement {
@@ -55,10 +60,12 @@ pub(super) fn mt5_card() -> impl IntoElement {
     let form = Form {
         login: signal(String::new()),
         password: signal(String::new()),
+        remember: signal(true),
         server: signal(String::new()),
         terminal: signal(String::new()),
         picked: signal(None),
         filled: signal((String::new(), String::new())),
+        reading: signal(String::new()),
     };
     card(
         t!("mt5_connect.title"),
@@ -159,6 +166,8 @@ fn chosen_terminal(state: &State, form: Form) -> Option<PathBuf> {
     choices
         .iter()
         .find(|choice| choice.value.as_ref() == wanted.as_str())
+        // None chosen: the first terminal that is no copy the app made for an account.
+        .or_else(|| choices.iter().find(|choice| !crate::mt5::is_own_copy(Path::new(choice.value.as_ref()))))
         .or(choices.first())
         .map(|choice| PathBuf::from(choice.value.as_ref()))
 }
@@ -235,7 +244,8 @@ fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
             return;
         };
         let account = AccountRef::new(&form.login.get_untracked(), &form.server.get_untracked());
-        mt5.sign_in(account, terminal, &form.password.get_untracked());
+        let choice = if form.remember.get_untracked() { PasswordChoice::Remember } else { PasswordChoice::ThisRunOnly };
+        mt5.sign_in(account, terminal, &form.password.get_untracked(), choice);
         form.password.set(String::new());
     };
     view()
@@ -246,6 +256,7 @@ fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
         .border_color(move || theme().border)
         .child(text(t!("mt5_connect.sign_in_title")).text_sm().font_weight(FontWeight::MEDIUM))
         .child(fields_row(form))
+        .child(remember_row(form))
         .child(dynamic(move || (!demo.get()).then(|| untracked(|| terminal_row(mt5, form)))))
         .child(
             view()
@@ -311,6 +322,20 @@ fn fields_row(form: Form) -> impl IntoElement {
         ))
 }
 
+/// "Remember the password", with where a remembered one is kept.
+fn remember_row(form: Form) -> impl IntoElement {
+    view()
+        .gap_1()
+        .child(
+            check_box(t!("mt5_connect.remember"), move || form.remember.get(), move |on| form.remember.set(on))
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(text(t!("mt5_connect.remember")).text_sm()),
+        )
+        .child(text(t!("mt5_connect.remember_hint")).text_xs().text_color(move || theme().muted_foreground))
+}
+
 /// The installed terminal to copy, chosen among those found or picked with the file dialog.
 fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
     let owner = root_owner();
@@ -322,7 +347,7 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
                     Ok(paths) => {
                         if let Some(path) = paths.into_iter().next() {
                             form.picked.set(Some(path.clone()));
-                            choose_terminal(owner, form, &path.display().to_string());
+                            choose_terminal(owner, mt5, form, &path.display().to_string());
                         }
                     }
                     Err(error) => mt5.state.update(|state| state.error = Some(Notice::Words(error))),
@@ -352,7 +377,7 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
                         t!("mt5_connect.terminal"),
                         move || choices.get(),
                         move || SharedString::from(form.terminal.get()),
-                        move |next| choose_terminal(owner, form, &next),
+                        move |next| choose_terminal(owner, mt5, form, &next),
                     )
                     .into_element()
                 })
@@ -365,18 +390,36 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
 /// logged in to last (a terminal of the account the trader means to add). The terminal's settings
 /// are read on a blocking thread, under `owner` (the card's root, which a rebuilt select does not
 /// cancel); what arrives after another terminal was chosen is dropped.
-fn choose_terminal(owner: Owner, form: Form, terminal: &str) {
-    form.terminal.set(terminal.to_owned());
+///
+/// A copy the app made for an account only names that account: its login and server are filled in,
+/// and the terminal goes back at once to the first one that is no such copy, the MetaTrader the new account is
+/// copied from.
+fn choose_terminal(owner: Owner, mt5: Mt5, form: Form, terminal: &str) {
     let chosen = terminal.to_owned();
+    // At once, so that a sign-in pressed before the account is read never copies the copy.
+    let source =
+        crate::mt5::is_own_copy(Path::new(terminal)).then(|| mt5.state.with_untracked(source_terminal)).flatten();
+    form.terminal.set(source.unwrap_or_else(|| chosen.clone()));
+    form.reading.set(chosen.clone());
     owner.run(move || {
         spawn(async move {
             let path = PathBuf::from(&chosen);
             let Ok(last) = blocking(move || install::last_login(&path)).await else { return };
-            if form.terminal.get_untracked() == chosen {
+            if form.reading.get_untracked() == chosen {
                 fill_from_terminal(form, last.unwrap_or_default());
             }
         });
     });
+}
+
+/// The first terminal found that is no copy the app made for an account, as the select names it.
+fn source_terminal(state: &State) -> Option<String> {
+    state
+        .setup
+        .installs
+        .iter()
+        .find(|install| !crate::mt5::is_own_copy(&install.terminal))
+        .map(|install| install.terminal.display().to_string())
 }
 
 /// Puts `login` and `server` (empty when the terminal tells none) into the fields that are empty or

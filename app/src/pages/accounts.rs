@@ -7,6 +7,7 @@ use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
     Account, ChecklistItem, Db, DbError, Rules,
+    db::AccountDeletion,
     rules::{self, DayStatus},
 };
 
@@ -14,11 +15,12 @@ use super::account_trades::{self, AccountTrades};
 use crate::i18n::plural;
 use crate::{
     format::{self, Sign},
+    mt5::{Mt5, mt5},
     store::{Reading, Writer, query, writer},
     ui::{
         checklist_editor::checklist_editor,
         chips::{Tone, chip, figure_text},
-        controls::{Choice, Variant, action, select_value, text_field},
+        controls::{Choice, Variant, action, confirm_then, root_owner, select_value, text_field},
         forms::{NumberRange, check_box, number_field, progress_rule},
         parts::{card, empty_state, error_line, page_with, property_row, save_status},
         rule_row::rule_row,
@@ -80,6 +82,8 @@ struct AccountEntry {
     violations: Vec<ViolationLine>,
     /// The share of days traded in the window without a violation.
     compliance: Option<f64>,
+    /// What deleting the account does with the trader's notes on it.
+    deletion: AccountDeletion,
 }
 
 /// What the page reads.
@@ -154,6 +158,7 @@ fn entry_of(
         rules,
         own_checklist,
         violations,
+        deletion: db.account_deletion(own.account.id)?,
     })
 }
 
@@ -332,7 +337,7 @@ fn detail(
                 .min_w(px(520.0))
                 .gap_6()
                 .child(rules_card(data, write, id, chosen, notice))
-                .child(info_card(data, write, id, notice)),
+                .child(info_card(data, write, id, chosen, notice)),
         )
         .child(
             view()
@@ -530,10 +535,112 @@ fn rules_account_row(data: Reading<AccountsData>, id: i64, chosen: Signal<Option
         )))
 }
 
-/// The account's own details: name, broker, currency, starting balance and the server's zone.
-fn info_card(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signal<Option<String>>) -> impl IntoElement {
+/// What the delete button needs of the account when it is pressed, as the page last read it.
+struct ToDelete {
+    account: Account,
+    deletion: AccountDeletion,
+    /// The title of [`AccountDeletion::twin`].
+    twin: Option<String>,
+}
+
+impl ToDelete {
+    fn of(data: &AccountsData, id: i64) -> Option<Self> {
+        let entry = data.entry(id)?;
+        let twin = entry.deletion.twin.and_then(|twin| data.entry(twin)).map(|twin| twin.account.title());
+        Some(Self { account: entry.account.clone(), deletion: entry.deletion, twin })
+    }
+}
+
+/// Deletes the account with all its data, after asking; the question says what becomes of the
+/// trader's notes on it. An account the MT5 connection keeps is refused (its terminal would store it
+/// again at the next poll), and so is any while the connection's accounts are not read yet.
+fn delete_account(
+    owner: Owner,
+    mt5: Mt5,
+    write: Writer,
+    wanted: ToDelete,
+    after: impl FnOnce(Result<(), String>) + 'static,
+) {
+    let ToDelete { account, deletion, twin } = wanted;
+    let title = account.title();
+    let (loaded, kept) = mt5.state.with_untracked(|state| {
+        let kept = state.accounts.iter().any(|live| live.account.is_reported_as(&account.login, &account.server));
+        (state.loaded, kept)
+    });
+    if !loaded {
+        return after(Err(t!("accounts.delete.not_loaded")));
+    }
+    if kept {
+        return after(Err(t!("accounts.delete.connected", title = title)));
+    }
+    let id = account.id;
+    // Asked at once from the press: a question asked once something was awaited never showed (in the
+    // headless harness), so the counts come from what the page read.
+    confirm_then(
+        owner,
+        t!("accounts.delete.title"),
+        deletion_question(&title, deletion, twin.as_deref()),
+        t!("accounts.delete.confirm"),
+        move || write.run(move |db: &mut Db| db.delete_account(id), move |done| after(done.map(|_| ()))),
+    );
+}
+
+/// The question before deleting the account `title`: what goes with it, what becomes of the
+/// trader's notes (moved to `twin`, the account with the same trades, or deleted), and that every
+/// synced device must run this version.
+fn deletion_question(title: &str, deletion: AccountDeletion, twin: Option<&str>) -> String {
+    let mut lines = vec![t!("accounts.delete.body", title = title)];
+    match twin {
+        Some(twin) => {
+            if deletion.moved > 0 {
+                lines.push(plural!(deletion.moved, "accounts.delete.moved", n = deletion.moved, twin = twin));
+            }
+            if deletion.deleted > 0 {
+                lines.push(plural!(deletion.deleted, "accounts.delete.lost_twin", n = deletion.deleted, twin = twin));
+            }
+        }
+        None if deletion.deleted > 0 => {
+            lines.push(plural!(deletion.deleted, "accounts.delete.lost", n = deletion.deleted));
+        }
+        None => {}
+    }
+    lines.push(t!("accounts.delete.update_devices"));
+    lines.join("\n\n")
+}
+
+/// "Xoá tài khoản" for the account `id`; once it is deleted the page shows the first account left.
+fn delete_button(
+    data: Reading<AccountsData>,
+    write: Writer,
+    id: i64,
+    chosen: Signal<Option<i64>>,
+    notice: Signal<Option<String>>,
+) -> impl IntoElement {
+    let (owner, mt5) = (root_owner(), mt5());
+    action(t!("accounts.delete.button"), Variant::Destructive, move || {
+        let Some(wanted) = data.value().and_then(|data| ToDelete::of(&data, id)) else { return };
+        delete_account(owner, mt5, write, wanted, move |result| match result {
+            Ok(()) => {
+                notice.set(None);
+                chosen.set(None);
+            }
+            Err(error) => notice.set(Some(error)),
+        });
+    })
+}
+
+/// The account's own details: name, broker, currency, starting balance and the server's zone; and
+/// the button that deletes the account.
+fn info_card(
+    data: Reading<AccountsData>,
+    write: Writer,
+    id: i64,
+    chosen: Signal<Option<i64>>,
+    notice: Signal<Option<String>>,
+) -> impl IntoElement {
     let saved = read(data, id, |a| a.account.clone());
     let title = saved.title();
+    let delete = delete_button(data, write, id, chosen, notice);
     let name = signal(saved.name.clone());
     let broker = signal(saved.broker.clone());
     let currency = signal(saved.currency.clone());
@@ -616,6 +723,8 @@ fn info_card(data: Reading<AccountsData>, write: Writer, id: i64, notice: Signal
                     .justify_end()
                     .gap_4()
                     .pt_2()
+                    .child(delete)
+                    .child(view().flex_1())
                     .child(save_status(move || status.get()).text_sm())
                     .child(action(t!("accounts.info.save"), Variant::Secondary, save)),
             ),

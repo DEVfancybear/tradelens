@@ -162,3 +162,37 @@ fn a_saved_account_connects_by_itself_at_the_next_start_and_can_be_forgotten() {
         db.setting("mt5.accounts").ok().flatten().is_some_and(|json| !json.contains(LOGIN))
     });
 }
+
+#[test]
+fn an_account_signed_in_without_remembering_its_password_asks_for_it_at_the_next_start() {
+    let server = "Thử-Không-Lưu-Mật-Khẩu";
+    let (fixture, broker) = demo(server);
+    {
+        let mut app = start(&fixture);
+        open_data_sources(&mut app);
+        app.wait_for_within("role:checkbox[Lưu mật khẩu]", WAIT).expect("the box is there, ticked");
+        app.press("role:checkbox[Lưu mật khẩu]").expect("the trader unticks it");
+        sign_in(&mut app, server, PASSWORD);
+        app.wait_for_within("Đã kết nối", WAIT).expect("the account connects with the password typed");
+        let db = fixture.db();
+        wait_until("the account being kept", || {
+            db.setting("mt5.accounts").ok().flatten().is_some_and(|json| json.contains(LOGIN))
+        });
+        // Until the app closes the password stays in memory: "Kết nối lại" logs in with it.
+        broker.set_unreachable(Some("mất mạng"));
+        app.wait_for_within("role:button[Kết nối lại]", WAIT).expect("the link retries and offers to reconnect");
+        broker.set_unreachable(None);
+        app.press("role:button[Kết nối lại]").expect("the reconnect button");
+        let asked = app.wait_until("the card asking for the password", std::time::Duration::from_secs(3), |s| {
+            s.shows("Mật khẩu của tài khoản này không được lưu: hãy đăng nhập lại.")
+        });
+        assert!(asked.is_err(), "a reconnect in the same run does not ask for the password");
+        app.wait_for_within("Đã kết nối", WAIT).expect("connected again");
+    }
+    let mut app = start(&fixture);
+    open_data_sources(&mut app);
+    app.wait_for_within(&format!("{LOGIN} · {server}"), WAIT).expect("the account is still listed");
+    app.wait_for_within("Mật khẩu của tài khoản này không được lưu: hãy đăng nhập lại.", WAIT)
+        .expect("its password was not kept, so the card asks for it");
+    assert!(!app.screen().shows("MT5 · đã kết nối"), "it does not connect on its own");
+}

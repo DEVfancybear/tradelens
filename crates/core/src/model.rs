@@ -31,6 +31,13 @@ pub const NOTION_LOGIN: &str = "notion";
 /// The name the app stores for the account of a Notion journal.
 pub const NOTION_NAME: &str = "Nhật ký Notion";
 
+/// Whether `login` is what an MT5 terminal reports before it has signed in (`0`): no account has it,
+/// and what the terminal reads then is not an account's. Such a login is never stored.
+pub fn is_unsigned_login(login: &str) -> bool {
+    let login = login.trim();
+    !login.is_empty() && login.bytes().all(|b| b == b'0')
+}
+
 /// The text shown for `stored`, a name or server of the account `login`: the language's own words
 /// when it is what the app stored for an account it made itself, else `stored` as it is.
 fn shown(login: &str, stored: &str) -> String {

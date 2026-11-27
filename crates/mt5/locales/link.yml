@@ -9,6 +9,9 @@ mt5.link.not_connected:
 mt5.link.reconnecting:
   vi: "tài khoản đang kết nối lại, lệnh chưa được gửi; hãy thử lại sau ít giây"
   en: "the account is reconnecting, the order was not sent; please try again in a few seconds"
+mt5.link.other_account:
+  vi: "terminal MT5 đang báo tài khoản %{reported} thay vì %{wanted} (có thể chưa đăng nhập xong); dữ liệu lần này bị bỏ qua, app sẽ thử lại"
+  en: "the MT5 terminal reports account %{reported} instead of %{wanted} (it may still be signing in); this read is left out and the app will try again"
 mt5.link.no_answer:
   vi: "lệnh đã gửi tới MT5 nhưng chưa có trả lời; hãy xem lại lệnh trước khi gửi lần nữa"
   en: "the order was sent to MT5 but no answer came; check the order before sending it again"

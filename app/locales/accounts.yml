@@ -127,6 +127,45 @@ accounts.info.saved:
 accounts.info.save:
   vi: "Lưu thông tin"
   en: "Save details"
+accounts.delete.button:
+  vi: "Xoá tài khoản"
+  en: "Delete account"
+accounts.delete.title:
+  vi: "Xoá tài khoản?"
+  en: "Delete the account?"
+accounts.delete.body:
+  vi: "Xoá %{title} cùng mọi dữ liệu của nó: lệnh, nhật ký, quy tắc, ghi chú ngày, tổng kết, checklist riêng và lệnh bỏ lỡ. Các máy đồng bộ cũng xoá theo. Không hoàn tác được."
+  en: "Delete %{title} with all its data: trades, journal, rules, day notes, reviews, its own checklist and missed trades. Synced devices delete them too. This cannot be undone."
+accounts.delete.moved.one:
+  vi: "%{n} ghi chú bạn viết trên tài khoản này (nhật ký lệnh, ghi chú ngày, tổng kết, lệnh bỏ lỡ, checklist riêng) được chuyển sang %{twin}, tài khoản có cùng các lệnh."
+  en: "The %{n} note you wrote on this account (trade journal, day notes, reviews, missed trades, own checklist) moves to %{twin}, the account with the same trades."
+accounts.delete.moved.other:
+  vi: "%{n} ghi chú bạn viết trên tài khoản này (nhật ký lệnh, ghi chú ngày, tổng kết, lệnh bỏ lỡ, checklist riêng) được chuyển sang %{twin}, tài khoản có cùng các lệnh."
+  en: "The %{n} notes you wrote on this account (trade journal, day notes, reviews, missed trades, own checklist) move to %{twin}, the account with the same trades."
+accounts.delete.lost.one:
+  vi: "%{n} ghi chú (nhật ký lệnh, ghi chú ngày, tổng kết, lệnh bỏ lỡ, checklist riêng) bị xoá cùng tài khoản."
+  en: "%{n} note (trade journal, day notes, reviews, missed trades, own checklist) is deleted with the account."
+accounts.delete.lost.other:
+  vi: "%{n} ghi chú (nhật ký lệnh, ghi chú ngày, tổng kết, lệnh bỏ lỡ, checklist riêng) bị xoá cùng tài khoản."
+  en: "%{n} notes (trade journal, day notes, reviews, missed trades, own checklist) are deleted with the account."
+accounts.delete.lost_twin.one:
+  vi: "%{n} ghi chú khác bị xoá vì %{twin} đã có ghi chú riêng cho cùng lệnh, ngày hoặc kỳ."
+  en: "%{n} other note is deleted because %{twin} already has its own for the same trade, day or period."
+accounts.delete.lost_twin.other:
+  vi: "%{n} ghi chú khác bị xoá vì %{twin} đã có ghi chú riêng cho cùng lệnh, ngày hoặc kỳ."
+  en: "%{n} other notes are deleted because %{twin} already has its own for the same trade, day or period."
+accounts.delete.update_devices:
+  vi: "Hãy cập nhật TradeLens trên mọi máy đồng bộ lên bản này trước khi xoá: bản cũ không xoá được tài khoản và có thể thêm nó trở lại. Nếu một máy khác đang kết nối MT5 tài khoản này, hãy đăng xuất ở máy đó trước: nếu không nó sẽ thêm lại tài khoản, chỉ với các lệnh mới."
+  en: "Update TradeLens on every synced device to this version before deleting: older versions do not delete the account and may add it back. If another device keeps this account connected to MT5, sign out there first: otherwise it adds the account back, with new trades only."
+accounts.delete.not_loaded:
+  vi: "Đang đọc kết nối MT5, hãy thử lại sau giây lát."
+  en: "Reading the MT5 connection, try again in a moment."
+accounts.delete.confirm:
+  vi: "Xoá"
+  en: "Delete"
+accounts.delete.connected:
+  vi: "%{title} đang kết nối MT5: đăng xuất ở Nguồn dữ liệu › Kết nối MT5 trước, nếu không lần đọc sau sẽ thêm lại tài khoản."
+  en: "%{title} is connected to MT5: sign out under Data sources › MT5 connection first, or the next read adds the account back."
 accounts.checklist.title:
   vi: "Checklist trước lệnh"
   en: "Pre-trade checklist"
