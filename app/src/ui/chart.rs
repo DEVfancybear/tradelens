@@ -104,7 +104,7 @@ pub(crate) fn equity_chart(
         let all = points();
         let shown = at.and_then(|i| all.get(i)).or(all.last());
         shown.map_or_else(String::new, |p| {
-            format!("Số dư {}", format::money(p.balance, Sign::OnlyNegative, &currency()))
+            t!("ui.chart.balance", amount = format::money(p.balance, Sign::OnlyNegative, &currency()))
         })
     };
     let balance_domain = move || {
@@ -132,7 +132,7 @@ pub(crate) fn equity_chart(
                 .x_scale(Scale::Linear { domain: None, reverse: false })
                 .motion(motion)
                 .appear_generation(move || AppearKey::from(generation()))
-                .accessibility_label("Đường số dư theo thời gian")
+                .accessibility_label(t!("ui.chart.balance_label"))
                 .h(px(BALANCE_HEIGHT))
                 .ml(px(LABEL_GUTTER))
                 .on_hover_change(move |index: &Option<u32>| hovered.set(*index))
@@ -184,11 +184,16 @@ fn drawdown_panel(
                 .ml(px(LABEL_GUTTER))
                 .child(text("Drawdown").text_xs().text_color(move || theme().muted_foreground))
                 .child(
-                    text(move || format!("tối đa {}", format::money(-max_drawdown(), Sign::OnlyNegative, &currency())))
-                        .text_xs()
-                        .font_family(tokens::mono)
-                        .tabular_nums()
-                        .text_color(move || theme().muted_foreground),
+                    text(move || {
+                        t!(
+                            "ui.chart.max_drawdown",
+                            amount = format::money(-max_drawdown(), Sign::OnlyNegative, &currency())
+                        )
+                    })
+                    .text_xs()
+                    .font_family(tokens::mono)
+                    .tabular_nums()
+                    .text_color(move || theme().muted_foreground),
                 ),
         )
         .child(
@@ -204,7 +209,7 @@ fn drawdown_panel(
                 .motion(motion)
                 .appear_generation(move || AppearKey::from(generation()))
                 .interactive(false)
-                .accessibility_label("Drawdown từ đỉnh số dư")
+                .accessibility_label(t!("ui.chart.drawdown_label"))
                 .h(px(DRAWDOWN_HEIGHT))
                 .ml(px(LABEL_GUTTER))
                 .child(

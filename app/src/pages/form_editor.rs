@@ -109,7 +109,7 @@ fn hint_of(property: &Property, defs: &[FieldDef], scope: FieldScope) -> String 
                     format!("{} · {}", kind_name(def.kind), def.options.join(", "))
                 }
                 FieldKind::Scale => format!("{} · 1–{}", kind_name(def.kind), def.scale_max()),
-                kind => kind_name(kind).to_owned(),
+                kind => kind_name(kind),
             }
         }
     }
@@ -876,16 +876,18 @@ mod tests {
 
     #[test]
     fn rows_say_what_they_are() {
-        let defs = [def("tf", "Khung", FieldKind::Select, "live"), def("n", "Mức", FieldKind::Scale, "live")];
-        let rows = rows_of(&FormLayout::default_for(FieldScope::Day), &defs);
-        let hint = |label: &str| {
-            let row = rows.iter().find(|r| r.label == label).expect("a row");
-            hint_of(row, &defs, FieldScope::Day)
-        };
-        assert_eq!(hint("Khung"), "Chọn một · M5, M15");
-        assert_eq!(hint("Mức"), "Thang điểm · 1–10");
-        assert_eq!(hint("Tâm trạng"), "Danh mục cảm xúc");
-        assert_eq!(summary_of(&rows), "5 thuộc tính · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let defs = [def("tf", "Khung", FieldKind::Select, "live"), def("n", "Mức", FieldKind::Scale, "live")];
+            let rows = rows_of(&FormLayout::default_for(FieldScope::Day), &defs);
+            let hint = |label: &str| {
+                let row = rows.iter().find(|r| r.label == label).expect("a row");
+                hint_of(row, &defs, FieldScope::Day)
+            };
+            assert_eq!(hint("Khung"), "Chọn một · M5, M15");
+            assert_eq!(hint("Mức"), "Thang điểm · 1–10");
+            assert_eq!(hint("Tâm trạng"), "Danh mục cảm xúc");
+            assert_eq!(summary_of(&rows), "5 thuộc tính · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa");
+        });
     }
 
     #[test]

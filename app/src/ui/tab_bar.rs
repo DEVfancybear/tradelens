@@ -7,15 +7,16 @@ use nsh_core::prelude::*;
 /// A tab list over `options`: exactly one is selected, `value` says which and `on_change` hears
 /// the one pressed (or moved to with the arrow keys). `group` names the list for screen
 /// readers; each tab reads "group: label".
-pub(crate) fn tab_bar<T: Copy + PartialEq + 'static>(
-    group: &'static str,
+pub(crate) fn tab_bar<T: Copy + PartialEq + 'static, L: Into<SharedString>>(
+    group: impl Into<SharedString>,
     options: &'static [T],
-    label: fn(T) -> &'static str,
+    label: fn(T) -> L,
     value: impl Fn() -> T + Copy + 'static,
     on_change: impl Fn(T) + Copy + 'static,
 ) -> impl IntoElement {
+    let group: SharedString = group.into();
     tabs()
-        .accessibility_label(group)
+        .accessibility_label(group.clone())
         .flex_row()
         .flex_wrap()
         .gap_1()
@@ -28,14 +29,14 @@ pub(crate) fn tab_bar<T: Copy + PartialEq + 'static>(
                 .cursor_pointer()
                 .selected(on)
                 .on_press(move || on_change(option))
-                .accessibility_label(format!("{group}: {}", label(option)))
+                .accessibility_label(format!("{group}: {}", label(option).into()))
                 .px_3()
                 .py_2()
                 .rounded_t(px(6.0))
                 .hover(|s| s.bg(move || theme().accent))
                 .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
                 .child(
-                    text(label(option))
+                    text(label(option).into())
                         .text_sm()
                         .font_weight(FontWeight::MEDIUM)
                         .style_when(on, |s| s.font_weight(FontWeight::SEMIBOLD))

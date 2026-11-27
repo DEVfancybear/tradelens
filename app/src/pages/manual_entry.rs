@@ -780,8 +780,13 @@ fn number(
     value: Signal<Option<f64>>,
     step: f64,
 ) -> impl IntoElement {
-    let control =
-        number_field_fluid(label, unit, NumberRange::any().stepping(step), move || value.get(), move |n| value.set(n));
+    let control = number_field_fluid(
+        label,
+        unit.map(Into::into),
+        NumberRange::any().stepping(step),
+        move || value.get(),
+        move |n| value.set(n),
+    );
     match part {
         Some(part) => checked_field(inputs, part, label, control).into_element(),
         None => field(label, control).into_element(),

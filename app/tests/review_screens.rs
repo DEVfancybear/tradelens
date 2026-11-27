@@ -9,16 +9,35 @@ use std::{
 };
 
 use chrono::Local;
-use nsh_app_tradelens::ui::properties::kind_name;
 use nsh_testing::Headless;
 use tradelens_core::{
-    DayNote, Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, Side, TradeKey, catalog::FieldScope,
-    import::notion, missed::MissedTrade, model::AccountInfo, playbook::Playbook, review::Period,
+    DayNote, Db, Deal, DealBatch, DealEntry, DealKind, JournalEntry, Side, TradeKey,
+    catalog::{FieldKind, FieldScope},
+    import::notion,
+    missed::MissedTrade,
+    model::AccountInfo,
+    playbook::Playbook,
+    review::Period,
 };
 
 mod server_clock;
 mod support;
 use support::{WAIT, wait_until};
+
+/// The Vietnamese name the property list gives a kind (the window runs in Vietnamese).
+fn kind_name(kind: FieldKind) -> &'static str {
+    match kind {
+        FieldKind::Text => "Văn bản",
+        FieldKind::LongText => "Văn bản dài",
+        FieldKind::Number => "Số",
+        FieldKind::Select => "Chọn một",
+        FieldKind::MultiSelect => "Chọn nhiều",
+        FieldKind::Checkbox => "Checkbox",
+        FieldKind::Scale => "Thang điểm",
+        FieldKind::Date => "Ngày",
+        FieldKind::Url => "Liên kết",
+    }
+}
 
 /// The shared fixture with this file's window.
 struct Fixture(support::Fixture);

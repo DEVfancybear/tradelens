@@ -93,17 +93,17 @@ pub(crate) fn card(title: impl Into<SharedString>, body: impl IntoElement) -> im
 
 /// A headline number: its label over its value and a note. The value's colour follows its tone.
 pub(crate) fn stat_tile(
-    label: &'static str,
+    label: impl IntoReactive<SharedString>,
     value: impl Fn() -> (String, Tone) + Clone + 'static,
     note: impl Fn() -> String + 'static,
 ) -> impl IntoElement {
-    stat_tile_with(move || label, value, note)
+    stat_tile_with(label, value, note)
 }
 
 /// [`stat_tile`] whose label follows the data: a figure that is in money for one set of trades and in
 /// R for another.
 pub(crate) fn stat_tile_with(
-    label: impl Fn() -> &'static str + 'static,
+    label: impl IntoReactive<SharedString>,
     value: impl Fn() -> (String, Tone) + Clone + 'static,
     note: impl Fn() -> String + 'static,
 ) -> impl IntoElement {
@@ -135,7 +135,7 @@ pub(crate) fn stat_tile_with(
 }
 
 /// A row of a property list: the property's name, then its control.
-pub(crate) fn property_row(label: &'static str, control: impl IntoElement) -> impl IntoElement {
+pub(crate) fn property_row(label: impl IntoReactive<SharedString>, control: impl IntoElement) -> impl IntoElement {
     view()
         .flex_row()
         .items_start()

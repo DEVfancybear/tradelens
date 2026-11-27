@@ -66,9 +66,9 @@ pub fn command_palette(
                 .query(move || Some(SharedString::from(query.get())))
                 .filterable(false)
                 .loading(busy)
-                .placeholder("Tìm lệnh, nhật ký, tổng kết, playbook…")
-                .accessibility_label("Kết quả tìm kiếm")
-                .search_accessibility_label("Tìm trong nhật ký")
+                .placeholder(t!("ui.palette.placeholder"))
+                .accessibility_label(t!("ui.palette.results"))
+                .search_accessibility_label(t!("ui.palette.search_in_journal"))
                 .auto_focus(true)
                 .on_query_change(move |typed: &SharedString| query.set(typed.to_string()))
                 .on_select(move |id: &SharedString| on_select(id))
@@ -90,16 +90,8 @@ pub fn command_palette(
                         .gap_3()
                         .px_4()
                         .py_3()
-                        .child(
-                            text("↑↓ chọn   Enter mở   Esc đóng")
-                                .text_xs()
-                                .text_color(move || theme().muted_foreground),
-                        )
-                        .child(
-                            text("Tìm cả ghi chú, tag, lỗi, câu trả lời tổng kết")
-                                .text_xs()
-                                .text_color(move || theme().muted_foreground),
-                        ),
+                        .child(text(t!("ui.palette.keys")).text_xs().text_color(move || theme().muted_foreground))
+                        .child(text(t!("ui.palette.scope")).text_xs().text_color(move || theme().muted_foreground)),
                 ),
         )
 }
@@ -115,7 +107,7 @@ pub fn palette_layer(content: impl IntoElement, on_close: impl Fn() + 'static) -
             button()
                 .cursor_pointer()
                 .on_press(on_close)
-                .accessibility_label("Đóng tìm kiếm")
+                .accessibility_label(t!("ui.palette.close"))
                 .absolute()
                 .inset_0()
                 .bg(move || theme().background)
@@ -130,7 +122,7 @@ pub fn search_trigger(on_press: impl Fn() + 'static) -> impl IntoElement {
     button()
         .cursor_pointer()
         .on_press(on_press)
-        .accessibility_label("Mở tìm kiếm")
+        .accessibility_label(t!("ui.palette.open"))
         .h(px(32.0))
         .w_full()
         .flex_row()
@@ -146,7 +138,7 @@ pub fn search_trigger(on_press: impl Fn() + 'static) -> impl IntoElement {
         .child(icon(Icon::Search, 16.0).text_color(move || theme().muted_foreground))
         // One line that gives way to the key beside it: it ends with an ellipsis, it never wraps.
         .child(
-            text("Tìm trong nhật ký")
+            text(t!("ui.palette.search_in_journal"))
                 .flex_1()
                 .min_w(px(0.0))
                 .text_sm()

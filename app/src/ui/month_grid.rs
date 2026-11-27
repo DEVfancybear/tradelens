@@ -1,5 +1,5 @@
 //! The month grid: one cell per day coloured by what the day made, with a column of weekly
-//! totals. The full grid (Lịch P/L) picks a day; the compact one (Tổng quan) shows the weekdays
+//! totals. The full grid (the P/L calendar) picks a day; the compact one (the overview) shows the weekdays
 //! and opens the calendar on the day pressed.
 
 use chrono::{Datelike, NaiveDate, Weekday};
@@ -29,11 +29,11 @@ pub(crate) enum Figure {
 impl Figure {
     pub(crate) const ALL: [Self; 3] = [Self::Net, Self::R, Self::Trades];
 
-    pub(crate) fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> String {
         match self {
-            Self::Net => "Kết quả",
-            Self::R => "R",
-            Self::Trades => "Số lệnh",
+            Self::Net => t!("ui.month_grid.figure.net"),
+            Self::R => "R".to_owned(),
+            Self::Trades => t!("ui.month_grid.figure.trades"),
         }
     }
 }
@@ -41,7 +41,22 @@ impl Figure {
 const CELL_HEIGHT: f32 = 84.0;
 const COMPACT_HEIGHT: f32 = 30.0;
 const TOTAL_WIDTH: f32 = 92.0;
-const WEEKDAY_NAMES: [&str; 7] = ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "CN"];
+/// The weekdays over the full grid, Monday first.
+const WEEKDAYS: [Weekday; 7] =
+    [Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun];
+
+/// The head of a column of the full grid: `Thứ 2`, `CN` (`Mon`, `Sun`).
+fn weekday_head(day: Weekday) -> String {
+    match day {
+        Weekday::Mon => t!("ui.month_grid.weekday.mon"),
+        Weekday::Tue => t!("ui.month_grid.weekday.tue"),
+        Weekday::Wed => t!("ui.month_grid.weekday.wed"),
+        Weekday::Thu => t!("ui.month_grid.weekday.thu"),
+        Weekday::Fri => t!("ui.month_grid.weekday.fri"),
+        Weekday::Sat => t!("ui.month_grid.weekday.sat"),
+        Weekday::Sun => t!("ui.month_grid.weekday.sun"),
+    }
+}
 
 fn ink(tone: Tone) -> AdaptiveColor {
     match tone {
@@ -86,15 +101,15 @@ fn figure_of(stat: &DayStat, figure: Figure, currency: &str) -> (String, Tone) {
         Figure::Net => (format::money_whole(stat.net, Sign::Always, currency), tone_of(stat.net)),
         Figure::R if stat.r_trades > 0 => (format::r_text(Some(stat.r)), tone_of(stat.r)),
         Figure::R => ("—".to_owned(), Tone::Neutral),
-        Figure::Trades => (format!("{} lệnh", stat.trades), Tone::Neutral),
+        Figure::Trades => (format::trade_count(stat.trades), Tone::Neutral),
     }
 }
 
 /// The small line under a day's figure.
 fn note_of(stat: &DayStat, figure: Figure) -> String {
     match figure {
-        Figure::Net | Figure::R => format!("{}/{} lệnh thắng", stat.wins, stat.trades),
-        Figure::Trades => format!("{} thắng", stat.wins),
+        Figure::Net | Figure::R => t!("ui.month_grid.wins_of", wins = stat.wins, trades = stat.trades),
+        Figure::Trades => t!("ui.month_grid.wins", wins = stat.wins),
     }
 }
 
@@ -112,7 +127,7 @@ fn week_figure(week: &CalendarWeek, figure: Figure, currency: &str) -> (String, 
         Figure::Net if week.unit == Unit::R => (format::r_text(Some(week.r)), tone_of(week.r)),
         Figure::Net => (format::money_whole(week.net, Sign::Always, currency), tone_of(week.net)),
         Figure::R => (format::r_text(Some(week.r)), tone_of(week.r)),
-        Figure::Trades => (format!("{} lệnh", week.trades), Tone::Neutral),
+        Figure::Trades => (format::trade_count(week.trades), Tone::Neutral),
     }
 }
 
@@ -131,7 +146,7 @@ fn week_total(week: &CalendarWeek, figure: Signal<Figure>, currency: &str) -> im
         .border_1()
         .border_color(move || theme().border)
         .bg(move || theme().secondary.opacity(0.5))
-        .child(text("Tuần").text_xs().text_color(move || theme().muted_foreground))
+        .child(text(t!("ui.month_grid.week")).text_xs().text_color(move || theme().muted_foreground))
         .child(
             text(net)
                 .text_sm()
@@ -141,7 +156,7 @@ fn week_total(week: &CalendarWeek, figure: Signal<Figure>, currency: &str) -> im
                 .number_of_lines(1)
                 .text_color(move || ink(tone())),
         )
-        .child(text(format!("{} lệnh", week.trades)).text_xs().text_color(move || theme().muted_foreground))
+        .child(text(format::trade_count(week.trades)).text_xs().text_color(move || theme().muted_foreground))
 }
 
 /// One full day: its number, its figure and a note, a button that picks the day.
@@ -187,14 +202,14 @@ fn day_cell(
                     .text_color(move || theme().muted_foreground),
             ),
         None if day.in_month && date <= today && !is_weekend(date) => {
-            body.child(text("Nghỉ").text_xs().text_color(move || theme().muted_foreground))
+            body.child(text(t!("ui.month_grid.rest")).text_xs().text_color(move || theme().muted_foreground))
         }
         None => body,
     };
     button()
         .cursor_pointer()
         .on_press(move || on_pick(date))
-        .accessibility_label(format!("Xem ngày {}", date.format("%d/%m")))
+        .accessibility_label(t!("ui.month_grid.open_day", date = date.format("%d/%m")))
         .flex_1()
         .min_w(px(0.0))
         .h(px(CELL_HEIGHT))
@@ -225,10 +240,21 @@ pub(crate) fn month_grid(
     let header = view()
         .flex_row()
         .gap_2()
-        .children(WEEKDAY_NAMES.iter().map(|name| {
-            text(*name).flex_1().min_w(px(0.0)).px_2().text_xs().text_color(move || theme().muted_foreground)
+        .children(WEEKDAYS.iter().map(|&day| {
+            text(weekday_head(day))
+                .flex_1()
+                .min_w(px(0.0))
+                .px_2()
+                .text_xs()
+                .text_color(move || theme().muted_foreground)
         }))
-        .child(text("Tuần").w(px(TOTAL_WIDTH)).px_2().text_xs().text_color(move || theme().muted_foreground));
+        .child(
+            text(t!("ui.month_grid.week"))
+                .w(px(TOTAL_WIDTH))
+                .px_2()
+                .text_xs()
+                .text_color(move || theme().muted_foreground),
+        );
     view().gap_2().child(header).child(dynamic(move || {
         let weeks = weeks();
         let today = today.get();
@@ -270,8 +296,8 @@ pub(crate) fn mini_month(
     today: Memo<NaiveDate>,
     on_pick: impl Fn(NaiveDate) + Copy + 'static,
 ) -> impl IntoElement {
-    let header = view().flex_row().gap_1().children(WEEKDAY_NAMES.iter().take(5).map(|name| {
-        text(name.replace("Thứ ", "T"))
+    let header = view().flex_row().gap_1().children(WEEKDAYS.iter().take(5).map(|&day| {
+        text(format::weekday_short(day))
             .flex_1()
             .min_w(px(0.0))
             .text_xs()
@@ -301,7 +327,11 @@ pub(crate) fn mini_month(
                     button()
                         .cursor_pointer()
                         .on_press(move || on_pick(date))
-                        .accessibility_label(format!("Xem ngày {} {}", date.format("%d/%m"), label))
+                        .accessibility_label(t!(
+                            "ui.month_grid.open_day_with",
+                            date = date.format("%d/%m"),
+                            figure = label
+                        ))
                         .flex_1()
                         .min_w(px(0.0))
                         .h(px(COMPACT_HEIGHT))
@@ -346,6 +376,15 @@ mod tests {
 
     #[test]
     fn a_day_shows_the_figure_the_switch_asks_for() {
+        crate::i18n::with_text(crate::i18n::Lang::Vi, day_shows_the_figure_the_switch_asks_for);
+        let (trades, note) = crate::i18n::with_text(crate::i18n::Lang::En, || {
+            let s = stat(330.4, 3, 2);
+            (figure_of(&s, Figure::Trades, "USD").0, note_of(&s, Figure::Net))
+        });
+        assert_eq!((trades.as_str(), note.as_str()), ("3 trades", "2/3 trades won"));
+    }
+
+    fn day_shows_the_figure_the_switch_asks_for() {
         let s = stat(330.4, 3, 2);
         assert_eq!(figure_of(&s, Figure::Net, "USD"), ("+$330".to_owned(), Tone::Profit));
         assert_eq!(figure_of(&s, Figure::R, "USD"), ("+1.6R".to_owned(), Tone::Profit));
@@ -357,6 +396,10 @@ mod tests {
 
     #[test]
     fn a_day_and_a_week_without_money_show_their_r_where_the_money_would_be() {
+        crate::i18n::with_text(crate::i18n::Lang::Vi, day_and_week_without_money_show_their_r);
+    }
+
+    fn day_and_week_without_money_show_their_r() {
         let r_day = DayStat { net: 0.0, trades: 2, wins: 1, r: 1.5, r_trades: 2, money_trades: 0 };
         assert_eq!(figure_of(&r_day, Figure::Net, "USD"), ("+1.5R".to_owned(), Tone::Profit));
         assert_eq!(figure_of(&r_day, Figure::Trades, "USD").0, "2 lệnh");

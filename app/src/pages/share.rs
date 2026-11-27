@@ -342,7 +342,7 @@ fn put_on_clipboard(picture: &Arc<Rendered>, state: State) {
     spawn(async move {
         match blocking(move || crate::ui::files::copy_png(&picture.bytes)).await {
             Ok(Ok(())) => state.succeed("Đã sao chép ảnh vào clipboard.".to_owned()),
-            Ok(Err(message)) => state.fail(message),
+            Ok(Err(message)) => state.fail(message.text()),
             Err(error) => state.fail(format!("Luồng sao chép ảnh bị dừng: {error}")),
         }
     });

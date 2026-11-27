@@ -1,4 +1,4 @@
-//! "Kế hoạch lúc vào vs thực tế": the plan the trader wrote when the position opened set
+//! "Plan at entry vs actual": the plan the trader wrote when the position opened set
 //! against what the trade did, row by row (entry, stop, target, reward to risk, risk), with
 //! the gap and whether the plan was written before the result was known.
 
@@ -30,7 +30,7 @@ pub(crate) struct PlanView {
 /// One line of the comparison, ready to draw.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PlanRow {
-    pub(crate) label: &'static str,
+    pub(crate) label: String,
     pub(crate) planned: String,
     pub(crate) actual: String,
     pub(crate) gap: String,
@@ -65,26 +65,32 @@ fn signed(gap: f64, text: &str) -> String {
 /// The rows of the comparison of `plan` with `trade`.
 pub(crate) fn plan_rows(plan: &EntryPlan, trade: &Trade, currency: &str, digits: usize) -> Vec<PlanRow> {
     let review = journal::review(plan, trade);
-    let row = |label, planned: String, actual: String, gap: String, tone| PlanRow { label, planned, actual, gap, tone };
+    let row = |label: String, planned: String, actual: String, gap: String, tone| PlanRow {
+        label,
+        planned,
+        actual,
+        gap,
+        tone,
+    };
     // A trade whose source gave no prices has nothing to set the plan against.
     let known = |shown: String| if trade.prices_known() { shown } else { NONE.to_owned() };
 
     let (entry_gap, entry_tone) = match review.entry_slippage {
         Some(slip) if slip.abs() > f64::EPSILON => {
-            (format!("{} (trượt giá)", price_gap(slip, digits)), if slip > 0.0 { Tone::Loss } else { Tone::Profit })
+            (t!("ui.plan.slippage", gap = price_gap(slip, digits)), if slip > 0.0 { Tone::Loss } else { Tone::Profit })
         }
-        Some(_) => ("đúng giá".to_owned(), Tone::Neutral),
+        Some(_) => (t!("ui.plan.on_price"), Tone::Neutral),
         None => (NONE.to_owned(), Tone::Neutral),
     };
     let (stop_gap, stop_tone) = match (plan.stop_loss.filter(|v| *v > 0.0), review.stop_moved, review.stop_widened) {
-        (Some(_), true, true) => ("dời xa, tăng rủi ro".to_owned(), Tone::Loss),
-        (Some(_), true, false) => ("dời gần, giảm rủi ro".to_owned(), Tone::Neutral),
-        (Some(_), false, _) if trade.sl > 0.0 => ("đúng kế hoạch".to_owned(), Tone::Profit),
+        (Some(_), true, true) => (t!("ui.plan.stop_widened"), Tone::Loss),
+        (Some(_), true, false) => (t!("ui.plan.stop_tightened"), Tone::Neutral),
+        (Some(_), false, _) if trade.sl > 0.0 => (t!("ui.plan.on_plan"), Tone::Profit),
         _ => (NONE.to_owned(), Tone::Neutral),
     };
     let target_gap = match (plan.take_profit.filter(|v| *v > 0.0), trade.tp > 0.0) {
         (Some(planned), true) if (trade.tp - planned).abs() > f64::EPSILON => price_gap(trade.tp - planned, digits),
-        (Some(_), true) => "đúng kế hoạch".to_owned(),
+        (Some(_), true) => t!("ui.plan.on_plan"),
         _ => NONE.to_owned(),
     };
     let planned_rr = review.planned_reward_risk.map_or_else(|| NONE.to_owned(), |rr| format!("1 : {rr:.1}"));
@@ -97,29 +103,29 @@ pub(crate) fn plan_rows(plan: &EntryPlan, trade: &Trade, currency: &str, digits:
     };
     vec![
         row(
-            "Giá vào",
+            t!("ui.plan.entry"),
             planned_price(plan.entry, digits),
             known(format::price_to(trade.open_price, digits)),
             entry_gap,
             entry_tone,
         ),
         row(
-            "Stop loss",
+            "Stop loss".to_owned(),
             planned_price(plan.stop_loss, digits),
             known(format::level_to(trade.sl, digits)),
             stop_gap,
             stop_tone,
         ),
         row(
-            "Take profit",
+            "Take profit".to_owned(),
             planned_price(plan.take_profit, digits),
             known(format::level_to(trade.tp, digits)),
             target_gap,
             Tone::Neutral,
         ),
-        row("R:R", planned_rr, format::r_text(review.realised_r), NONE.to_owned(), Tone::Neutral),
+        row("R:R".to_owned(), planned_rr, format::r_text(review.realised_r), NONE.to_owned(), Tone::Neutral),
         row(
-            "Risk",
+            "Risk".to_owned(),
             plan.risk.map_or_else(|| NONE.to_owned(), |r| format::money(r, Sign::OnlyNegative, currency)),
             trade.risk.map_or_else(|| NONE.to_owned(), |r| format::money(r, Sign::OnlyNegative, currency)),
             risk_gap.0,
@@ -161,18 +167,15 @@ pub(crate) fn plan_vs_actual(
 }
 
 fn title() -> impl IntoElement {
-    text("Kế hoạch lúc vào vs thực tế")
-        .text_sm()
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(move || theme().card_foreground)
+    text(t!("ui.plan.title")).text_sm().font_weight(FontWeight::SEMIBOLD).text_color(move || theme().card_foreground)
 }
 
 fn blank(on_write: impl Fn() + 'static) -> impl IntoElement {
     view()
         .gap_2()
         .child(title())
-        .child(empty_state("Chưa có kế hoạch cho lệnh này", "Ghi lý do vào lệnh, SL, TP để so với kết quả."))
-        .child(view().flex_row().justify_center().child(action("Viết kế hoạch", Variant::Secondary, on_write)))
+        .child(empty_state(t!("ui.plan.none"), t!("ui.plan.none_hint")))
+        .child(view().flex_row().justify_center().child(action(t!("ui.plan.write"), Variant::Secondary, on_write)))
 }
 
 fn filled(shown: &PlanView, on_write: impl Fn() + 'static) -> impl IntoElement {
@@ -189,10 +192,10 @@ fn filled(shown: &PlanView, on_write: impl Fn() + 'static) -> impl IntoElement {
                     .items_center()
                     .gap_2()
                     .child(chip(
-                        if before { "Viết trước khi đóng" } else { "Viết sau khi đóng" },
+                        if before { t!("ui.plan.before_close") } else { t!("ui.plan.after_close") },
                         if before { Tone::Primary } else { Tone::Neutral },
                     ))
-                    .child(link("Sửa kế hoạch", on_write)),
+                    .child(link(t!("ui.plan.edit"), on_write)),
             ),
         )
         .when(!thesis.is_empty(), |v| {
@@ -206,9 +209,9 @@ fn filled(shown: &PlanView, on_write: impl Fn() + 'static) -> impl IntoElement {
                     .bg(move || theme().background)
                     .child(
                         text(if timeframe.is_empty() {
-                            "Lý do vào".to_owned()
+                            t!("ui.plan.reason")
                         } else {
-                            format!("Lý do vào · {}", timeframe.to_uppercase())
+                            t!("ui.plan.reason_in", timeframe = timeframe.to_uppercase())
                         })
                         .text_xs()
                         .text_color(move || theme().muted_foreground),
@@ -221,7 +224,7 @@ fn filled(shown: &PlanView, on_write: impl Fn() + 'static) -> impl IntoElement {
 }
 
 fn header_row() -> impl IntoElement {
-    let head = |label: &'static str| {
+    let head = |label: String| {
         text(label).w(px(CELL_WIDTH)).text_xs().text_color(move || theme().muted_foreground).text_right()
     };
     view()
@@ -229,9 +232,9 @@ fn header_row() -> impl IntoElement {
         .items_center()
         .gap_3()
         .child(view().w(px(LABEL_WIDTH)))
-        .child(head("Kế hoạch"))
-        .child(head("Thực tế"))
-        .child(text("Chênh").flex_1().min_w(px(0.0)).text_xs().text_color(move || theme().muted_foreground))
+        .child(head(t!("ui.plan.planned")))
+        .child(head(t!("ui.plan.actual")))
+        .child(text(t!("ui.plan.gap")).flex_1().min_w(px(0.0)).text_xs().text_color(move || theme().muted_foreground))
 }
 
 fn table_row(row: PlanRow) -> impl IntoElement {
@@ -301,36 +304,42 @@ mod tests {
 
     #[test]
     fn slippage_and_a_widened_stop_read_as_worse_for_the_trader() {
-        let rows = plan_rows(&plan(), &trade(Side::Long, 2648.2, 2640.0, 2660.0), "USD", 2);
-        let entry = by_label(&rows, "Giá vào");
-        assert_eq!((entry.planned.as_str(), entry.actual.as_str()), ("2648.00", "2648.20"));
-        assert_eq!(entry.gap, "+0.20 (trượt giá)");
-        assert_eq!(entry.tone, Tone::Loss);
-        let stop = by_label(&rows, "Stop loss");
-        assert_eq!(stop.gap, "dời xa, tăng rủi ro");
-        assert_eq!(stop.tone, Tone::Loss);
-        assert_eq!(by_label(&rows, "Take profit").gap, "đúng kế hoạch");
-        assert_eq!(by_label(&rows, "R:R").planned, "1 : 3.0");
-        let risk = by_label(&rows, "Risk");
-        assert_eq!((risk.planned.as_str(), risk.actual.as_str()), ("$150.00", "$195.00"));
-        assert_eq!(risk.tone, Tone::Loss, "more risk than planned");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let rows = plan_rows(&plan(), &trade(Side::Long, 2648.2, 2640.0, 2660.0), "USD", 2);
+            let entry = by_label(&rows, "Giá vào");
+            assert_eq!((entry.planned.as_str(), entry.actual.as_str()), ("2648.00", "2648.20"));
+            assert_eq!(entry.gap, "+0.20 (trượt giá)");
+            assert_eq!(entry.tone, Tone::Loss);
+            let stop = by_label(&rows, "Stop loss");
+            assert_eq!(stop.gap, "dời xa, tăng rủi ro");
+            assert_eq!(stop.tone, Tone::Loss);
+            assert_eq!(by_label(&rows, "Take profit").gap, "đúng kế hoạch");
+            assert_eq!(by_label(&rows, "R:R").planned, "1 : 3.0");
+            let risk = by_label(&rows, "Risk");
+            assert_eq!((risk.planned.as_str(), risk.actual.as_str()), ("$150.00", "$195.00"));
+            assert_eq!(risk.tone, Tone::Loss, "more risk than planned");
+        });
     }
 
     #[test]
     fn a_better_fill_and_the_planned_stop_read_as_good() {
-        let rows = plan_rows(&plan(), &trade(Side::Long, 2647.9, 2644.0, 2660.0), "USD", 2);
-        assert_eq!(by_label(&rows, "Giá vào").tone, Tone::Profit);
-        assert_eq!(by_label(&rows, "Giá vào").gap, "\u{2212}0.10 (trượt giá)");
-        assert_eq!(by_label(&rows, "Stop loss").gap, "đúng kế hoạch");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let rows = plan_rows(&plan(), &trade(Side::Long, 2647.9, 2644.0, 2660.0), "USD", 2);
+            assert_eq!(by_label(&rows, "Giá vào").tone, Tone::Profit);
+            assert_eq!(by_label(&rows, "Giá vào").gap, "\u{2212}0.10 (trượt giá)");
+            assert_eq!(by_label(&rows, "Stop loss").gap, "đúng kế hoạch");
+        });
     }
 
     #[test]
     fn what_the_plan_does_not_say_is_a_dash() {
-        let rows = plan_rows(&EntryPlan::default(), &trade(Side::Short, 1.2684, 0.0, 0.0), "USD", 2);
-        for label in ["Giá vào", "Stop loss", "Take profit", "R:R", "Risk"] {
-            assert_eq!(by_label(&rows, label).planned, "—", "{label}");
-            assert_eq!(by_label(&rows, label).gap, "—", "{label}");
-        }
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let rows = plan_rows(&EntryPlan::default(), &trade(Side::Short, 1.2684, 0.0, 0.0), "USD", 2);
+            for label in ["Giá vào", "Stop loss", "Take profit", "R:R", "Risk"] {
+                assert_eq!(by_label(&rows, label).planned, "—", "{label}");
+                assert_eq!(by_label(&rows, label).gap, "—", "{label}");
+            }
+        });
     }
 
     #[test]

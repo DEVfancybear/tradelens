@@ -1,0 +1,557 @@
+_version: 2
+
+# Components in app/src/ui: charts and tables of figures.
+ui.breakdown.trades:
+  vi: "Lệnh"
+  en: "Trades"
+ui.breakdown.avg_r:
+  vi: "R TB"
+  en: "Avg R"
+ui.chart.balance:
+  vi: "Số dư %{amount}"
+  en: "Balance %{amount}"
+ui.chart.balance_label:
+  vi: "Đường số dư theo thời gian"
+  en: "Balance line over time"
+ui.chart.max_drawdown:
+  vi: "tối đa %{amount}"
+  en: "max %{amount}"
+ui.chart.drawdown_label:
+  vi: "Drawdown từ đỉnh số dư"
+  en: "Drawdown from the balance peak"
+ui.charts.no_data:
+  vi: "Chưa có dữ liệu"
+  en: "No data yet"
+ui.charts.longer_range:
+  vi: "Chọn khoảng thời gian dài hơn."
+  en: "Choose a longer period."
+ui.charts.no_trades:
+  vi: "Chưa có lệnh nào"
+  en: "No trades yet"
+ui.charts.by_symbol_hint:
+  vi: "Kết quả theo symbol sẽ hiện ở đây."
+  en: "Results by symbol will show here."
+ui.charts.open_trades:
+  vi: "Xem lệnh %{label} %{shown}"
+  en: "View trades %{label} %{shown}"
+ui.charts.mistake_cost:
+  vi: "Chi phí lỗi %{name}"
+  en: "Cost of mistake %{name}"
+
+# Controls.
+ui.controls.remove_tag:
+  vi: "Xoá %{group} %{label}"
+  en: "Remove %{group} %{label}"
+ui.controls.star:
+  vi: "%{label}: %{star} sao"
+  en: "%{label}: star %{star}"
+
+# Checklist editor.
+ui.checklist.empty:
+  vi: "Chưa có mục nào."
+  en: "No items yet."
+ui.checklist.remove:
+  vi: "Xoá mục %{text}"
+  en: "Remove item %{text}"
+ui.checklist.row:
+  vi: "%{group}: mục %{n}"
+  en: "%{group}: item %{n}"
+ui.checklist.item_text:
+  vi: "Nội dung mục"
+  en: "Item text"
+ui.checklist.new_row:
+  vi: "%{group}: mục mới"
+  en: "%{group}: new item"
+ui.checklist.add_placeholder:
+  vi: "+ Thêm mục, rồi Enter"
+  en: "+ Add an item, then Enter"
+
+# Date picker.
+ui.date.previous_month:
+  vi: "Tháng trước"
+  en: "Previous month"
+ui.date.next_month:
+  vi: "Tháng sau"
+  en: "Next month"
+ui.date.time:
+  vi: "Giờ"
+  en: "Time"
+ui.date.choose:
+  vi: "Chọn ngày"
+  en: "Choose a date"
+ui.date.bad_time:
+  vi: "Giờ không hợp lệ: gõ 0930 hoặc 9:30 (từ 00:00 đến 23:59)."
+  en: "Not a valid time: type 0930 or 9:30 (from 00:00 to 23:59)."
+
+# Files: drop zone, file dialogs, the clipboard.
+ui.files.images:
+  vi: "Ảnh"
+  en: "Images"
+ui.files.reports:
+  vi: "Báo cáo MT5"
+  en: "MT5 reports"
+ui.files.skipped:
+  vi: "%{n} file không đúng loại (%{kind})"
+  en: "%{n} file of the wrong type (%{kind})"
+ui.files.dialog_failed:
+  vi: "Không mở được hộp thoại chọn file: %{error}"
+  en: "Could not open the file dialog: %{error}"
+ui.files.copy_unreadable:
+  vi: "Không đọc được ảnh để sao chép: %{error}"
+  en: "Could not read the picture to copy it: %{error}"
+ui.files.copy_too_large:
+  vi: "Ảnh quá lớn để sao chép."
+  en: "The picture is too large to copy."
+ui.files.copy_occupied:
+  vi: "Clipboard đang được ứng dụng khác dùng, bấm lại sau giây lát."
+  en: "Another app is using the clipboard; press again in a moment."
+ui.files.copy_refused:
+  vi: "Không ghi được ảnh vào clipboard."
+  en: "Could not put the picture on the clipboard."
+
+# Forms.
+ui.forms.checklist_empty:
+  vi: "Chưa có mục nào trong checklist."
+  en: "No items in the checklist yet."
+
+# Rule row.
+ui.rule.value:
+  vi: "%{label}: giá trị"
+  en: "%{label}: value"
+ui.rule.off:
+  vi: "Tắt"
+  en: "Off"
+
+# Gallery and reordering.
+ui.gallery.no_clipboard_image:
+  vi: "Clipboard không có ảnh hay file ảnh."
+  en: "The clipboard has no picture or picture file."
+ui.gallery.removed:
+  vi: "Đã xoá ảnh ·"
+  en: "Picture removed ·"
+ui.gallery.undo:
+  vi: "Hoàn tác"
+  en: "Undo"
+ui.gallery.added_at:
+  vi: "Thêm lúc %{time}"
+  en: "Added %{time}"
+ui.gallery.taken_at_entry:
+  vi: "chụp lúc vào lệnh"
+  en: "taken at entry"
+ui.gallery.taken_at_exit:
+  vi: "chụp lúc thoát lệnh"
+  en: "taken at exit"
+ui.gallery.no_folder:
+  vi: "Chưa có thư mục dữ liệu để lưu ảnh."
+  en: "There is no data folder to keep the pictures in yet."
+ui.gallery.store_stopped:
+  vi: "Luồng lưu ảnh bị dừng: %{error}"
+  en: "The picture-saving task stopped: %{error}"
+ui.gallery.view:
+  vi: "Xem"
+  en: "View"
+ui.gallery.view_tile:
+  vi: "Xem %{name}"
+  en: "View %{name}"
+ui.gallery.remove:
+  vi: "Xoá %{name}"
+  en: "Remove %{name}"
+ui.gallery.zoom:
+  vi: "Phóng to %{name}"
+  en: "Enlarge %{name}"
+ui.reorder.drag:
+  vi: "Kéo để đổi thứ tự %{name}"
+  en: "Drag to reorder %{name}"
+ui.gallery.add_to:
+  vi: "Thêm ảnh vào %{label}"
+  en: "Add pictures to %{label}"
+ui.gallery.add:
+  vi: "Thêm ảnh"
+  en: "Add pictures"
+ui.gallery.add_hint:
+  vi: "chọn nhiều, kéo thả, Ctrl+V"
+  en: "pick several, drag and drop, Ctrl+V"
+
+# Lists of lines.
+ui.lines.remove:
+  vi: "Xoá %{name}"
+  en: "Remove %{name}"
+
+# Modal.
+ui.modal.close:
+  vi: "Đóng hộp thoại"
+  en: "Close the dialog"
+
+# Month grid (P/L calendar and overview month).
+ui.month_grid.figure.net:
+  vi: "Kết quả"
+  en: "Result"
+ui.month_grid.figure.trades:
+  vi: "Số lệnh"
+  en: "Trade count"
+ui.month_grid.weekday.mon:
+  vi: "Thứ 2"
+  en: "Mon"
+ui.month_grid.weekday.tue:
+  vi: "Thứ 3"
+  en: "Tue"
+ui.month_grid.weekday.wed:
+  vi: "Thứ 4"
+  en: "Wed"
+ui.month_grid.weekday.thu:
+  vi: "Thứ 5"
+  en: "Thu"
+ui.month_grid.weekday.fri:
+  vi: "Thứ 6"
+  en: "Fri"
+ui.month_grid.weekday.sat:
+  vi: "Thứ 7"
+  en: "Sat"
+ui.month_grid.weekday.sun:
+  vi: "CN"
+  en: "Sun"
+ui.month_grid.wins_of:
+  vi: "%{wins}/%{trades} lệnh thắng"
+  en: "%{wins}/%{trades} trades won"
+ui.month_grid.wins:
+  vi: "%{wins} thắng"
+  en: "%{wins} won"
+ui.month_grid.week:
+  vi: "Tuần"
+  en: "Week"
+ui.month_grid.rest:
+  vi: "Nghỉ"
+  en: "Off"
+ui.month_grid.open_day:
+  vi: "Xem ngày %{date}"
+  en: "View day %{date}"
+ui.month_grid.open_day_with:
+  vi: "Xem ngày %{date} %{figure}"
+  en: "View day %{date} %{figure}"
+
+# Search palette and its trigger.
+ui.palette.placeholder:
+  vi: "Tìm lệnh, nhật ký, tổng kết, playbook…"
+  en: "Search trades, journal, reviews, playbooks…"
+ui.palette.results:
+  vi: "Kết quả tìm kiếm"
+  en: "Search results"
+ui.palette.search_in_journal:
+  vi: "Tìm trong nhật ký"
+  en: "Search the journal"
+ui.palette.keys:
+  vi: "↑↓ chọn   Enter mở   Esc đóng"
+  en: "↑↓ select   Enter open   Esc close"
+ui.palette.scope:
+  vi: "Tìm cả ghi chú, tag, lỗi, câu trả lời tổng kết"
+  en: "Also searches notes, tags, mistakes and review answers"
+ui.palette.close:
+  vi: "Đóng tìm kiếm"
+  en: "Close the search"
+ui.palette.open:
+  vi: "Mở tìm kiếm"
+  en: "Open the search"
+
+# Plan vs actual.
+ui.plan.slippage:
+  vi: "%{gap} (trượt giá)"
+  en: "%{gap} (slippage)"
+ui.plan.on_price:
+  vi: "đúng giá"
+  en: "at the price"
+ui.plan.stop_widened:
+  vi: "dời xa, tăng rủi ro"
+  en: "moved away, more risk"
+ui.plan.stop_tightened:
+  vi: "dời gần, giảm rủi ro"
+  en: "moved closer, less risk"
+ui.plan.on_plan:
+  vi: "đúng kế hoạch"
+  en: "as planned"
+ui.plan.entry:
+  vi: "Giá vào"
+  en: "Entry price"
+ui.plan.title:
+  vi: "Kế hoạch lúc vào vs thực tế"
+  en: "Plan at entry vs actual"
+ui.plan.none:
+  vi: "Chưa có kế hoạch cho lệnh này"
+  en: "No plan for this trade yet"
+ui.plan.none_hint:
+  vi: "Ghi lý do vào lệnh, SL, TP để so với kết quả."
+  en: "Write the reason for entry, SL and TP to compare with the result."
+ui.plan.write:
+  vi: "Viết kế hoạch"
+  en: "Write the plan"
+ui.plan.before_close:
+  vi: "Viết trước khi đóng"
+  en: "Written before closing"
+ui.plan.after_close:
+  vi: "Viết sau khi đóng"
+  en: "Written after closing"
+ui.plan.edit:
+  vi: "Sửa kế hoạch"
+  en: "Edit the plan"
+ui.plan.reason:
+  vi: "Lý do vào"
+  en: "Reason for entry"
+ui.plan.reason_in:
+  vi: "Lý do vào · %{timeframe}"
+  en: "Reason for entry · %{timeframe}"
+ui.plan.planned:
+  vi: "Kế hoạch"
+  en: "Plan"
+ui.plan.actual:
+  vi: "Thực tế"
+  en: "Actual"
+ui.plan.gap:
+  vi: "Chênh"
+  en: "Gap"
+
+# Property list.
+ui.properties.kind.text:
+  vi: "Văn bản"
+  en: "Text"
+ui.properties.kind.long_text:
+  vi: "Văn bản dài"
+  en: "Long text"
+ui.properties.kind.number:
+  vi: "Số"
+  en: "Number"
+ui.properties.kind.select:
+  vi: "Chọn một"
+  en: "Select one"
+ui.properties.kind.multi_select:
+  vi: "Chọn nhiều"
+  en: "Select several"
+ui.properties.kind.checkbox:
+  vi: "Checkbox"
+  en: "Checkbox"
+ui.properties.kind.scale:
+  vi: "Thang điểm"
+  en: "Scale"
+ui.properties.kind.date:
+  vi: "Ngày"
+  en: "Date"
+ui.properties.kind.url:
+  vi: "Liên kết"
+  en: "Link"
+ui.properties.kind_hint.text:
+  vi: "một dòng"
+  en: "one line"
+ui.properties.kind_hint.long_text:
+  vi: "nhiều dòng"
+  en: "several lines"
+ui.properties.kind_hint.number:
+  vi: "giá, lot, %"
+  en: "price, lot, %"
+ui.properties.kind_hint.select:
+  vi: "có màu"
+  en: "with colours"
+ui.properties.kind_hint.multi_select:
+  vi: "như tag"
+  en: "like tags"
+ui.properties.kind_hint.checkbox:
+  vi: "có / không"
+  en: "yes / no"
+ui.properties.kind_hint.scale:
+  vi: "1–5, 1–10"
+  en: "1–5, 1–10"
+ui.properties.kind_hint.date:
+  vi: "YYYY-MM-DD"
+  en: "YYYY-MM-DD"
+ui.properties.kind_hint.url:
+  vi: "mở bằng trình duyệt"
+  en: "opens in the browser"
+ui.properties.new_label:
+  vi: "Thuộc tính mới"
+  en: "New property"
+ui.properties.copy_label:
+  vi: "%{label} (bản sao)"
+  en: "%{label} (copy)"
+ui.properties.change_kind_title:
+  vi: "Đổi kiểu sẽ mất giá trị đã ghi?"
+  en: "Changing the type will lose the value written?"
+ui.properties.change_kind_body:
+  vi: "Giá trị đã ghi ở lệnh này không chuyển được sang kiểu “%{kind}” và sẽ bị bỏ trống."
+  en: "The value written on this trade cannot be converted to the “%{kind}” type and will be left empty."
+ui.properties.change_kind_confirm:
+  vi: "Đổi kiểu"
+  en: "Change type"
+ui.properties.remove_option_title:
+  vi: "Xoá «%{option}» khỏi danh sách %{list}?"
+  en: "Remove “%{option}” from the %{list} list?"
+ui.properties.remove_option_body:
+  vi: "Không còn để chọn nữa; lệnh đã ghi vẫn giữ nó."
+  en: "It can no longer be chosen; trades already written keep it."
+ui.properties.add_named:
+  vi: "Thêm %{named}"
+  en: "Add %{named}"
+ui.properties.add_option_placeholder:
+  vi: "+ Thêm lựa chọn, rồi Enter"
+  en: "+ Add an option, then Enter"
+ui.properties.empty:
+  vi: "Trống"
+  en: "Empty"
+ui.properties.points:
+  vi: "điểm"
+  en: "points"
+ui.properties.open_link:
+  vi: "Mở liên kết"
+  en: "Open the link"
+ui.properties.clear_date:
+  vi: "Xoá ngày"
+  en: "Clear the date"
+ui.properties.edit_property:
+  vi: "Sửa thuộc tính %{label}"
+  en: "Edit property %{label}"
+ui.properties.own:
+  vi: "riêng"
+  en: "custom"
+ui.properties.name:
+  vi: "Tên thuộc tính"
+  en: "Property name"
+ui.properties.hide:
+  vi: "Ẩn khỏi form"
+  en: "Hide from the form"
+ui.properties.kind:
+  vi: "Kiểu"
+  en: "Type"
+ui.properties.scale_max:
+  vi: "Điểm tối đa"
+  en: "Highest score"
+ui.properties.expected:
+  vi: "Nên điền khi lưu"
+  en: "Should be filled when saving"
+ui.properties.expected_hint:
+  vi: "Nhắc nếu để trống; không chặn việc lưu"
+  en: "Reminds you if left empty; does not block saving"
+ui.properties.analysed:
+  vi: "Đưa vào Phân tích"
+  en: "Include in Analytics"
+ui.properties.analysed_hint:
+  vi: "Thành một cột trong bảng Lệnh và một nhóm trong Phân tích"
+  en: "Becomes a column in the Trades table and a group in Analytics"
+ui.properties.duplicate:
+  vi: "Nhân bản"
+  en: "Duplicate"
+ui.properties.delete:
+  vi: "Xoá thuộc tính"
+  en: "Delete property"
+ui.properties.delete_title:
+  vi: "Xoá thuộc tính “%{name}”?"
+  en: "Delete the property “%{name}”?"
+ui.properties.delete_body:
+  vi: "Giá trị đã ghi ở các lệnh cũ được giữ lại; thuộc tính chỉ biến khỏi form và khôi phục được ở Tuỳ biến form."
+  en: "Values written on older trades are kept; the property only disappears from the form and can be restored in Customize forms."
+ui.properties.options_title:
+  vi: "Lựa chọn (đổi tên ở đây thì mọi lệnh cũ đổi theo)"
+  en: "Options (rename one here and every older trade follows)"
+ui.properties.add_option:
+  vi: "Thêm lựa chọn"
+  en: "Add an option"
+ui.properties.add_option_short:
+  vi: "+ Thêm lựa chọn"
+  en: "+ Add an option"
+ui.properties.option_drag:
+  vi: "Kéo để đổi thứ tự lựa chọn %{name}"
+  en: "Drag to reorder option %{name}"
+ui.properties.option_name:
+  vi: "Tên lựa chọn %{name}"
+  en: "Option name %{name}"
+ui.properties.option_name_short:
+  vi: "Tên lựa chọn"
+  en: "Option name"
+ui.properties.option_remove:
+  vi: "Xoá lựa chọn %{name}"
+  en: "Remove option %{name}"
+ui.properties.hidden_count:
+  vi: "%{n} thuộc tính ẩn"
+  en: "%{n} hidden properties"
+ui.properties.hidden_list:
+  vi: "%{arrow} %{n} thuộc tính ẩn (%{names})"
+  en: "%{arrow} %{n} hidden properties (%{names})"
+ui.properties.show:
+  vi: "Hiện %{label}"
+  en: "Show %{label}"
+ui.properties.add_property:
+  vi: "Thêm thuộc tính"
+  en: "Add a property"
+ui.properties.add_property_pick:
+  vi: "Thêm thuộc tính — chọn kiểu"
+  en: "Add a property — choose its type"
+ui.properties.add_property_kind:
+  vi: "Thêm thuộc tính kiểu %{kind}"
+  en: "Add a property of type %{kind}"
+
+# Trades table.
+ui.table.journaled:
+  vi: "Đã ghi"
+  en: "Written"
+ui.table.closed_at:
+  vi: "Đóng lúc"
+  en: "Closed at"
+ui.table.side:
+  vi: "Chiều"
+  en: "Side"
+ui.table.hold:
+  vi: "Thời gian giữ"
+  en: "Hold time"
+ui.table.journal:
+  vi: "Nhật ký"
+  en: "Journal"
+ui.table.open_journal:
+  vi: "Mở nhật ký lệnh %{trade}"
+  en: "Open the journal of trade %{trade}"
+ui.table.label:
+  vi: "Danh sách lệnh"
+  en: "Trade list"
+
+# R curve.
+ui.r_chart.total:
+  vi: "Tổng R %{r}"
+  en: "Total R %{r}"
+ui.r_chart.label:
+  vi: "Tổng R tích luỹ theo thời gian"
+  en: "Cumulative total R over time"
+
+# Picture viewer.
+ui.viewer.no_file:
+  vi: "Không tìm thấy file ảnh."
+  en: "The picture file was not found."
+ui.viewer.open_failed:
+  vi: "Không mở được ảnh: %{error}"
+  en: "Could not open the picture: %{error}"
+ui.viewer.close_scrim:
+  vi: "Đóng trình xem ảnh"
+  en: "Close the picture viewer"
+ui.viewer.zoom_out:
+  vi: "Thu nhỏ"
+  en: "Zoom out"
+ui.viewer.zoom_in:
+  vi: "Phóng to"
+  en: "Zoom in"
+ui.viewer.fit:
+  vi: "Vừa khung"
+  en: "Fit"
+ui.viewer.open_with:
+  vi: "Mở bằng ứng dụng khác"
+  en: "Open with another app"
+ui.viewer.reveal:
+  vi: "Hiện trong thư mục"
+  en: "Show in folder"
+ui.viewer.close:
+  vi: "Đóng ảnh"
+  en: "Close the picture"
+ui.viewer.previous:
+  vi: "Ảnh trước"
+  en: "Previous picture"
+ui.viewer.next:
+  vi: "Ảnh sau"
+  en: "Next picture"
+ui.viewer.picture:
+  vi: "Ảnh %{caption}"
+  en: "Picture %{caption}"
+ui.viewer.keys:
+  vi: "← → chuyển ảnh   + − phóng to / thu nhỏ   0 vừa khung   Esc đóng"
+  en: "← → change picture   + − zoom in / out   0 fit   Esc close"
