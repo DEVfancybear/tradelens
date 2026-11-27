@@ -19,6 +19,22 @@ impl AccountRef {
         Self { login: login.trim().to_owned(), server: server.trim().to_owned() }
     }
 
+    /// Whether `login`, as a terminal reports it, is this account's: the same number, so a login
+    /// typed with leading zeros (`012345`, which the terminal reports as `12345`) is the same.
+    pub fn has_login(&self, login: &str) -> bool {
+        let login = login.trim();
+        match (self.login.parse::<u64>(), login.parse::<u64>()) {
+            (Ok(mine), Ok(reported)) => mine == reported,
+            _ => self.login == login,
+        }
+    }
+
+    /// Whether `login` on `server`, as a terminal reports them (and the database stores them), is
+    /// this account: [`AccountRef::has_login`], on a server of the same name whatever its case.
+    pub fn is_reported_as(&self, login: &str, server: &str) -> bool {
+        self.has_login(login) && self.server.eq_ignore_ascii_case(server.trim())
+    }
+
     /// A name made only of letters, digits, `-` and `_`, for the account's folder.
     pub fn folder_name(&self) -> String {
         let clean = |s: &str| -> String {
@@ -220,6 +236,15 @@ mod tests {
             terminal: PathBuf::from("terminal64.exe"),
         };
         assert!(!format!("{login:?}").contains("s3cret"));
+    }
+
+    #[test]
+    fn a_login_typed_with_leading_zeros_is_the_account_the_terminal_reports() {
+        let typed = AccountRef::new("012345", "ICMarkets-Demo");
+        assert!(typed.has_login("12345"));
+        assert!(typed.is_reported_as(" 12345 ", "icmarkets-demo"));
+        assert!(!typed.has_login("0"), "a terminal still signing in is not the account");
+        assert!(!typed.is_reported_as("12345", "ICMarkets-Live"));
     }
 
     #[test]

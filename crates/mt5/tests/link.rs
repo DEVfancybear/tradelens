@@ -5,6 +5,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
+        atomic::{AtomicUsize, Ordering as AtomicOrdering},
         mpsc::{self, Receiver},
     },
     time::{Duration, Instant},
@@ -27,6 +28,8 @@ fn settings() -> LinkSettings {
         first_days: 30,
         order_queue: Duration::from_secs(2),
         order_timeout: Duration::from_secs(5),
+        settle_every: Duration::from_millis(20),
+        settle_reads: 3,
     }
 }
 
@@ -233,6 +236,124 @@ impl Terminal for SlowLogin {
     fn modify(&mut self, ticket: i64, levels: Levels) -> Result<(), Mt5Error> {
         self.inner.modify(ticket, levels)
     }
+}
+
+/// Takes one from `count` when it is above zero; whether it was.
+fn take_one(count: &AtomicUsize) -> bool {
+    count.try_update(AtomicOrdering::SeqCst, AtomicOrdering::SeqCst, |n| n.checked_sub(1)).is_ok()
+}
+
+/// A terminal over the broker in memory that reports login `0` (as MT5 does while it signs in) on
+/// the first `connects` logins and the first `polls` polls of all the terminals sharing the counts.
+struct NotSignedInYet {
+    inner: Box<dyn Terminal>,
+    connects: Arc<AtomicUsize>,
+    polls: Arc<AtomicUsize>,
+}
+
+impl Terminal for NotSignedInYet {
+    fn connect(&mut self, login: &Login) -> Result<AccountInfo, Mt5Error> {
+        let info = self.inner.connect(login)?;
+        Ok(if take_one(&self.connects) { AccountInfo { login: "0".to_owned(), ..info } } else { info })
+    }
+
+    fn poll(&mut self, since_msc: Option<i64>, days: u32) -> Result<Poll, Mt5Error> {
+        let mut poll = self.inner.poll(since_msc, days)?;
+        if take_one(&self.polls) {
+            "0".clone_into(&mut poll.account.login);
+        }
+        Ok(poll)
+    }
+
+    fn close(&mut self, ticket: i64, volume: Option<f64>) -> Result<(), Mt5Error> {
+        self.inner.close(ticket, volume)
+    }
+
+    fn modify(&mut self, ticket: i64, levels: Levels) -> Result<(), Mt5Error> {
+        self.inner.modify(ticket, levels)
+    }
+}
+
+/// Starts a link over [`NotSignedInYet`] terminals, with how many logins and reads report login
+/// `0`; the events, and how many terminals were started.
+fn start_signing_in(server: &str, connects: usize, polls: usize) -> (Link, Receiver<Event>, Arc<AtomicUsize>) {
+    let memory = memory::opener();
+    let (connects, polls) = (Arc::new(AtomicUsize::new(connects)), Arc::new(AtomicUsize::new(polls)));
+    let opened = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&opened);
+    let open: Opener = Arc::new(move |login: &Login| -> Result<Box<dyn Terminal>, Mt5Error> {
+        counted.fetch_add(1, AtomicOrdering::SeqCst);
+        let (connects, polls) = (Arc::clone(&connects), Arc::clone(&polls));
+        Ok(Box::new(NotSignedInYet { inner: memory(login)?, connects, polls }))
+    });
+    let (events, heard) = mpsc::channel();
+    let link = Link::start(
+        login(server, "pass"),
+        open,
+        settings(),
+        Arc::new(move |event| {
+            drop(events.send(event));
+        }),
+    );
+    (link, heard, opened)
+}
+
+/// The first event `pick` takes; fails on any event that passes on what a terminal read while it
+/// reported another account.
+fn next_of_account<T>(heard: &Receiver<Event>, mut pick: impl FnMut(&Event) -> Option<T>) -> T {
+    next(heard, |event| {
+        match &event {
+            Event::State(_, LinkState::Connected(info)) => {
+                assert_eq!(info.login, "1001", "connected as another account");
+            }
+            Event::Polled { poll, .. } => {
+                assert_eq!(poll.account.login, "1001", "a read of another account passed on");
+            }
+            Event::State(..) => {}
+        }
+        pick(&event)
+    })
+}
+
+#[test]
+fn a_terminal_still_signing_in_is_read_again_without_being_started_again() {
+    let broker = broker("link-signing-in");
+    broker.open("1001", position(77));
+    // The login and the read after it report login 0; then (a second link) two polls do.
+    for (connects, polls) in [(1, 1), (0, 2)] {
+        let (link, heard, opened) = start_signing_in("link-signing-in", connects, polls);
+        let poll = next_of_account(&heard, |event| match event {
+            Event::State(_, LinkState::Retrying(error)) => panic!("a terminal signing in is given time: {error:?}"),
+            Event::Polled { poll, .. } => Some(poll.clone()),
+            Event::State(..) => None,
+        });
+        assert_eq!(poll.positions.len(), 1);
+        assert_eq!(opened.load(AtomicOrdering::SeqCst), 1, "the terminal signing in was kept, not started again");
+        link.stop_and_wait();
+    }
+}
+
+#[test]
+fn a_terminal_that_keeps_reporting_another_account_is_logged_in_again() {
+    let broker = broker("link-other-account");
+    broker.open("1001", position(77));
+    // The first login and the two reads after it report login 0 (`settle_reads` in all), then the
+    // first three polls of the next login do: each time the link gives up and logs in again.
+    let (link, heard, opened) = start_signing_in("link-other-account", 1, 2 + 3);
+    for _ in 0..2 {
+        let error = next_of_account(&heard, |event| match event {
+            Event::State(_, LinkState::Retrying(error)) => Some(error.clone()),
+            Event::State(..) | Event::Polled { .. } => None,
+        });
+        assert!(matches!(error, Mt5Error::Unreachable(_)), "tried again later: {error:?}");
+    }
+    let poll = next_of_account(&heard, |event| match event {
+        Event::Polled { poll, .. } => Some(poll.clone()),
+        Event::State(..) => None,
+    });
+    assert_eq!(poll.positions.len(), 1, "only what the account's own login reads is passed on");
+    assert_eq!(opened.load(AtomicOrdering::SeqCst), 3);
+    link.stop();
 }
 
 #[test]
