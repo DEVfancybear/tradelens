@@ -19,9 +19,10 @@ use crate::{
     store::{Load, store, writer},
     trade_list::{self, Column, Direction, Filter, Order, Outcome},
     ui::{
-        chips::{Tone, pnl_text},
+        chips::{Tone, chip, pnl_text},
         controls::{
-            Choice, Variant, action, action_icon, confirm_then, root_owner, segmented, select_field, text_field,
+            Choice, Variant, action, action_icon, confirm_then, icon_action, root_owner, segmented, select_field,
+            text_field,
         },
         icons::Icon,
         parts::page_fill,
@@ -279,6 +280,27 @@ fn filters(store: crate::store::Store) -> impl IntoElement {
             move || filter.with(|f| f.direction),
             move |direction| filter.update(|f| f.direction = direction),
         ))
+        .child(dynamic(move || {
+            // The trades a row of Phân tích opened: said, and dropped with its ✕.
+            let title = filter.with(|f| f.focus.as_ref().map(|focus| focus.title.clone()));
+            untracked(|| {
+                title.map(|title| {
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .child(chip(format!("Đang xem: {title}"), Tone::Neutral))
+                        .child(icon_action(
+                            Icon::Close,
+                            "Bỏ lọc theo dòng phân tích",
+                            Variant::Ghost,
+                            move || {
+                                filter.update(|f| f.focus = None);
+                            },
+                        ))
+                })
+            })
+        }))
         .child(dynamic(move || {
             filter.with(Filter::is_active).then(|| {
                 action("Xoá lọc", Variant::Ghost, move || {

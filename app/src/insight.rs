@@ -572,6 +572,23 @@ mod tests {
     }
 
     #[test]
+    fn a_pressed_row_lists_exactly_the_trades_its_figures_count() {
+        use crate::trade_list::{self, Filter, Focus};
+        let (_db, snapshot) = seeded();
+        let a = analyse(&snapshot, Range::All, today());
+        let groups = a.by_symbol.iter().chain(&a.by_hour).chain(&a.by_session).chain(&a.by_side).chain(&a.by_weekday);
+        let mut seen = 0;
+        for group in groups {
+            assert_eq!(group.keys.len(), group.trades, "{}", group.label);
+            let focus = Focus { title: group.label.clone(), keys: group.keys.iter().cloned().collect() };
+            let filter = Filter { focus: Some(focus), ..Filter::default() };
+            assert_eq!(trade_list::select(&snapshot.rows, &filter, None).len(), group.trades, "{}", group.label);
+            seen += 1;
+        }
+        assert!(seen >= 8, "symbols, hours, sessions, sides and weekdays were all checked: {seen}");
+    }
+
+    #[test]
     fn all_accounts_show_the_one_nearest_its_limits_not_the_first_with_rules() {
         let (_db, snapshot) = seeded();
         let trading = snapshot.accounts[0].id;

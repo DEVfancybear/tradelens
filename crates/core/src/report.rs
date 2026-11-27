@@ -582,6 +582,7 @@ mod tests {
     #[test]
     fn the_report_keeps_three_mistakes_and_names_the_missed_reasons() {
         let cost = |key: &str, net: f64| MistakeCost {
+            keys: Vec::new(),
             key: key.into(),
             label: key.into(),
             trades: 1,

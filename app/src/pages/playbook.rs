@@ -885,6 +885,7 @@ mod tests {
             r_trades: 4,
             r_profit: 2.0,
             r_loss: 0.0,
+            keys: Vec::new(),
         };
         assert_eq!(counts_line(Some(&group)), "4 lệnh · 75% thắng · Kỳ vọng +0.50R");
     }

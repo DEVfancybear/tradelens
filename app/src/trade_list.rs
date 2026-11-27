@@ -34,6 +34,17 @@ pub(crate) struct Filter {
     pub(crate) setup: Option<String>,
     pub(crate) outcome: Outcome,
     pub(crate) direction: Direction,
+    /// Only these trades: a row of Phân tích pressed (a tag, a session, an hour, a mistake…), whose
+    /// trades the list has no filter of its own for.
+    pub(crate) focus: Option<Focus>,
+}
+
+/// The trades of one row of a breakdown, by key, with what the row was called.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct Focus {
+    /// What the list says it shows: `Tag London open`, `Phiên Á`, `Lỗi Dời SL`.
+    pub(crate) title: String,
+    pub(crate) keys: BTreeSet<TradeKey>,
 }
 
 impl Filter {
@@ -46,6 +57,7 @@ impl Filter {
         let needle = self.text.trim().to_lowercase();
         let score = row.trade.score();
         (needle.is_empty() || row.contains(&needle))
+            && self.focus.as_ref().is_none_or(|focus| focus.keys.contains(row.key()))
             && self.symbol.as_deref().is_none_or(|s| s == row.trade.symbol)
             && self.setup.as_deref().is_none_or(|s| s == row.setup)
             && match self.outcome {

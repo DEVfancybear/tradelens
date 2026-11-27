@@ -126,37 +126,16 @@ fn heading(title: &'static str, width: f32) -> Text {
 /// The table of a breakdown; `name_title` heads the first column and `net_title` the column of
 /// results. `rows` is read again when it changes, and an empty one shows `empty` instead. The figure
 /// columns are as wide as their widest figure or title, so none is cut, and the name takes the rest.
+/// Each line can be pressed: `on_pick` gets its name (a symbol, a setup, a tag, a session…), to open
+/// the trades under it.
 pub(crate) fn breakdown_table(
-    name_title: &'static str,
-    net_title: impl Fn() -> &'static str + 'static,
-    rows: impl Fn() -> Vec<BreakdownRow> + 'static,
-    empty: &'static str,
-) -> impl IntoElement {
-    table(name_title, net_title, rows, empty, None)
-}
-
-/// A [`breakdown_table`] whose lines can be pressed: `on_pick` gets the name of the line pressed
-/// (a symbol, a setup, a tag), to open the trades under it.
-pub(crate) fn breakdown_table_pickable(
     name_title: &'static str,
     net_title: impl Fn() -> &'static str + 'static,
     rows: impl Fn() -> Vec<BreakdownRow> + 'static,
     empty: &'static str,
     on_pick: impl Fn(&str) + 'static,
 ) -> impl IntoElement {
-    table(name_title, net_title, rows, empty, Some(Rc::new(on_pick)))
-}
-
-/// What a pressed line of a table does with its name.
-type Pick = Rc<dyn Fn(&str)>;
-
-fn table(
-    name_title: &'static str,
-    net_title: impl Fn() -> &'static str + 'static,
-    rows: impl Fn() -> Vec<BreakdownRow> + 'static,
-    empty: &'static str,
-    on_pick: Option<Pick>,
-) -> impl IntoElement {
+    let on_pick: Rc<dyn Fn(&str)> = Rc::new(on_pick);
     dynamic(move || {
         let rows = rows();
         let net_title = net_title();
@@ -181,8 +160,8 @@ fn table(
                     .children(rows.into_iter().map(|row| {
                         let net = row.net;
                         let name = row.name.clone();
-                        let pick = on_pick.clone();
-                        let shown = line(
+                        let pick = Rc::clone(&on_pick);
+                        line(
                             name_of(text(row.name).text_sm().font_weight(FontWeight::MEDIUM)),
                             figures(widths)
                                 .child(cell(row.trades, widths.trades))
@@ -199,11 +178,9 @@ fn table(
                         )
                         .min_h(px(40.0))
                         .border_b_1()
-                        .border_color(move || theme().border.opacity(0.5));
-                        match pick {
-                            Some(pick) => shown.cursor_pointer().on_press(move || pick(&name)).into_element(),
-                            None => shown.into_element(),
-                        }
+                        .border_color(move || theme().border.opacity(0.5))
+                        .cursor_pointer()
+                        .on_press(move || pick(&name))
                     }))
                     .into_element()
             };
