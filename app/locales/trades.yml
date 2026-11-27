@@ -1,0 +1,73 @@
+_version: 2
+
+# Lệnh (pages/trades.rs).
+
+trades.title:
+  vi: "Lệnh"
+  en: "Trades"
+trades.summary:
+  vi: "Gom từ các deal theo position; bấm một lệnh để mở nhật ký"
+  en: "Grouped from MT5 deals by position; press a trade to open its journal"
+trades.add:
+  vi: "Thêm lệnh"
+  en: "Add trade"
+trades.select_row:
+  vi: "Chọn lệnh %{symbol} %{when}"
+  en: "Select trade %{symbol} %{when}"
+trades.outcome.win:
+  vi: "Thắng"
+  en: "Win"
+trades.outcome.loss:
+  vi: "Thua"
+  en: "Loss"
+trades.filter.search:
+  vi: "Tìm lệnh"
+  en: "Search trades"
+trades.filter.search_placeholder:
+  vi: "Tìm symbol, ticket, ghi chú…"
+  en: "Search symbol, ticket, notes…"
+trades.filter.outcome:
+  vi: "Kết quả"
+  en: "Result"
+trades.filter.direction:
+  vi: "Chiều"
+  en: "Direction"
+trades.filter.clear:
+  vi: "Xoá lọc"
+  en: "Clear filters"
+trades.figure.trades:
+  vi: "Lệnh"
+  en: "Trades"
+trades.figure.unjournaled:
+  vi: "Chưa viết nhật ký"
+  en: "Not journaled"
+trades.showing:
+  vi: "Hiển thị %{shown} / %{all} lệnh"
+  en: "Showing %{shown} / %{all} trades"
+trades.selected:
+  vi: "Đã chọn %{n} lệnh"
+  en: "%{n} trades selected"
+trades.deselect:
+  vi: "Bỏ chọn"
+  en: "Deselect"
+trades.delete_confirm:
+  vi: "Xoá lệnh"
+  en: "Delete trades"
+trades.empty.loading:
+  vi: "Đang tải dữ liệu…"
+  en: "Loading data…"
+trades.empty.failed_hint:
+  vi: "Thử mở lại ứng dụng; dữ liệu trên đĩa không bị mất."
+  en: "Try reopening the app; the data on disk is not lost."
+trades.empty.no_match:
+  vi: "Không có lệnh nào khớp bộ lọc"
+  en: "No trade matches the filters"
+trades.empty.no_match_hint:
+  vi: "Bỏ bớt bộ lọc để xem thêm lệnh."
+  en: "Remove some filters to see more trades."
+trades.empty.none:
+  vi: "Chưa có lệnh nào"
+  en: "No trades yet"
+trades.empty.none_hint:
+  vi: "Import báo cáo MT5 hoặc file Notion ở Nguồn dữ liệu, hoặc thêm lệnh tay, để thấy lệnh ở đây."
+  en: "Import an MT5 report or a Notion file in Data sources, or add a trade by hand, to see trades here."
