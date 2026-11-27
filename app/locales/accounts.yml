@@ -1,0 +1,171 @@
+_version: 2
+
+# The Accounts & discipline screen (pages/accounts.rs) and the account switch (pages/account_picker.rs).
+account_picker.label:
+  vi: "Tài khoản"
+  en: "Account"
+account_picker.all:
+  vi: "Tất cả (%{n})"
+  en: "All (%{n})"
+accounts.summary.loading:
+  vi: "Các tài khoản giao dịch, quy tắc rủi ro và checklist trước lệnh"
+  en: "Trading accounts, risk rules and the pre-trade checklist"
+accounts.summary.one:
+  vi: "%{n} tài khoản · quy tắc rủi ro và checklist trước lệnh"
+  en: "%{n} account · risk rules and the pre-trade checklist"
+accounts.summary.other:
+  vi: "%{n} tài khoản · quy tắc rủi ro và checklist trước lệnh"
+  en: "%{n} accounts · risk rules and the pre-trade checklist"
+accounts.empty:
+  vi: "Chưa có tài khoản nào"
+  en: "No accounts yet"
+accounts.empty_hint:
+  vi: "Tài khoản xuất hiện khi bạn import báo cáo MT5, file Notion hoặc thêm lệnh tay."
+  en: "Accounts appear when you import an MT5 report, a Notion file or add a trade by hand."
+accounts.ago.now:
+  vi: "vừa xong"
+  en: "just now"
+accounts.ago.minutes:
+  vi: "%{n} phút trước"
+  en: "%{n} min ago"
+accounts.ago.hours:
+  vi: "%{n} giờ trước"
+  en: "%{n}h ago"
+accounts.ago.days:
+  vi: "%{n} ngày trước"
+  en: "%{n}d ago"
+accounts.offset.unknown:
+  vi: "Chưa biết (giữ giờ server)"
+  en: "Unknown (keep server time)"
+accounts.card.not_synced:
+  vi: "Chưa đồng bộ"
+  en: "Not synced yet"
+accounts.card.synced:
+  vi: "Đồng bộ %{ago}"
+  en: "Synced %{ago}"
+accounts.card.loss_line:
+  vi: "Lỗ hôm nay %{loss} / giới hạn %{limit}"
+  en: "Loss today %{loss} / limit %{limit}"
+accounts.card.label:
+  vi: "Tài khoản %{name}"
+  en: "Account %{name}"
+accounts.rules.title:
+  vi: "Quy tắc kỷ luật"
+  en: "Discipline rules"
+accounts.rules.loss:
+  vi: "Lỗ tối đa trong ngày"
+  en: "Maximum loss per day"
+accounts.rules.loss_hint:
+  vi: "Chạm ngưỡng: thanh trạng thái chuyển đỏ và các lệnh vi phạm được ghi lại"
+  en: "At the limit: the status bar turns red and the violating trades are recorded"
+accounts.rules.trades:
+  vi: "Số lệnh tối đa mỗi ngày"
+  en: "Maximum trades per day"
+accounts.rules.trades_hint:
+  vi: "Tính lệnh mở trong ngày, theo giờ chọn ở Cài đặt"
+  en: "Counts the trades opened in the day, on the clock chosen in Settings"
+accounts.rules.trades_unit:
+  vi: "lệnh"
+  en: "trades"
+accounts.rules.risk:
+  vi: "Risk tối đa mỗi lệnh"
+  en: "Maximum risk per trade"
+accounts.rules.risk_hint:
+  vi: "Theo balance trước lệnh; cần lệnh có SL hoặc risk dự định để tính risk"
+  en: "Measured on the balance before the trade; needs a stop loss or a planned risk to work out the risk"
+accounts.rules.streak:
+  vi: "Thua liên tiếp thì nghỉ"
+  en: "Stop after consecutive losses"
+accounts.rules.streak_hint:
+  vi: "Lệnh vào sau chuỗi thua trong cùng ngày bị đánh dấu vi phạm"
+  en: "A trade entered after a losing streak on the same day is marked as a violation"
+accounts.rules.target:
+  vi: "Mục tiêu ngày"
+  en: "Daily target"
+accounts.rules.target_hint:
+  vi: "Đạt mục tiêu: gợi ý dừng giao dịch"
+  en: "Target reached: suggests stopping for the day"
+accounts.rules.saved:
+  vi: "Đã lưu quy tắc"
+  en: "Rules saved"
+accounts.rules.everywhere:
+  vi: "Áp dụng cho mọi tài khoản"
+  en: "Apply to every account"
+accounts.rules.save:
+  vi: "Lưu quy tắc"
+  en: "Save rules"
+accounts.rules.for_account:
+  vi: "Áp dụng cho tài khoản"
+  en: "Apply to account"
+accounts.rules.for_account_hint:
+  vi: "Mỗi tài khoản có quy tắc riêng; tài khoản mới nhận quy tắc đang dùng"
+  en: "Each account has its own rules; a new account gets the rules in use"
+accounts.rules.account_label:
+  vi: "Tài khoản áp dụng quy tắc"
+  en: "Account the rules apply to"
+accounts.info.title:
+  vi: "Thông tin tài khoản"
+  en: "Account details"
+accounts.info.name:
+  vi: "Tên hiển thị"
+  en: "Display name"
+accounts.info.name_placeholder:
+  vi: "Tên gợi nhớ"
+  en: "A name to remember it by"
+accounts.info.currency:
+  vi: "Tiền tệ"
+  en: "Currency"
+accounts.info.initial:
+  vi: "Balance ban đầu"
+  en: "Starting balance"
+accounts.info.server_time:
+  vi: "Giờ server MT5"
+  en: "MT5 server time"
+accounts.info.saved:
+  vi: "Đã lưu thông tin"
+  en: "Details saved"
+accounts.info.save:
+  vi: "Lưu thông tin"
+  en: "Save details"
+accounts.checklist.title:
+  vi: "Checklist trước lệnh"
+  en: "Pre-trade checklist"
+accounts.checklist.shared:
+  vi: "Dùng chung cho mọi tài khoản"
+  en: "Shared by every account"
+accounts.checklist.shared_label:
+  vi: "Checklist dùng chung"
+  en: "Shared checklist"
+accounts.checklist.own:
+  vi: "Riêng tài khoản này"
+  en: "This account only"
+accounts.checklist.own_label:
+  vi: "Checklist của tài khoản"
+  en: "Account checklist"
+accounts.today.none:
+  vi: "Chưa bật quy tắc nào: bật ở khối Quy tắc kỷ luật."
+  en: "No rule is on: switch one on in the Discipline rules block."
+accounts.today.loss:
+  vi: "Lỗ trong ngày"
+  en: "Daily loss"
+accounts.today.trades:
+  vi: "Số lệnh trong ngày"
+  en: "Trades today"
+accounts.today.streak:
+  vi: "Thua liên tiếp"
+  en: "Losing streak"
+accounts.violations.title:
+  vi: "Vi phạm 30 ngày"
+  en: "Violations, 30 days"
+accounts.violations.compliance:
+  vi: "vi phạm · tuân thủ %{rate} số ngày"
+  en: "violations · compliant on %{rate} of days"
+accounts.violations.no_days:
+  vi: "vi phạm · chưa có ngày giao dịch nào"
+  en: "violations · no trading days yet"
+accounts.violations.none:
+  vi: "Không có vi phạm nào trong 30 ngày qua."
+  en: "No violations in the last 30 days."
+accounts.violations.more:
+  vi: "…và %{n} vi phạm cũ hơn"
+  en: "…and %{n} older violations"

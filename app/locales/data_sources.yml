@@ -1,0 +1,201 @@
+_version: 2
+
+# The Data sources screen (pages/data_sources.rs).
+data_sources.summary:
+  vi: "Kết nối tài khoản MT5, import báo cáo MT5, file JSON của script Python và CSV Notion."
+  en: "Connect MT5 accounts, import MT5 reports, JSON files from the Python script and Notion CSV."
+data_sources.python.title:
+  vi: "Script Python (MetaTrader5)"
+  en: "Python script (MetaTrader5)"
+data_sources.python.body:
+  vi: "Ghi lịch sử của terminal MT5 đang mở ra file JSON (chỉ Windows), rồi import file đó ở thẻ bên trái."
+  en: "Writes the history of the open MT5 terminal to a JSON file (Windows only), then import that file in the card on the left."
+data_sources.accept.reports:
+  vi: "Báo cáo MT5 hoặc JSON"
+  en: "MT5 report or JSON"
+data_sources.accept.notion:
+  vi: "CSV hoặc ZIP của Notion"
+  en: "Notion CSV or ZIP"
+data_sources.report.result:
+  vi: "%{inserted} deal mới, %{updated} deal cập nhật, %{existing} deal đã có · tài khoản %{login}"
+  en: "%{inserted} new deals, %{updated} updated deals, %{existing} already stored · account %{login}"
+data_sources.report.title:
+  vi: "Import báo cáo MT5"
+  en: "Import MT5 report"
+data_sources.report.body:
+  vi: "Báo cáo MT5 (History → Report → HTML hoặc Open XML), hoặc file JSON từ script Python. Import lại cùng file không tạo trùng."
+  en: "MT5 report (History → Report → HTML or Open XML), or a JSON file from the Python script. Importing the same file again creates no duplicates."
+data_sources.report.drop:
+  vi: "Kéo thả báo cáo MT5 vào đây"
+  en: "Drop MT5 reports here"
+data_sources.report.drop_hint:
+  vi: "HTML, XLSX hoặc JSON · chọn được nhiều file"
+  en: "HTML, XLSX or JSON · you can pick several files"
+data_sources.report.importing:
+  vi: "Đang nhập…"
+  en: "Importing…"
+data_sources.notion.title:
+  vi: "Import từ Notion"
+  en: "Import from Notion"
+data_sources.notion.auto:
+  vi: "Tự động"
+  en: "Automatic"
+data_sources.notion.body:
+  vi: "Database → ••• → Export → Markdown & CSV, rồi thả file .zip (hoặc file .csv đã giải nén) vào đây. Không cần ghép cột: app tự nhận ra cột nào là gì từ nội dung."
+  en: "Database → ••• → Export → Markdown & CSV, then drop the .zip file (or the unzipped .csv file) here. No column mapping needed: the app works out what each column is from its content."
+data_sources.notion.drop:
+  vi: "Kéo thả file ZIP hoặc CSV của Notion vào đây"
+  en: "Drop the Notion ZIP or CSV file here"
+data_sources.notion.drop_hint:
+  vi: "Nhận file .zip (kèm ảnh) hoặc .csv"
+  en: "Takes a .zip (with pictures) or a .csv"
+data_sources.notion.processing:
+  vi: "Đang xử lý…"
+  en: "Processing…"
+data_sources.notion.read_stopped:
+  vi: "Luồng đọc file bị dừng: %{error}"
+  en: "The file-reading task stopped: %{error}"
+data_sources.api.no_token:
+  vi: "Chưa có token Notion: dán token rồi bấm «Lưu token & tải danh sách»."
+  en: "No Notion token yet: paste the token and press “Save token & load list”."
+data_sources.api.stopped:
+  vi: "Luồng Notion bị dừng: %{error}"
+  en: "The Notion task stopped: %{error}"
+data_sources.api.title:
+  vi: "Kết nối Notion (API)"
+  en: "Connect Notion (API)"
+data_sources.api.body:
+  vi: "Không cần xuất file: tạo integration nội bộ tại notion.so/my-integrations (chỉ cần quyền đọc nội dung), chia sẻ database nhật ký cho nó (••• → Connections), rồi dán token vào đây. Token chỉ nằm trong kho khoá của hệ điều hành, không nằm trong file dữ liệu."
+  en: "No file export needed: create an internal integration at notion.so/my-integrations (read-content permission is enough), share your journal database with it (••• → Connections), then paste the token here. The token is kept only in the operating system’s credential store, never in the data file."
+data_sources.api.token:
+  vi: "Token tích hợp Notion"
+  en: "Notion integration token"
+data_sources.api.token_placeholder:
+  vi: "ntn_… hoặc secret_…"
+  en: "ntn_… or secret_…"
+data_sources.api.save:
+  vi: "Lưu token & tải danh sách"
+  en: "Save token & load list"
+data_sources.api.reload:
+  vi: "Tải lại danh sách"
+  en: "Reload list"
+data_sources.api.forget:
+  vi: "Xoá token"
+  en: "Remove token"
+data_sources.api.no_database:
+  vi: "Không thấy database nào: mở database nhật ký trong Notion → ••• → Connections → thêm integration vừa tạo."
+  en: "No database found: open the journal database in Notion → ••• → Connections → add the integration you just created."
+data_sources.api.database:
+  vi: "Database Notion"
+  en: "Notion database"
+data_sources.api.preview:
+  vi: "Xem trước database"
+  en: "Preview database"
+data_sources.api.file_name:
+  vi: "%{title} (Notion API)"
+  en: "%{title} (Notion API)"
+data_sources.preview.found:
+  vi: "%{file} · %{rows} dòng: %{count} đọc được, %{skipped} dòng bị bỏ qua"
+  en: "%{file} · %{rows} rows: %{count} read, %{skipped} rows skipped"
+data_sources.preview.total_r:
+  vi: "tổng kết quả trong file %{r} · %{wins} thắng, %{losses} thua, %{even} hòa vốn"
+  en: "total result in the file %{r} · %{wins} won, %{losses} lost, %{even} break-even"
+data_sources.preview.total_money:
+  vi: "tổng lãi/lỗ trong file %{net}"
+  en: "total profit/loss in the file %{net}"
+data_sources.preview.period:
+  vi: "Từ %{from} đến %{to} · %{total}"
+  en: "From %{from} to %{to} · %{total}"
+data_sources.preview.images:
+  vi: "Ảnh: %{found} tìm thấy trong file zip, %{missing} không có trong zip"
+  en: "Pictures: %{found} found in the zip file, %{missing} not in the zip"
+data_sources.preview.column:
+  vi: "Cột «%{column}» → %{field}"
+  en: "Column “%{column}” → %{field}"
+data_sources.preview.outcome:
+  vi: "Cột «%{column}» → thắng/thua (%{values})"
+  en: "Column “%{column}” → win/loss (%{values})"
+data_sources.preview.property:
+  vi: "%{label} · %{kind} · %{trades} có giá trị"
+  en: "%{label} · %{kind} · %{trades} with a value"
+data_sources.preview.columns_title:
+  vi: "Cột tự nhận ra (từ nội dung, không cần ghép tay)"
+  en: "Columns recognised automatically (from the content, no manual mapping)"
+data_sources.preview.none:
+  vi: "Không có."
+  en: "None."
+data_sources.preview.properties_title:
+  vi: "Thuộc tính sẽ tạo trong form lệnh (dùng lại nếu đã có cùng tên)"
+  en: "Properties that will be created in the trade form (reused when one has the same name)"
+data_sources.preview.ignored:
+  vi: "Bỏ qua %{n} cột: %{columns}"
+  en: "Skipped %{n} columns: %{columns}"
+data_sources.preview.more_rows:
+  vi: "… và %{n} dòng nữa"
+  en: "… and %{n} more rows"
+data_sources.preview.skipped_title:
+  vi: "Dòng sẽ bị bỏ qua"
+  en: "Rows that will be skipped"
+data_sources.preview.account:
+  vi: "Nhập vào tài khoản"
+  en: "Import into account"
+data_sources.preview.default_account:
+  vi: "Nhật ký Notion (mặc định)"
+  en: "Nhật ký Notion (default)"
+data_sources.preview.import:
+  vi: "Nhập %{trades}"
+  en: "Import %{trades}"
+data_sources.summary.imported:
+  vi: "Đã nhập %{created} lệnh mới · %{updated} cập nhật · %{unchanged} không đổi"
+  en: "Imported %{created} new trade(s) · %{updated} updated · %{unchanged} unchanged"
+data_sources.summary.matched:
+  vi: "%{n} lệnh trùng lệnh MT5: chỉ gắn nhật ký vào lệnh MT5, không tạo thêm lệnh"
+  en: "%{n} trade(s) match MT5 trades: the journal is only attached to the MT5 trade, no extra trade is created"
+data_sources.summary.properties_created:
+  vi: "Thuộc tính đã tạo: %{list}"
+  en: "Properties created: %{list}"
+data_sources.summary.properties_reused:
+  vi: "Thuộc tính dùng lại: %{list}"
+  en: "Properties reused: %{list}"
+data_sources.summary.options:
+  vi: "%{n} lựa chọn mới đã thêm vào danh sách tag, lỗi, cảm xúc…"
+  en: "%{n} new option(s) added to the tag, mistake and emotion lists…"
+data_sources.summary.images:
+  vi: "Ảnh gắn vào lệnh: %{attached} · không có trong file zip: %{missing}"
+  en: "Pictures attached to trades: %{attached} · not in the zip file: %{missing}"
+data_sources.summary.skipped_title:
+  vi: "Dòng bị bỏ qua"
+  en: "Skipped rows"
+data_sources.log.title:
+  vi: "Nhật ký import"
+  en: "Import log"
+data_sources.log.empty:
+  vi: "Chưa import gì"
+  en: "Nothing imported yet"
+data_sources.log.empty_hint:
+  vi: "Kết quả mỗi lần import hiện ở đây."
+  en: "The result of each import shows here."
+data_sources.log.counts:
+  vi: "+%{inserted} · %{updated} cập nhật"
+  en: "+%{inserted} · %{updated} updated"
+data_sources.log.deals:
+  vi: "%{inserted} deal mới, %{updated} deal cập nhật"
+  en: "%{inserted} new deals, %{updated} updated deals"
+data_sources.log.notion:
+  vi: "%{inserted} lệnh mới, %{updated} lệnh cập nhật từ Notion"
+  en: "%{inserted} new trades, %{updated} updated trades from Notion"
+data_sources.source.mt5:
+  vi: "Kết nối MT5"
+  en: "MT5 connection"
+data_sources.source.html:
+  vi: "Import HTML"
+  en: "HTML import"
+data_sources.source.xlsx:
+  vi: "Import Excel"
+  en: "Excel import"
+data_sources.source.json:
+  vi: "Import JSON"
+  en: "JSON import"
+data_sources.source.notion:
+  vi: "Import Notion"
+  en: "Notion import"
