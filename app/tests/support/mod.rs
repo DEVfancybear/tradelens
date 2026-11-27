@@ -54,7 +54,8 @@ impl Fixture {
     }
 
     /// Starts the app on a window of `width` x `height` with this fixture as its data directory;
-    /// `tweak` may change the rest of the engine's configuration. Returns once the app has opened.
+    /// `tweak` may change the rest of the engine's configuration. Returns once the app has opened,
+    /// in the language the database has chosen.
     pub(crate) fn start(&self, width: f32, height: f32, tweak: impl FnOnce(&mut EngineConfig)) -> Headless {
         let mut config = EngineConfig {
             viewport: Size::new(px(width), px(height)),
@@ -63,7 +64,8 @@ impl Fixture {
         };
         tweak(&mut config);
         let mut app = Headless::start(config).expect("the app starts");
-        app.wait_for("Tổng quan").expect("the app opens");
+        app.wait_until("the app opening", WAIT, |screen| screen.shows("Tổng quan") || screen.shows("Overview"))
+            .expect("the app opens");
         app
     }
 }

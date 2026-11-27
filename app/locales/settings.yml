@@ -1,0 +1,118 @@
+_version: 2
+
+# Cài đặt (pages/settings.rs).
+
+settings.title:
+  vi: "Cài đặt"
+  en: "Settings"
+settings.summary:
+  vi: "Giao diện, giờ hiển thị, ngôn ngữ và dữ liệu"
+  en: "Appearance, clock, language and data"
+settings.look.dark:
+  vi: "Tối"
+  en: "Dark"
+settings.look.light:
+  vi: "Sáng"
+  en: "Light"
+settings.look.system:
+  vi: "Theo hệ thống"
+  en: "System"
+settings.clock.local:
+  vi: "Giờ của bạn"
+  en: "Your time"
+settings.clock.server:
+  vi: "Giờ server"
+  en: "Server time"
+settings.appearance:
+  vi: "Giao diện"
+  en: "Appearance"
+settings.color_mode:
+  vi: "Chế độ màu"
+  en: "Color mode"
+settings.color_mode.hint:
+  vi: "Theo hệ thống tự đổi theo Windows, macOS hoặc Linux"
+  en: "System follows Windows, macOS or Linux"
+settings.time:
+  vi: "Thời gian & ngôn ngữ"
+  en: "Time & language"
+settings.clock:
+  vi: "Giờ hiển thị"
+  en: "Clock shown"
+settings.clock.hint:
+  vi: "Lịch, nhật ký ngày và quy tắc theo ngày tính theo giờ này; giờ server là giờ MT5 báo"
+  en: "The calendar, the daily journal and daily rules use this clock; server time is what MT5 reports"
+settings.language:
+  vi: "Ngôn ngữ"
+  en: "Language"
+settings.language.hint:
+  vi: "Chữ của mọi màn đổi ngay"
+  en: "Every screen changes at once"
+settings.data:
+  vi: "Dữ liệu"
+  en: "Data"
+settings.data.file:
+  vi: "File dữ liệu"
+  en: "Data file"
+settings.data.in_memory:
+  vi: "Dữ liệu đang nằm trong bộ nhớ, sẽ mất khi đóng ứng dụng."
+  en: "The data is in memory and will be lost when the app closes."
+settings.data.open_folder:
+  vi: "Mở thư mục"
+  en: "Open folder"
+settings.forms:
+  vi: "Tuỳ biến form"
+  en: "Customize forms"
+settings.forms.hint:
+  vi: "Đổi tên, sắp xếp, ẩn, thêm thuộc tính riêng và đổi kiểu cho từng form: nhật ký lệnh, kế hoạch lúc vào, nhật ký ngày, lệnh bỏ lỡ và tổng kết tuần/tháng. Giá trị đã ghi ở các lệnh cũ được giữ lại."
+  en: "Rename, reorder, hide, add your own properties and change their type in each form: trade journal, entry plan, daily journal, missed trades and weekly/monthly review. Values already written on older trades are kept."
+settings.forms.open:
+  vi: "Mở Tuỳ biến form"
+  en: "Open Customize forms"
+settings.shortcuts:
+  vi: "Phím tắt"
+  en: "Keyboard shortcuts"
+settings.shortcuts.search:
+  vi: "Tìm lệnh, symbol, ngày"
+  en: "Find a trade, symbol or date"
+settings.shortcuts.manual_entry:
+  vi: "Nhập lệnh thủ công"
+  en: "Enter a trade manually"
+settings.shortcuts.next_trade:
+  vi: "Lệnh sau / trước trong chi tiết"
+  en: "Next / previous trade in details"
+settings.shortcuts.save_form:
+  vi: "Lưu form"
+  en: "Save the form"
+settings.shortcuts.switch_page:
+  vi: "Chuyển trang trong nhóm Giao dịch"
+  en: "Switch page in the Trading group"
+settings.shortcuts.sync_now:
+  vi: "Sync ngay"
+  en: "Sync now"
+settings.about:
+  vi: "Về TradeLens"
+  en: "About TradeLens"
+settings.about.from_source:
+  vi: "Chỉ bản cài đặt tự tải và cài bản mới; bản chạy từ mã nguồn chỉ kiểm tra."
+  en: "Only an installed copy downloads and installs updates; a copy run from source only checks."
+settings.about.auto_update:
+  vi: "Tự động cập nhật"
+  en: "Update automatically"
+settings.about.auto_update.hint:
+  vi: "Tải bản mới khi có, cài khi khởi động lại"
+  en: "Download new versions when available, install on restart"
+settings.about.check:
+  vi: "Kiểm tra cập nhật"
+  en: "Check for updates"
+settings.about.restart:
+  vi: "Khởi động lại để cập nhật"
+  en: "Restart to update"
+settings.about.source:
+  vi: "Mã nguồn"
+  en: "Source code"
+settings.about.notes:
+  vi: "Ghi chú phát hành"
+  en: "Release notes"
+settings.about.report_bug:
+  vi: "Báo lỗi"
+  en: "Report a bug"

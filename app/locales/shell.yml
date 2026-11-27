@@ -1,0 +1,85 @@
+_version: 2
+
+# The window's frame: the sidebar's groups and routes, and its status lines (shell.rs, nav.rs).
+
+shell.section.trading:
+  vi: "Giao dịch"
+  en: "Trading"
+shell.section.strategy:
+  vi: "Chiến lược"
+  en: "Strategy"
+shell.section.manage:
+  vi: "Quản lý"
+  en: "Manage"
+shell.section.system:
+  vi: "Hệ thống"
+  en: "System"
+nav.dashboard:
+  vi: "Tổng quan"
+  en: "Overview"
+nav.trades:
+  vi: "Lệnh"
+  en: "Trades"
+nav.calendar:
+  vi: "Lịch P/L"
+  en: "P/L calendar"
+nav.news:
+  vi: "Tin quan trọng"
+  en: "Key news"
+nav.analytics:
+  vi: "Phân tích"
+  en: "Analytics"
+nav.journal:
+  vi: "Nhật ký ngày"
+  en: "Daily journal"
+nav.review:
+  vi: "Tổng kết & xem lại"
+  en: "Review"
+nav.missed:
+  vi: "Lệnh bỏ lỡ"
+  en: "Missed trades"
+nav.playbook:
+  vi: "Playbook"
+  en: "Playbook"
+nav.accounts:
+  vi: "Tài khoản & kỷ luật"
+  en: "Accounts & discipline"
+nav.data_sources:
+  vi: "Nguồn dữ liệu"
+  en: "Data sources"
+nav.cloud:
+  vi: "Đăng nhập & sync"
+  en: "Sign-in & sync"
+nav.settings:
+  vi: "Cài đặt"
+  en: "Settings"
+shell.mt5.not_connected:
+  vi: "MT5: chưa kết nối"
+  en: "MT5: not connected"
+shell.mt5.connected:
+  vi: "MT5 · đã kết nối"
+  en: "MT5 · connected"
+shell.mt5.lost:
+  vi: "MT5 · mất kết nối"
+  en: "MT5 · connection lost"
+shell.mt5.accounts:
+  vi: "MT5 · %{connected}/%{total} tài khoản kết nối"
+  en: "MT5 · %{connected}/%{total} accounts connected"
+shell.cloud.signed_out:
+  vi: "Cloud: chưa đăng nhập"
+  en: "Cloud: not signed in"
+shell.cloud.syncing:
+  vi: "%{drive} · đang sync…"
+  en: "%{drive} · syncing…"
+shell.cloud.restoring:
+  vi: "%{drive} · đang khôi phục…"
+  en: "%{drive} · restoring…"
+shell.cloud.failed:
+  vi: "%{drive} · sync lỗi"
+  en: "%{drive} · sync failed"
+shell.cloud.synced:
+  vi: "%{drive} · đã sync %{at}"
+  en: "%{drive} · synced %{at}"
+shell.cloud.never:
+  vi: "%{drive} · chưa sync"
+  en: "%{drive} · not synced yet"

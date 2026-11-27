@@ -251,14 +251,15 @@ fn button_shell(variant: Variant, enabled: Enabled, on_press: impl Fn() + 'stati
 /// A row of the sidebar: an icon, a label, and the selection's fill and bar.
 pub(crate) fn sidebar_row(
     glyph: Icon,
-    label: &'static str,
+    label: impl Into<SharedString>,
     selected: impl Fn() -> bool + Copy + 'static,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
+    let label: SharedString = label.into();
     button()
         .cursor_pointer()
         .on_press(on_press)
-        .accessibility_label(label)
+        .accessibility_label(label.clone())
         .h(px(34.0))
         .px_3()
         .flex_row()
@@ -297,13 +298,14 @@ pub(crate) fn sidebar_row(
 
 /// A set of options of which exactly one is on (a period, Buy / Sell / both). `group` names
 /// the set for screen readers: each option reads "group: label".
-pub(crate) fn segmented<T: Copy + PartialEq + 'static>(
-    group: &'static str,
+pub(crate) fn segmented<T: Copy + PartialEq + 'static, L: Into<SharedString>>(
+    group: impl Into<SharedString>,
     options: &'static [T],
-    label: fn(T) -> &'static str,
+    label: impl Fn(T) -> L + Copy + 'static,
     value: impl Fn() -> T + Copy + 'static,
     on_change: impl Fn(T) + Copy + 'static,
 ) -> impl IntoElement {
+    let group: SharedString = group.into();
     toggle_group()
         .flex_row()
         .p_1()
@@ -318,7 +320,7 @@ pub(crate) fn segmented<T: Copy + PartialEq + 'static>(
                 .cursor_pointer()
                 .pressed(on)
                 .on_change(move |_: &bool| on_change(option))
-                .accessibility_label(format!("{group}: {}", label(option)))
+                .accessibility_label(format!("{group}: {}", label(option).into()))
                 .h(px(26.0))
                 .px_3()
                 .items_center()
@@ -328,7 +330,7 @@ pub(crate) fn segmented<T: Copy + PartialEq + 'static>(
                 .focus_visible(|s| s.outline(px(2.0)).outline_color(move || theme().ring))
                 .style_when(on, |s| s.bg(move || theme().card))
                 .child(
-                    text(label(option))
+                    text(label(option).into())
                         .text_xs()
                         .font_weight(FontWeight::MEDIUM)
                         .style_when(on, |s| s.font_weight(FontWeight::SEMIBOLD))

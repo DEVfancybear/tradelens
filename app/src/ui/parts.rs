@@ -12,7 +12,7 @@ use super::{
 
 /// The page's header: title, summary and the actions at the right.
 fn header(
-    title: &'static str,
+    title: impl Into<SharedString>,
     summary: impl IntoReactive<SharedString>,
     actions: impl IntoElement,
 ) -> impl IntoElement {
@@ -31,20 +31,24 @@ fn header(
             view()
                 .gap_1()
                 .min_w(px(0.0))
-                .child(text(title).text_2xl().number_of_lines(1).font_weight(FontWeight::SEMIBOLD))
+                .child(text(title.into()).text_2xl().number_of_lines(1).font_weight(FontWeight::SEMIBOLD))
                 .child(text(summary).text_sm().number_of_lines(1).text_color(move || theme().muted_foreground)),
         )
         .child(view().flex_row().flex_wrap().items_center().gap_3().child(actions))
 }
 
 /// A page: its title and summary over a scrolling body.
-pub(crate) fn page(title: &'static str, summary: &'static str, body: impl IntoElement) -> impl IntoElement {
+pub(crate) fn page(
+    title: impl Into<SharedString>,
+    summary: impl IntoReactive<SharedString>,
+    body: impl IntoElement,
+) -> impl IntoElement {
     page_with(title, summary, view(), body)
 }
 
 /// A page with actions beside its title and a summary that may change.
 pub(crate) fn page_with(
-    title: &'static str,
+    title: impl Into<SharedString>,
     summary: impl IntoReactive<SharedString>,
     actions: impl IntoElement,
     body: impl IntoElement,
@@ -57,7 +61,7 @@ pub(crate) fn page_with(
 
 /// A page whose body fills what is left under the header and scrolls itself (a long table).
 pub(crate) fn page_fill(
-    title: &'static str,
+    title: impl Into<SharedString>,
     summary: impl IntoReactive<SharedString>,
     actions: impl IntoElement,
     body: impl IntoElement,
@@ -69,7 +73,7 @@ pub(crate) fn page_fill(
 }
 
 /// A card with a title.
-pub(crate) fn card(title: &'static str, body: impl IntoElement) -> impl IntoElement {
+pub(crate) fn card(title: impl Into<SharedString>, body: impl IntoElement) -> impl IntoElement {
     view()
         .p_5()
         .gap_3()
@@ -78,7 +82,7 @@ pub(crate) fn card(title: &'static str, body: impl IntoElement) -> impl IntoElem
         .border_color(move || theme().border)
         .bg(move || theme().card)
         .child(
-            text(title)
+            text(title.into())
                 .text_sm()
                 .number_of_lines(1)
                 .font_weight(FontWeight::SEMIBOLD)

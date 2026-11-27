@@ -135,7 +135,12 @@ fn number_input_of(
 }
 
 /// A row of a settings list: the name and an optional hint at the left, the control at the right.
-pub fn setting_row(label: &'static str, hint: Option<&'static str>, control: impl IntoElement) -> impl IntoElement {
+pub fn setting_row(
+    label: impl Into<SharedString>,
+    hint: Option<impl Into<SharedString>>,
+    control: impl IntoElement,
+) -> impl IntoElement {
+    let hint: Option<SharedString> = hint.map(Into::into);
     view()
         .flex_row()
         .items_center()
@@ -149,7 +154,7 @@ pub fn setting_row(label: &'static str, hint: Option<&'static str>, control: imp
                 .flex_1()
                 .min_w(px(0.0))
                 .gap_1()
-                .child(text(label).text_sm().font_weight(FontWeight::MEDIUM))
+                .child(text(label.into()).text_sm().font_weight(FontWeight::MEDIUM))
                 .when_some(hint, |v, hint| v.child(text(hint).text_xs().text_color(move || theme().muted_foreground))),
         )
         .child(control)
@@ -157,25 +162,26 @@ pub fn setting_row(label: &'static str, hint: Option<&'static str>, control: imp
 
 /// A setting that is on or off, taking effect at once.
 pub fn switch_row(
-    label: &'static str,
-    hint: Option<&'static str>,
+    label: impl Into<SharedString>,
+    hint: Option<impl Into<SharedString>>,
     checked: impl Fn() -> bool + 'static,
     on_change: impl Fn(bool) + 'static,
 ) -> impl IntoElement {
-    setting_row(label, hint, switch_control(label, checked, on_change))
+    let label: SharedString = label.into();
+    setting_row(label.clone(), hint, switch_control(label, checked, on_change))
 }
 
 /// The switch of a [`switch_row`] (or of a row that carries more than a switch, like a rule row): a
 /// track and a thumb that slides along it.
 pub fn switch_control(
-    label: &'static str,
+    label: impl Into<SharedString>,
     checked: impl Fn() -> bool + 'static,
     on_change: impl Fn(bool) + 'static,
 ) -> impl IntoElement {
     switch()
         .checked(checked)
         .on_change(move |next: &bool| on_change(*next))
-        .accessibility_label(label)
+        .accessibility_label(label.into())
         .hit_slop(EdgeInsets::all(px(6.0)))
         .cursor_pointer()
         .rounded_full()

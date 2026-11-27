@@ -438,11 +438,16 @@ fn toggles(state: State, target: &ShareTarget) -> impl IntoElement {
     view()
         .child(switch_row(
             "Hiện tên tài khoản / broker",
-            None,
+            None::<&str>,
             move || state.show_account.get(),
             move |on| state.show_account.set(on),
         ))
-        .child(switch_row("Hiện tên setup", None, move || state.show_setup.get(), move |on| state.show_setup.set(on)))
+        .child(switch_row(
+            "Hiện tên setup",
+            None::<&str>,
+            move || state.show_setup.get(),
+            move |on| state.show_setup.set(on),
+        ))
         .when(matches!(target, ShareTarget::Trade(_)), |rows| {
             rows.child(switch_row(
                 "Kèm ảnh chart",
