@@ -95,8 +95,8 @@ form_editor.shared.title:
   vi: "Danh mục lựa chọn dùng chung"
   en: "Shared choice catalogs"
 form_editor.shared.body:
-  vi: "Tag, lỗi, cảm xúc, lý do thoát, hạng setup, trạng thái thị trường, khung giờ, lý do không vào lệnh: thêm, đổi tên, lưu trữ trong Cài đặt → Danh mục. Xoá một lựa chọn chỉ ẩn khỏi danh sách chọn, nhật ký cũ giữ nguyên."
-  en: "Tags, mistakes, emotions, exit reasons, setup grades, market conditions, timeframes, reasons for not entering: add, rename and archive them in Settings → Catalogs. Deleting a choice only hides it from the pick list; older journal entries keep it."
+  vi: "Tag, lỗi, khung thời gian và lý do không vào lệnh: thêm ngay ở ô chọn của chúng (gõ rồi Enter) và xoá bằng ✕ sau mỗi lựa chọn. Xoá một lựa chọn chỉ ẩn khỏi danh sách chọn, nhật ký cũ giữ nguyên."
+  en: "Tags, mistakes, timeframes and reasons for not entering: add a choice right in its picker (type, then Enter) and remove one with the ✕ after it. Removing a choice only hides it from the pick list; older journal entries keep it."
 form_editor.row.drag:
   vi: "Kéo để đổi thứ tự %{name}"
   en: "Drag to reorder %{name}"
@@ -131,8 +131,8 @@ form_editor.panel.name_label:
   vi: "Tên thuộc tính"
   en: "Property name"
 form_editor.panel.builtin_note:
-  vi: "Thuộc tính có sẵn gắn với một mục của nhật ký: chỉ đổi tên hoặc ẩn được. Danh sách lựa chọn của nó sửa ở Cài đặt → Danh mục."
-  en: "A built-in property is tied to a part of the journal: it can only be renamed or hidden. Its list of choices is edited in Settings → Catalogs."
+  vi: "Thuộc tính có sẵn gắn với một mục của nhật ký: chỉ đổi tên hoặc ẩn được. Lựa chọn của nó (nếu là tag, lỗi, khung thời gian) thêm và xoá ngay ở ô chọn."
+  en: "A built-in property is tied to a part of the journal: it can only be renamed or hidden. Its choices (tags, mistakes, timeframes) are added and removed right in the picker."
 form_editor.panel.show:
   vi: "Hiện trong form"
   en: "Show in the form"
