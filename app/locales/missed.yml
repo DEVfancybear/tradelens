@@ -65,7 +65,7 @@ missed.column.side:
   en: "Direction"
 missed.column.reason:
   vi: "Lý do không vào"
-  en: "Reason for not entering"
+  en: "Reason"
 missed.column.if_entered:
   vi: "Nếu đã vào"
   en: "If entered"

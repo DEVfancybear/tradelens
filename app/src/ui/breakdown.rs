@@ -111,9 +111,10 @@ fn line(name: Text, figures: View) -> View {
     view().flex_row().flex_wrap().items_center().content_center().gap_x(px(COLUMN_GAP_MIN)).child(name).child(figures)
 }
 
-/// The name column: one line, cut with an ellipsis only when the name is longer than the room.
+/// The name column: a name longer than the room (a session with its hours, in English) wraps onto a
+/// second line, which the row's height holds, and is cut with an ellipsis only beyond it.
 fn name_of(content: Text) -> Text {
-    content.flex_1().min_w(px(NAME_MIN)).truncate()
+    content.flex_1().min_w(px(NAME_MIN)).number_of_lines(2u32).text_overflow(nsh_core::EllipsizeMode::Tail)
 }
 
 fn cell(text_of: String, width: f32) -> Text {

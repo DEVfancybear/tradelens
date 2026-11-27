@@ -133,19 +133,19 @@ core.time.weekday.sun:
   en: "Sunday"
 core.time.session.asia:
   vi: "Phiên Á (00–07 UTC)"
-  en: "Asian session (00–07 UTC)"
+  en: "Asia (00–07 UTC)"
 core.time.session.london:
   vi: "Phiên Âu (07–12 UTC)"
-  en: "London session (07–12 UTC)"
+  en: "London (07–12 UTC)"
 core.time.session.overlap:
   vi: "Âu–Mỹ giao thoa (12–16 UTC)"
-  en: "London–New York overlap (12–16 UTC)"
+  en: "London–NY (12–16 UTC)"
 core.time.session.new_york:
   vi: "Phiên Mỹ (16–21 UTC)"
-  en: "New York session (16–21 UTC)"
+  en: "New York (16–21 UTC)"
 core.time.session.late:
   vi: "Cuối ngày (21–24 UTC)"
-  en: "Late day (21–24 UTC)"
+  en: "Late (21–24 UTC)"
 core.time.duration.days_hours:
   vi: "%{d}n %{h}g"
   en: "%{d}d %{h}h"

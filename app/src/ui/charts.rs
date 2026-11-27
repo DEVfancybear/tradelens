@@ -206,7 +206,7 @@ pub(crate) struct HeatGrid {
 }
 
 const HEAT_CELL_HEIGHT: f32 = 24.0;
-const HEAT_LABEL_WIDTH: f32 = 28.0;
+const HEAT_LABEL_WIDTH: f32 = 32.0;
 /// The weakest and the strongest opacity of a heat cell, so a small value still shows.
 const HEAT_FLOOR: f32 = 0.18;
 const HEAT_CEILING: f32 = 0.85;
@@ -390,7 +390,7 @@ pub(crate) fn diverging_bars(
     })
 }
 
-const COST_COUNT_WIDTH: f32 = 64.0;
+const COST_COUNT_WIDTH: f32 = 80.0;
 const COST_VALUE_WIDTH: f32 = 96.0;
 
 /// One mistake's cost: its name over a bar filled by its share of the money lost (0 to 1),
@@ -417,6 +417,7 @@ pub(crate) fn mistake_cost_bar(name: &str, trades: usize, net: String, r: String
             text(crate::format::trade_count(trades))
                 .w(px(COST_COUNT_WIDTH))
                 .text_xs()
+                .number_of_lines(1)
                 .text_right()
                 .font_family(tokens::mono)
                 .tabular_nums()

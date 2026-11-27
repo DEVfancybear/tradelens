@@ -644,6 +644,8 @@ impl Slot {
 
 /// Width of the name column, in points.
 const NAME_WIDTH: f32 = 168.0;
+/// What the name itself may take of [`NAME_WIDTH`], beside the kind glyph (20 pt) and the gap (8 pt).
+const NAME_TEXT_WIDTH: f32 = NAME_WIDTH - 28.0;
 /// Height of a row before it has been laid out, in points.
 const ROW_HEIGHT: f32 = 40.0;
 
@@ -970,6 +972,7 @@ fn name_button(row: ReadSignal<Property>) -> impl IntoElement {
         .child(
             text(move || row.with(|p| p.label.clone()))
                 .min_w(px(0.0))
+                .max_w(px(NAME_TEXT_WIDTH))
                 .text_sm()
                 .text_color(move || theme().muted_foreground),
         )

@@ -173,7 +173,7 @@ ui.gallery.add:
   en: "Add pictures"
 ui.gallery.add_hint:
   vi: "chọn nhiều, kéo thả, Ctrl+V"
-  en: "pick several, drag and drop, Ctrl+V"
+  en: "several, drag & drop, Ctrl+V"
 
 # Lists of lines.
 ui.lines.remove:
@@ -496,7 +496,7 @@ ui.properties.add_property_kind:
 # Trades table.
 ui.table.journaled:
   vi: "Đã ghi"
-  en: "Written"
+  en: "Done"
 ui.table.closed_at:
   vi: "Đóng lúc"
   en: "Closed at"
