@@ -208,8 +208,10 @@ fn a_daily_note_is_saved_and_comes_back_on_the_next_run() {
         app.press("role:button[Lưu nhật ký]").expect("saves");
         let db = fixture.db();
         wait_until("the note being saved", || db.day_note(0, today).expect("reads").plan.starts_with("Chờ tin"));
-        app.wait_until("the saved note", WAIT, |screen| screen.texts().iter().any(|t| t.starts_with("Đã lưu lúc")))
-            .expect("the page says when");
+        app.wait_until("the saved note", WAIT, |screen| {
+            screen.texts().iter().any(|t| t.starts_with("Tự động lưu · đã lưu lúc"))
+        })
+        .expect("the page says when");
     }
     let mut again = fixture.start();
     open_journal(&mut again);

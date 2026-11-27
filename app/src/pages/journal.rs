@@ -379,7 +379,7 @@ impl Session {
                         if self.context.get_untracked() == Some(at) {
                             self.saved.set(written);
                         }
-                        self.status.set(format!("Đã lưu lúc {}", chrono::Local::now().format("%H:%M")));
+                        self.status.set(format!("Tự động lưu · đã lưu lúc {}", chrono::Local::now().format("%H:%M")));
                     }
                     Err(error) => self.status.set(error),
                 }
@@ -506,7 +506,13 @@ pub(crate) fn journal() -> impl IntoElement {
         .child(action("Hôm nay", Variant::Secondary, move || go(today())))
         .child(account_picker())
         .child(save_status(move || status.get()).text_xs())
-        .child(action_when("Lưu nhật ký", Variant::Primary, move || dirty.get() && !busy.get(), save_now));
+        .child(action_when(
+            // Typing saves by itself: the button only saves at once, and says so when nothing waits.
+            move || SharedString::from(if dirty.get() { "Lưu nhật ký" } else { "Đã lưu" }),
+            Variant::Primary,
+            move || dirty.get() && !busy.get(),
+            save_now,
+        ));
 
     page_with(
         "Nhật ký ngày",
