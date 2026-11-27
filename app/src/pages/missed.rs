@@ -54,6 +54,9 @@ pub(super) fn select(id: i64) {
 
 const SIDES: [Side; 2] = [Side::Long, Side::Short];
 
+/// How long the form stays marked as new after "Ghi lệnh bỏ lỡ".
+const FRESH_FOR: std::time::Duration = std::time::Duration::from_millis(1500);
+
 pub(crate) fn missed() -> impl IntoElement {
     let list = query(|db, account| db.missed_trades(0, i64::MAX).map(|all| visible(all, account)));
     let reasons = query(|db, _| db.catalog(CatalogKind::MissedReason));
@@ -61,6 +64,9 @@ pub(crate) fn missed() -> impl IntoElement {
     let editing = signal_with(None::<MissedTrade>, SignalEquals::Never);
     // The symbol field of the form shown, which "Ghi lệnh bỏ lỡ" gives the keyboard to.
     let symbol_field = element_ref();
+    // On for a moment after "Ghi lệnh bỏ lỡ": the form shows it is a new one (a blank form built
+    // again looks the same, and the trader read the press as doing nothing).
+    let fresh = signal(false);
     let picked = global::<Picked>();
     effect(move || {
         let Some(id) = picked.get().0 else { return };
@@ -75,11 +81,14 @@ pub(crate) fn missed() -> impl IntoElement {
         "Setup đúng nhưng không vào — ghi lại để biết do dự tốn bao nhiêu.",
         action_icon(Icon::Plus, "Ghi lệnh bỏ lỡ", Variant::Primary, move || {
             editing.set(None);
-            // The blank form is drawn in the next frame: its field takes the focus then, so the press
-            // shows (a blank form built again looks the same) and the trader can type at once.
+            fresh.set(true);
+            // The blank form is drawn in the next frame: its field takes the focus then, so the trader
+            // can type at once; the form stays marked as new for a moment.
             spawn(async move {
                 next_frame().await;
                 symbol_field.focus();
+                timer(FRESH_FOR).await;
+                fresh.set(false);
             });
         }),
         view()
@@ -101,7 +110,7 @@ pub(crate) fn missed() -> impl IntoElement {
                     )
                     .child(view().w(px(400.0)).child(dynamic(move || {
                         let draft = editing.get();
-                        untracked(|| form(draft, editing, reasons, symbol_field).into_element())
+                        untracked(|| form(draft, editing, reasons, symbol_field, fresh).into_element())
                     }))),
             )
             .child(dynamic(move || list.error().map(error_line))),
@@ -406,6 +415,7 @@ fn form(
     editing: Signal<Option<MissedTrade>>,
     reasons: Reading<Vec<CatalogItem>>,
     symbol_field: ElementRef,
+    fresh: Signal<bool>,
 ) -> impl IntoElement {
     let store = store();
     let write = writer();
@@ -450,10 +460,24 @@ fn form(
         .gap_4()
         .rounded(move || theme().radius)
         .border_1()
-        .border_color(move || theme().border)
+        .border_color(move || if fresh.get() { theme().primary } else { theme().border })
         .bg(move || theme().card)
         .child(
-            text(if id == 0 { "Ghi lệnh bỏ lỡ" } else { "Sửa lệnh bỏ lỡ" }).text_sm().font_weight(FontWeight::SEMIBOLD),
+            view()
+                .flex_row()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(
+                    text(if id == 0 { "Ghi lệnh bỏ lỡ" } else { "Sửa lệnh bỏ lỡ" })
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD),
+                )
+                .child(
+                    text(move || if fresh.get() { "Form mới · nhập Symbol" } else { "" })
+                        .text_xs()
+                        .text_color(move || theme().primary),
+                ),
         )
         .child(trade_fields(fields, symbol_field))
         .child(reason_field(fields.reason, reasons))
