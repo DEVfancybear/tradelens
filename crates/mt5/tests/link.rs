@@ -7,7 +7,7 @@ use std::{
         Arc,
         mpsc::{self, Receiver},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use tradelens_core::AccountInfo;
@@ -23,6 +23,7 @@ fn settings() -> LinkSettings {
     LinkSettings {
         poll_every: Duration::from_millis(50),
         retry_after: Duration::from_millis(100),
+        retry_longest: Duration::from_millis(400),
         first_days: 30,
         order_queue: Duration::from_secs(2),
         order_timeout: Duration::from_secs(5),
@@ -159,6 +160,30 @@ fn a_terminal_that_cannot_be_reached_is_tried_again_until_it_answers() {
     next(&heard, |e| matches!(e, Event::State(_, LinkState::Retrying(_))).then_some(()));
     broker.set_unreachable(None);
     next(&heard, |e| matches!(e, Event::Polled { first: true, .. }).then_some(()));
+    link.stop();
+}
+
+#[test]
+fn logins_that_keep_failing_wait_longer_each_time_up_to_a_limit() {
+    let real = LinkSettings::default();
+    let waits: Vec<u64> = (1..=8).map(|failures| real.retry_delay(failures).as_secs()).collect();
+    assert_eq!(waits, [30, 60, 120, 240, 480, 600, 600, 600], "doubled from 30 s, at most 10 min");
+    assert_eq!(real.retry_delay(u32::MAX), Duration::from_mins(10), "no overflow after many failures");
+
+    // On a live link: the third try waits four times as long as the first.
+    let broker = broker("link-backoff");
+    broker.set_unreachable(Some("terminal không nối được tới server"));
+    let (link, heard) = start(login("link-backoff", "pass"));
+    let mut tries = Vec::new();
+    while tries.len() < 4 {
+        next(&heard, |e| matches!(e, Event::State(_, LinkState::Connecting)).then_some(()));
+        tries.push(Instant::now());
+    }
+    let first = tries[1] - tries[0];
+    let third = tries[3] - tries[2];
+    assert!(third >= first * 3, "waits grow: {first:?} then {third:?}");
+    broker.set_unreachable(None);
+    next(&heard, |e| matches!(e, Event::State(_, LinkState::Connected(_))).then_some(()));
     link.stop();
 }
 

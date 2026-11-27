@@ -23,8 +23,13 @@ pub type Opener = Arc<dyn Fn(&Login) -> Result<Box<dyn Terminal>, Mt5Error> + Se
 pub struct LinkSettings {
     /// Between two polls: what a closed trade waits at most before the app has it.
     pub poll_every: Duration,
-    /// Before logging in again after the terminal could not be reached.
+    /// Before logging in again after the terminal could not be reached; doubled after each failure
+    /// in a row, up to [`LinkSettings::retry_longest`].
     pub retry_after: Duration,
+    /// The longest wait between two logins that fail: a failure that lasts (a server the terminal
+    /// does not know) does not start a terminal every few minutes for ever. "Kết nối lại" starts a
+    /// new link, which tries at once.
+    pub retry_longest: Duration,
     /// How far back the first poll reads.
     pub first_days: u32,
     /// The longest an order may wait for the link's thread to take it (the thread may be logging in
@@ -35,11 +40,21 @@ pub struct LinkSettings {
     pub order_timeout: Duration,
 }
 
+impl LinkSettings {
+    /// The wait before the next login after `failures` failures in a row (at least one).
+    #[must_use]
+    pub fn retry_delay(&self, failures: u32) -> Duration {
+        let doublings = failures.saturating_sub(1).min(16);
+        self.retry_after.saturating_mul(1 << doublings).min(self.retry_longest.max(self.retry_after))
+    }
+}
+
 impl Default for LinkSettings {
     fn default() -> Self {
         Self {
             poll_every: Duration::from_secs(2),
             retry_after: Duration::from_secs(30),
+            retry_longest: Duration::from_mins(10),
             first_days: 365,
             order_queue: Duration::from_secs(10),
             order_timeout: Duration::from_secs(90),
@@ -243,6 +258,8 @@ enum Next {
 /// The link's thread: log in, poll until a failure, wait, log in again; until told to stop.
 fn run(login: &Login, open: &Opener, settings: LinkSettings, listen: &Listener, inbox: &Receiver<Order>) {
     let account = &login.account;
+    // Logins that failed in a row; each waits longer before the next ([`LinkSettings::retry_delay`]).
+    let mut failures: u32 = 0;
     loop {
         listen(Event::State(account.clone(), LinkState::Connecting));
         let terminal = open(login).and_then(|mut terminal| terminal.connect(login).map(|info| (terminal, info)));
@@ -260,14 +277,17 @@ fn run(login: &Login, open: &Opener, settings: LinkSettings, listen: &Listener, 
                 break;
             }
             Err(error) => {
-                log::warn!("mt5 {account}: {error}");
+                failures = failures.saturating_add(1);
+                let pause = settings.retry_delay(failures);
+                log::warn!("mt5 {account}: {error} (next try in {}s)", pause.as_secs());
                 listen(Event::State(account.clone(), LinkState::Retrying(error)));
-                match wait(inbox, settings.retry_after, None) {
+                match wait(inbox, pause, None) {
                     Next::Go => continue,
                     Next::Stop => break,
                 }
             }
         };
+        failures = 0;
         log::info!("mt5 {account}: connected");
         listen(Event::State(account.clone(), LinkState::Connected(info)));
         match poll_until_failure(terminal.as_mut(), account, settings, listen, inbox) {
