@@ -2,7 +2,7 @@
 //! form, the accounts signed in to with their open positions, and the plan prompt switch.
 //! The design's EA card is replaced by this one (`docs/design/README.md`, deviations).
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use chrono::{DateTime, Local};
 use nsh_base::theme;
@@ -38,6 +38,9 @@ struct Form {
     terminal: Signal<String>,
     /// A terminal picked with the file dialog, offered beside those found.
     picked: Signal<Option<PathBuf>>,
+    /// The login and server last filled in from a chosen terminal: a field still holding them may be
+    /// filled again, one the trader typed in is left alone.
+    filled: Signal<(String, String)>,
 }
 
 pub(super) fn mt5_card() -> impl IntoElement {
@@ -55,6 +58,7 @@ pub(super) fn mt5_card() -> impl IntoElement {
         server: signal(String::new()),
         terminal: signal(String::new()),
         picked: signal(None),
+        filled: signal((String::new(), String::new())),
     };
     card(
         "Kết nối MT5",
@@ -292,7 +296,7 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
                     Ok(paths) => {
                         if let Some(path) = paths.into_iter().next() {
                             form.picked.set(Some(path.clone()));
-                            choose_terminal(form, &path.display().to_string());
+                            choose_terminal(owner, form, &path.display().to_string());
                         }
                     }
                     Err(error) => mt5.state.update(|state| state.error = Some(error)),
@@ -322,7 +326,7 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
                         "Terminal MT5",
                         move || choices.get(),
                         move || SharedString::from(form.terminal.get()),
-                        move |next| choose_terminal(form, &next),
+                        move |next| choose_terminal(owner, form, &next),
                     )
                     .into_element()
                 })
@@ -332,15 +336,40 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
 }
 
 /// Chooses the terminal at `terminal` and fills the login and the server with the account it
-/// logged in to last, when it tells one (a terminal of the account the trader means to add).
-fn choose_terminal(form: Form, terminal: &str) {
+/// logged in to last (a terminal of the account the trader means to add). The terminal's settings
+/// are read on a blocking thread, under `owner` (the card's root, which a rebuilt select does not
+/// cancel); what arrives after another terminal was chosen is dropped.
+fn choose_terminal(owner: Owner, form: Form, terminal: &str) {
     form.terminal.set(terminal.to_owned());
-    if let Some((login, server)) = install::last_login(Path::new(terminal)) {
-        form.login.set(login);
-        if !server.is_empty() {
-            form.server.set(server);
-        }
+    let chosen = terminal.to_owned();
+    owner.run(move || {
+        spawn(async move {
+            let path = PathBuf::from(&chosen);
+            let Ok(last) = blocking(move || install::last_login(&path)).await else { return };
+            if form.terminal.get_untracked() == chosen {
+                fill_from_terminal(form, last.unwrap_or_default());
+            }
+        });
+    });
+}
+
+/// Puts `login` and `server` (empty when the terminal tells none) into the fields that are empty or
+/// still hold what the previous terminal filled in; a value the trader typed stays.
+fn fill_from_terminal(form: Form, (login, server): (String, String)) {
+    let (filled_login, filled_server) = form.filled.get_untracked();
+    if may_fill(&form.login.get_untracked(), &filled_login) {
+        form.login.set(login.clone());
     }
+    if may_fill(&form.server.get_untracked(), &filled_server) {
+        form.server.set(server.clone());
+    }
+    form.filled.set((login, server));
+}
+
+/// Whether a field holding `now` may take a terminal's value: it is empty, or holds what was filled
+/// in from a terminal before (`filled`), not something the trader typed.
+fn may_fill(now: &str, filled: &str) -> bool {
+    now.trim().is_empty() || now == filled
 }
 
 /// A field with its label above it.
@@ -594,5 +623,14 @@ mod tests {
         assert_eq!(sign_in_blocked(&state, None), None, "a terminal found is enough");
         state.busy = Some("Đang cài".to_owned());
         assert!(sign_in_blocked(&state, None).is_some(), "not while installing");
+    }
+
+    #[test]
+    fn a_chosen_terminal_fills_only_what_the_trader_has_not_typed() {
+        assert!(may_fill("", ""), "an empty field");
+        assert!(may_fill("  ", "123"), "a blank one");
+        assert!(may_fill("123", "123"), "what the previous terminal filled in");
+        assert!(!may_fill("456", "123"), "a login the trader typed");
+        assert!(!may_fill("456", ""), "typed before any terminal was chosen");
     }
 }
