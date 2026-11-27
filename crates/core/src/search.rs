@@ -106,6 +106,26 @@ impl Hit {
         }
     }
 
+    /// The title as the trader reads it, in the language of the process. The index keeps its titles in
+    /// Vietnamese, whatever the language was when they were written; the ones the app words itself (a
+    /// day, a review, a missed trade, a trade it could not name) are said again here.
+    #[must_use]
+    pub fn shown_title(&self) -> String {
+        match self.target() {
+            Some(Target::Day { day, .. }) => crate::tr!("core.search.title.day", day = day.format("%d/%m/%Y")),
+            Some(Target::Review { period, start, .. }) => period.title(start),
+            Some(Target::Missed(_)) => self
+                .title
+                .strip_prefix(MISSED_PREFIX)
+                .map_or_else(|| self.title.clone(), |what| crate::tr!("core.search.title.missed", what = what)),
+            Some(Target::Trade(_)) => self
+                .title
+                .strip_prefix(TRADE_PREFIX)
+                .map_or_else(|| self.title.clone(), |ticket| crate::tr!("core.search.title.trade", ticket = ticket)),
+            Some(Target::Playbook(_)) | None => self.title.clone(),
+        }
+    }
+
     /// The snippet cut at its `[` `]` marks: `(text, is a match)`, in order, with no empty parts.
     pub fn segments(&self) -> Vec<(String, bool)> {
         marked(&self.snippet)
@@ -132,6 +152,11 @@ pub fn marked(text: &str) -> Vec<(String, bool)> {
     parts
 }
 
+/// How the index titles a missed trade, before its symbol, side and day.
+const MISSED_PREFIX: &str = "Bỏ lỡ ";
+/// How the index titles a trade it cannot name, before its position id.
+pub(crate) const TRADE_PREFIX: &str = "Lệnh ";
+
 /// The index entry of a written review, referenced `period:start:account` (`0` for all accounts).
 pub fn review_document(review: &PeriodReview) -> Document {
     let body: Vec<&str> =
@@ -139,7 +164,7 @@ pub fn review_document(review: &PeriodReview) -> Document {
     Document {
         kind: DocKind::Review,
         reference: format!("{}:{}:{}", review.period.name(), review.start, review.account_id.unwrap_or(0)),
-        title: review.period.title(review.start),
+        title: review.period.title_in(review.start, crate::i18n::Lang::Vi),
         body: body.join("\n"),
     }
 }
@@ -154,7 +179,7 @@ pub fn missed_document(missed: &MissedTrade) -> Document {
     Document {
         kind: DocKind::Missed,
         reference: missed.id.to_string(),
-        title: format!("Bỏ lỡ {} {} {}", missed.symbol, missed.side.label(), seen.unwrap_or_default())
+        title: format!("{MISSED_PREFIX}{} {} {}", missed.symbol, missed.side.label(), seen.unwrap_or_default())
             .trim()
             .to_owned(),
         body: parts.join("\n"),
@@ -237,6 +262,26 @@ mod tests {
     }
 
     #[test]
+    fn a_hit_is_titled_from_what_it_points_at_not_from_the_words_stored() {
+        let hit = |kind, reference: &str, title: &str| Hit {
+            kind,
+            reference: reference.into(),
+            title: title.into(),
+            snippet: String::new(),
+        };
+        // The process speaks Vietnamese in the tests: the words come out as stored.
+        assert_eq!(hit(DocKind::Day, "2026-11-20:3", "Day 20/11").shown_title(), "Nhật ký ngày 20/11/2026");
+        assert_eq!(hit(DocKind::Review, "week:2026-11-16:0", "Week 47 · 16–22/11").shown_title(), "Tuần 47 · 16–22/11");
+        assert_eq!(hit(DocKind::Missed, "9", "Bỏ lỡ XAUUSD Buy 21/11").shown_title(), "Bỏ lỡ XAUUSD Buy 21/11");
+        assert_eq!(hit(DocKind::Trade, "1:42:0", "Lệnh 42").shown_title(), "Lệnh 42");
+        assert_eq!(hit(DocKind::Playbook, "4", "Breakout").shown_title(), "Breakout");
+        assert_eq!(
+            rust_i18n::t!("core.search.title.missed", locale = "en", what = "XAUUSD Buy 21/11"),
+            "Missed XAUUSD Buy 21/11"
+        );
+    }
+
+    #[test]
     fn written_things_become_documents_the_search_can_name() {
         let review = PeriodReview {
             id: 0,
@@ -249,7 +294,7 @@ mod tests {
         };
         let doc = review_document(&review);
         assert_eq!(doc.reference, "week:2026-11-16:2");
-        assert_eq!(doc.title, "Tuần 47 · 16–22/11");
+        assert_eq!(doc.title, "Tuần 47 · 16–22/11", "the index titles a review in Vietnamese in any language");
         assert!(doc.body.contains("Vào sớm"));
         let missed = MissedTrade {
             id: 9,

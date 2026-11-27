@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     catalog::CustomValues,
+    i18n::{Lang, current},
     model::{JournalEntry, Trade, TradeKey},
 };
 
@@ -34,19 +35,29 @@ impl Period {
         }
     }
 
-    /// `Tuần 47 · 16–22/11` or `Tháng 11/2026`: the period starting `start`, as titled to the trader.
+    /// `Tuần 47 · 16–22/11` or `Tháng 11/2026`: the period starting `start`, as titled to the trader,
+    /// in the language of the process.
     pub fn title(self, start: NaiveDate) -> String {
+        self.title_in(start, current())
+    }
+
+    /// [`Period::title`] in `lang`: what is stored (the search index) is titled in one language, whichever
+    /// the trader reads the app in.
+    pub fn title_in(self, start: NaiveDate, lang: Lang) -> String {
         let (first, last) = self.bounds(start);
+        let locale = lang.key();
         match self {
-            Self::Week => {
-                crate::tr!(
-                    "core.review.week_title",
-                    week = first.iso_week().week(),
-                    from = first.format("%d"),
-                    to = last.format("%d/%m"),
-                )
+            Self::Week => rust_i18n::t!(
+                "core.review.week_title",
+                locale = locale,
+                week = first.iso_week().week(),
+                from = first.format("%d"),
+                to = last.format("%d/%m"),
+            )
+            .into_owned(),
+            Self::Month => {
+                rust_i18n::t!("core.review.month_title", locale = locale, month = first.format("%m/%Y")).into_owned()
             }
-            Self::Month => crate::tr!("core.review.month_title", month = first.format("%m/%Y")),
         }
     }
 
@@ -197,6 +208,8 @@ mod tests {
     fn periods_are_named_for_the_trader_and_for_storage() {
         assert_eq!(Period::Week.title(day("2026-11-18")), "Tuần 47 · 16–22/11");
         assert_eq!(Period::Month.title(day("2026-11-18")), "Tháng 11/2026");
+        assert_eq!(Period::Week.title_in(day("2026-11-18"), Lang::En), "Week 47 · 16–22/11");
+        assert_eq!(Period::Month.title_in(day("2026-11-18"), Lang::Vi), "Tháng 11/2026");
         assert_eq!(Period::parse(Period::Week.name()), Some(Period::Week));
         assert_eq!(Period::parse("year"), None);
     }

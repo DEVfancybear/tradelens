@@ -1495,7 +1495,7 @@ pub(super) fn journal_document(conn: &Connection, key: &TradeKey, entry: &Journa
             let opened = chrono::DateTime::from_timestamp_millis(t.open_time)?;
             Some(format!("{} {} {}", t.symbol, t.side.label(), opened.format("%d/%m")))
         })
-        .unwrap_or_else(|| format!("Lệnh {}", key.position_id));
+        .unwrap_or_else(|| format!("{}{}", search::TRADE_PREFIX, key.position_id));
 
     let mut parts: Vec<&str> = vec![&entry.setup];
     parts.extend(entry.tags.iter().chain(&entry.mistakes).map(String::as_str));

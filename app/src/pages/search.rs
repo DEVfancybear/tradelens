@@ -201,7 +201,7 @@ fn layer() -> impl IntoElement {
                 PaletteRow {
                     id: row_id(hit),
                     group: hit.kind.label(),
-                    title: hit.title.clone(),
+                    title: hit.shown_title(),
                     snippet: hit.snippet.clone(),
                     meta: meta_of(hit, result),
                 }
