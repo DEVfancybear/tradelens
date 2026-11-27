@@ -212,3 +212,26 @@ The user is explicit: "kiểm tra = app thật" (check on the real app). Passing
   - A test seeding only 1 to 3 days back and checking the 7 or 30 day range needs nothing.
 - **Why:** the overview test seeded trades at the UTC clock on an account with no server offset. Between local midnight and UTC midnight (00:00 to 07:00 at UTC+7) the page's "today" was a day later than the trades', so the discipline card read `0 / 5` instead of `2 / 5`. It passed on CI (UTC) and on a developer's machine by day. The week review tests had the opposite slip: they computed the week from UTC while the page used the machine's clock, which fails on Monday mornings at UTC+7.
 - **Check:** run the screen tests between 00:00 and 07:00 at UTC+7 (or on the first hours of a Monday, or of a month), and `rg -n 'Utc::now\(\)\.date_naive' app/tests` must print nothing.
+
+## 8. Bilingual text (NSH i18n)
+
+### 8.1 Text goes through `t!`, and only on the engine thread
+- **Rule:** every text the trader sees is a key of `app/locales/<area>.yml` read with NSH's `t!` (crates: their `tr!`, rust-i18n). `t!` reads the surface's locale, so it runs only on the engine thread while a surface exists. Text made in `blocking`/`spawn` work (a store read, an update check, a news fetch, the MT5 link) carries an enum or a code out of the thread and is made into words where it is shown (`update::Failure::text`, `news::failure_text`).
+- **Why:** `t!` off the engine thread panics with "no reactive runtime"; a unit test calling a function that uses `t!` panics with "the core sets the environment before components run".
+- **Check:** `app/tests/text_is_translated.rs` finds Vietnamese literals left in `app/src`; wrap unit tests that read text in `crate::i18n::with_text(Lang::Vi, || …)`.
+
+### 8.2 `set_locale` takes effect a beat later: build after it has
+- **Rule:** the window is built inside `i18n::translated`, which builds only once `locale()` is the language asked for. A harness test that mounts a component reading `t!` calls `i18n::install()` and wraps the content in `i18n::translated`.
+- **Why:** NSH applies `set_locale` as an action. Building before it took effect built the whole window twice at every start, the first time in the system's language: a frame of English on an English Windows (found by counting builds with `NSH_FPS` / `RUST_LOG=tradelens::i18n=debug`).
+- **Check:** `window_builds()` in `app/tests/language.rs`: one build at the start, one per change of language.
+
+### 8.3 The `vi:` text is the old literal, byte for byte
+- **Rule:** converting a string keeps its Vietnamese exactly (`…`, `·`, `ă`), since the headless tests find elements by Vietnamese text. Only `app/tests/language.rs` changes the language.
+- **Check:** `cargo test -p nsh-app-tradelens` passes without touching the selectors of other test files.
+
+### 8.4 Measuring a change on the real app
+- Start the release build with `NSH_FPS=hidden RUST_LOG="nsh::fps=info,tradelens::i18n=debug"`, stderr to a file: once a second NSH logs fps, frame cost, commits, app code and core time per commit, mount items, CPU and memory.
+- Copy the exe to a name of its own before launching it when another `nsh-app-tradelens.exe` runs: computer-use grants by path, and the name resolves to the other copy, whose window you must not touch.
+
+## 9. The Stop hook checks the main checkout
+- The `Stop` hook runs `scripts/quality.sh` in `$CLAUDE_PROJECT_DIR`, the main checkout, not the worktree you work in. When another session has unfinished edits there, the hook fails on code that is not yours: check your own worktree with the same commands and leave the other session's files alone.
