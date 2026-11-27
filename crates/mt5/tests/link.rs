@@ -179,9 +179,14 @@ fn logins_that_keep_failing_wait_longer_each_time_up_to_a_limit() {
         next(&heard, |e| matches!(e, Event::State(_, LinkState::Connecting)).then_some(()));
         tries.push(Instant::now());
     }
-    let first = tries[1] - tries[0];
+    // Only the third wait is measured, against its own delay (400 ms) and never against the first:
+    // a slow login on a loaded machine only lengthens a wait (macOS CI measured 188 ms for the
+    // first 100 ms). The slack covers the test thread reading the third try's event late, which is
+    // the one thing that shortens what it measures; without the backoff the wait would be 100 ms.
     let third = tries[3] - tries[2];
-    assert!(third >= first * 3, "waits grow: {first:?} then {third:?}");
+    let slack = Duration::from_millis(150);
+    let expected = settings().retry_delay(3);
+    assert!(third + slack >= expected, "the third try waits {expected:?}: measured {third:?}");
     broker.set_unreachable(None);
     next(&heard, |e| matches!(e, Event::State(_, LinkState::Connected(_))).then_some(()));
     link.stop();

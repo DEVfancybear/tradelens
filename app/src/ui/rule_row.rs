@@ -32,11 +32,17 @@ pub fn rule_row(
         .items_center()
         .gap_3()
         .child(
+            // An emptied field is a limit being typed, not a rule turned off: only the switch turns it
+            // off. Read as off, the field vanished under the trader's keys.
             when(on, {
                 let (label, unit) = (label.clone(), unit);
                 move || {
                     untracked(|| {
-                        number_field(t!("ui.rule.value", label = label), unit.clone(), range, value, on_change)
+                        number_field(t!("ui.rule.value", label = label), unit.clone(), range, value, move |typed| {
+                            if typed.is_some() {
+                                on_change(typed);
+                            }
+                        })
                     })
                 }
             })

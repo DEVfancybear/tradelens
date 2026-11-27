@@ -526,6 +526,7 @@ mod tests {
             r_trades: 0,
             r_profit: 0.0,
             r_loss: 0.0,
+            keys: Vec::new(),
         }
     }
 

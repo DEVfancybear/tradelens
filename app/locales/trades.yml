@@ -77,3 +77,9 @@ trades.empty.none:
 trades.empty.none_hint:
   vi: "Import báo cáo MT5 hoặc file Notion ở Nguồn dữ liệu, hoặc thêm lệnh tay, để thấy lệnh ở đây."
   en: "Import an MT5 report or a Notion file in Data sources, or add a trade by hand, to see trades here."
+trades.focus.showing:
+  vi: "Đang xem: %{title}"
+  en: "Showing: %{title}"
+trades.focus.clear:
+  vi: "Bỏ lọc theo dòng phân tích"
+  en: "Clear the analytics filter"

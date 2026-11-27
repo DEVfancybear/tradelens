@@ -923,8 +923,10 @@ mod tests {
             r_trades: 12,
             r_profit: 0.0,
             r_loss: 0.0,
+            keys: Vec::new(),
         };
         let mistake = MistakeCost {
+            keys: Vec::new(),
             key: "move_sl".into(),
             label: "Dời SL".into(),
             trades: 3,

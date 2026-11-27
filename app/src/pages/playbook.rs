@@ -918,6 +918,7 @@ mod tests {
             r_trades: 4,
             r_profit: 2.0,
             r_loss: 0.0,
+            keys: Vec::new(),
         };
         let counts = |lang| {
             crate::i18n::with_text(lang, {

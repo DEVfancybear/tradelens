@@ -20,13 +20,14 @@ use crate::{
     store::{Load, store, writer},
     trade_list::{self, Column, Direction, Filter, Order, Outcome},
     ui::{
-        chips::{Tone, pnl_text},
+        chips::{Tone, chip, pnl_text},
         controls::{
-            Choice, Variant, action, action_icon, confirm_then, root_owner, segmented, select_field, text_field,
+            Choice, Variant, action, action_icon, confirm_then, icon_action, root_owner, segmented, select_field,
+            text_field,
         },
         icons::Icon,
         parts::page_fill,
-        table::{NOT_JOURNALED, Sorting, TableSort, TradeCells, journaled, trades_table},
+        table::{Sorting, TableSort, TradeCells, journaled, not_journaled, trades_table},
     },
 };
 
@@ -73,7 +74,7 @@ pub(crate) fn cells_of(row: &TradeRow) -> TradeCells {
         },
         r: if closed { format::r_text(row.r) } else { "—".to_owned() },
         setup: row.setup.clone(),
-        journal: if row.journaled { journaled() } else { NOT_JOURNALED.to_owned() },
+        journal: if row.journaled { journaled() } else { not_journaled() },
     }
 }
 
@@ -279,6 +280,22 @@ fn filters(store: crate::store::Store) -> impl IntoElement {
             move |direction| filter.update(|f| f.direction = direction),
         ))
         .child(dynamic(move || {
+            // The trades a row of Phân tích opened: said, and dropped with its ✕.
+            let title = filter.with(|f| f.focus.as_ref().map(|focus| focus.title.clone()));
+            untracked(|| {
+                title.map(|title| {
+                    view()
+                        .flex_row()
+                        .items_center()
+                        .gap_1()
+                        .child(chip(t!("trades.focus.showing", title = title), Tone::Neutral))
+                        .child(icon_action(Icon::Close, t!("trades.focus.clear"), Variant::Ghost, move || {
+                            filter.update(|f| f.focus = None);
+                        }))
+                })
+            })
+        }))
+        .child(dynamic(move || {
             filter.with(Filter::is_active).then(|| {
                 action(t!("trades.filter.clear"), Variant::Ghost, move || {
                     filter.set(Filter::default());
@@ -465,7 +482,7 @@ mod tests {
             assert_eq!(cells.hold, "1g 0p");
             assert_eq!(cells.net, "+$100.00");
             assert_eq!(cells.r, "0.0R", "the fixture closes at the entry price, so the stop-based R is zero");
-            assert_eq!(cells.journal, NOT_JOURNALED);
+            assert_eq!(cells.journal, "Đã lưu");
         });
     }
 

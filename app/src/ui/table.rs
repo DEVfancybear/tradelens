@@ -43,9 +43,11 @@ pub(crate) fn journaled() -> String {
     t!("ui.table.journaled")
 }
 
-/// …and of one they did not: a dash, not "Not written", which read as "the trade is not saved yet"
-/// for trades the MT5 sync had stored already.
-pub(crate) const NOT_JOURNALED: &str = "—";
+/// …and of one they did not: the trade is stored all the same (an MT5 sync saves it at once), and
+/// "Chưa ghi" read as "not saved yet", a dash as "not synced".
+pub(crate) fn not_journaled() -> String {
+    t!("ui.table.not_journaled")
+}
 
 const ROW_HEIGHT: f32 = 44.0;
 const HEADER_HEIGHT: f32 = 40.0;
@@ -257,7 +259,7 @@ fn cell(cell: &DataTableCell, sorting: Sortable, on_open: impl Fn(usize) + Copy 
         }
         "setup" if !shown.is_empty() => chip(shown, Tone::Neutral).into_element(),
         "journal" => {
-            let written = !shown.is_empty() && shown.as_ref() != NOT_JOURNALED;
+            let written = !shown.is_empty() && shown.as_ref() != not_journaled();
             text(shown)
                 .text_sm()
                 .text_color(move || if written { theme().primary } else { theme().muted_foreground })

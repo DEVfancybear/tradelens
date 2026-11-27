@@ -77,3 +77,6 @@ mt5.python.ipc_timeout:
 mt5.python.maybe_done:
   vi: "%{why}; lệnh có thể đã được thực hiện, hãy xem lại trên MT5 trước khi gửi lần nữa"
   en: "%{why}; the order may have been carried out, check it in MT5 before sending it again"
+mt5.python.unsettled:
+  vi: "%{message}; hãy xem lại lệnh trên MT5 trước khi gửi lần nữa"
+  en: "%{message}; check the order on MT5 before sending it again"

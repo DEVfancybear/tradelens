@@ -497,6 +497,9 @@ ui.properties.add_property_kind:
 ui.table.journaled:
   vi: "Đã ghi"
   en: "Done"
+ui.table.not_journaled:
+  vi: "Đã lưu"
+  en: "Saved"
 ui.table.closed_at:
   vi: "Đóng lúc"
   en: "Closed at"

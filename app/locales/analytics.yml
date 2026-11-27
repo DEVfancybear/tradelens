@@ -130,6 +130,12 @@ analytics.mistakes.note:
 analytics.mistakes.view:
   vi: "Xem lệnh"
   en: "View trades"
+analytics.mistakes.focus_one:
+  vi: "Lỗi %{mistake}"
+  en: "Mistake: %{mistake}"
+analytics.mistakes.focus:
+  vi: "Lệnh có gắn lỗi"
+  en: "Trades with a mistake"
 analytics.mistakes.empty:
   vi: "Chưa có lệnh nào gắn lỗi"
   en: "No trades have a mistake tagged"

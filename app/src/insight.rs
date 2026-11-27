@@ -331,16 +331,21 @@ pub(crate) fn closest_to_limits(
         .reduce(|best, next| if peak(&next.1) > peak(&best.1) { next } else { best })
 }
 
-/// What the trader calls the account `id` of the snapshot: its name, else its login.
+/// What the trader calls the account `id` of the snapshot, as every page names it.
 pub(crate) fn account_title(snapshot: &Snapshot, id: i64) -> Option<String> {
-    let account = snapshot.accounts.iter().find(|a| a.id == id)?;
-    let name = account.shown_name();
-    Some(if name.trim().is_empty() { account.login.clone() } else { format!("{} ({})", name.trim(), account.login) })
+    snapshot.accounts.iter().find(|a| a.id == id).map(Account::title)
 }
 
-/// The balance the account has now, as far as the snapshot knows it.
-fn current_balance(snapshot: &Snapshot) -> f64 {
-    snapshot.curve.last().map_or(snapshot.stats.end_balance, |point| point.balance)
+/// The balance the account `account` has now: its own results from its starting balance, as
+/// [`violations`] rebuilds it. Not the balance of every account chosen together, which made the
+/// risk of a $500 account beside a $1,000,000 demo look like nothing.
+fn account_balance(snapshot: &Snapshot, account: i64) -> f64 {
+    let rows: Vec<&TradeRow> =
+        snapshot.rows.iter().filter(|row| row.trade.key.account_id == account && row.trade.is_closed()).collect();
+    let samples = closed_samples(&rows);
+    let start =
+        snapshot.accounts.iter().find(|a| a.id == account).map_or(0.0, |a| metrics::start_balance(a, &samples, &[]));
+    metrics::equity_curve(&samples, start, &[]).last().map_or(start, |point| point.balance)
 }
 
 /// How far the trades closed `today` on `account` have gone toward each limit of `rules`.
@@ -352,7 +357,7 @@ pub(crate) fn discipline_today(snapshot: &Snapshot, account: i64, rules: &Rules,
         .filter(|row| row.trade.key.account_id == account && row.trade.is_closed())
         .filter(|row| clock.day(row.sort_time()) == today)
         .collect();
-    metrics::rule_usage(rules, &closed_samples(&rows), current_balance(snapshot))
+    metrics::rule_usage(rules, &closed_samples(&rows), account_balance(snapshot, account))
 }
 
 /// The rules broken by the trades of the chosen accounts, oldest first. The balance a trade is
@@ -580,6 +585,29 @@ mod tests {
     }
 
     #[test]
+    fn a_pressed_row_lists_exactly_the_trades_its_figures_count() {
+        use crate::trade_list::{self, Filter, Focus};
+        let (_db, snapshot) = seeded();
+        let a = analyse(&snapshot, Range::All, today());
+        let groups = a
+            .by_symbol
+            .iter()
+            .chain(&a.by_hour)
+            .chain(&a.by_session)
+            .chain(&a.by_side)
+            .chain(a.by_weekday.iter().map(|(_, group)| group));
+        let mut seen = 0;
+        for group in groups {
+            assert_eq!(group.keys.len(), group.trades, "{}", group.label);
+            let focus = Focus { title: group.label.clone(), keys: group.keys.iter().cloned().collect() };
+            let filter = Filter { focus: Some(focus), ..Filter::default() };
+            assert_eq!(trade_list::select(&snapshot.rows, &filter, None).len(), group.trades, "{}", group.label);
+            seen += 1;
+        }
+        assert!(seen >= 8, "symbols, hours, sessions, sides and weekdays were all checked: {seen}");
+    }
+
+    #[test]
     fn all_accounts_show_the_one_nearest_its_limits_not_the_first_with_rules() {
         let (_db, snapshot) = seeded();
         let trading = snapshot.accounts[0].id;
@@ -592,7 +620,9 @@ mod tests {
         let trades = usage.iter().find(|u| u.kind == metrics::RuleKind::DailyTrades).expect("a limit on trades");
         assert!((trades.ratio() - 1.0).abs() < 1e-9, "2 of 2 trades: {trades:?}");
         assert!(closest_to_limits(&snapshot, &[(trading, Rules::default())], monday).is_none());
-        assert_eq!(account_title(&snapshot, trading).as_deref(), Some("1"), "no name: the login");
+        assert_eq!(account_title(&snapshot, trading).as_deref(), Some("1 · S"), "named as every page names it");
+        // Risk in percent is measured on the account's own balance (the 1000 it reported).
+        assert!((account_balance(&snapshot, trading) - 1000.0).abs() < 1e-6, "{}", account_balance(&snapshot, trading));
     }
 
     #[test]

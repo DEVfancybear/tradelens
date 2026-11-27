@@ -7,6 +7,7 @@ use chrono::Weekday;
 use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
+    TradeKey,
     metrics::{Group, MistakeCost, Unit},
     time::TimeDisplay,
 };
@@ -18,10 +19,10 @@ use crate::{
     nav::{self, Route},
     snapshot::Range,
     store::{Store, store},
-    trade_list::Filter,
+    trade_list::{Filter, Focus},
     ui::{
-        breakdown::{BreakdownRow, breakdown_table, breakdown_table_pickable},
-        charts::{BarItem, HeatGrid, HeatValue, heatmap, histogram, mistake_cost_bar},
+        breakdown::{BreakdownRow, breakdown_table},
+        charts::{BarItem, HeatGrid, HeatValue, heatmap, histogram, mistake_cost_bar_pickable},
         chips::pnl_text,
         controls::{link, segmented},
         layout::columns,
@@ -106,7 +107,13 @@ fn content(tab: Tab, cx: Cx) -> impl IntoElement {
                 |a| &a.by_symbol,
                 Pick::Symbol,
             )),
-            view().gap_6().child(table_card(t!("analytics.by_side"), t!("analytics.side"), cx, |a| &a.by_side)),
+            view().gap_6().child(picked_card(
+                t!("analytics.by_side"),
+                t!("analytics.side"),
+                cx,
+                |a| &a.by_side,
+                Pick::Rows("analytics.side"),
+            )),
         )
         .into_element(),
         Tab::Time => columns(
@@ -127,15 +134,19 @@ fn content(tab: Tab, cx: Cx) -> impl IntoElement {
                 t!("analytics.tag"),
                 cx,
                 |a| &a.by_tag,
-                Pick::Tag,
+                Pick::Rows("analytics.tag"),
             )),
         )
         .into_element(),
         Tab::Mistakes => columns(
             view().gap_6().child(mistake_card(cx)),
-            view()
-                .gap_6()
-                .child(table_card(t!("analytics.by_emotion"), t!("analytics.emotion"), cx, |a| &a.by_emotion)),
+            view().gap_6().child(picked_card(
+                t!("analytics.by_emotion"),
+                t!("analytics.emotion"),
+                cx,
+                |a| &a.by_emotion,
+                Pick::Rows("analytics.emotion"),
+            )),
         )
         .into_element(),
         Tab::Risk => columns(view().gap_6().child(r_card(cx)), view()).into_element(),
@@ -206,40 +217,42 @@ fn time_note(a: &Analysis) -> Option<String> {
     (a.time_unknown > 0).then(|| t!("analytics.time_unknown", trades = format::trade_count(a.time_unknown)))
 }
 
-fn table_card(title: String, name_title: String, cx: Cx, pick: fn(&Analysis) -> &Vec<Group>) -> impl IntoElement {
-    card(
-        title,
-        breakdown_table(
-            name_title,
-            move || cx.result_title(),
-            move || cx.a.with(|a| rows_of(pick(a), &cx.currency(), a.unit())),
-            t!("analytics.no_trades"),
-        ),
-    )
-}
-
 /// The weekdays of the heatmap's rows (`HeatCell::weekday` is the position), Monday first.
 const WEEKDAYS_OF_WEEK: [Weekday; 7] =
     [Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat, Weekday::Sun];
 
-/// What a pressed line of a breakdown names, to open the trades under it.
+/// What a pressed line of a breakdown opens in the trades list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Pick {
+    /// The list's own symbol filter.
     Symbol,
+    /// The list's own setup filter.
     Setup,
-    Tag,
+    /// Exactly the trades of the row (a tag, a side, a session, an hour, an emotion), named by
+    /// the column's title (its key in `locales/`) and the row: the list has no filter of its own for these.
+    Rows(&'static str),
 }
 
 impl Pick {
-    /// The trades list filter that shows the trades under `name`: the symbol and setup filters of
-    /// the list, and a tag as the list's search text (the list has no tag filter of its own).
-    fn filter(self, name: &str) -> Filter {
+    /// The filter of the trades under the row `group`.
+    fn filter(self, group: &Group) -> Filter {
         match self {
-            Self::Symbol => Filter { symbol: Some(name.to_owned()), ..Filter::default() },
-            Self::Setup => Filter { setup: Some(name.to_owned()), ..Filter::default() },
-            Self::Tag => Filter { text: name.to_owned(), ..Filter::default() },
+            Self::Symbol => Filter { symbol: Some(group.label.clone()), ..Filter::default() },
+            Self::Setup => Filter { setup: Some(group.label.clone()), ..Filter::default() },
+            Self::Rows(column) => focus_on(format!("{} {}", t!(column), group.label), &group.keys),
         }
     }
+}
+
+/// The trades list showing only `keys`, said as `title`.
+fn focus_on(title: String, keys: &[TradeKey]) -> Filter {
+    Filter { focus: Some(Focus { title, keys: keys.iter().cloned().collect() }), ..Filter::default() }
+}
+
+/// Opens the trades list with `filter`.
+fn open_trades(filter: Filter) {
+    store().trade_filter.set(filter);
+    nav::go(Route::Trades);
 }
 
 /// A [`table_card`] whose lines open the trades list on the trades under them.
@@ -250,18 +263,28 @@ fn picked_card(
     pick: fn(&Analysis) -> &Vec<Group>,
     kind: Pick,
 ) -> impl IntoElement {
-    card(
-        title,
-        breakdown_table_pickable(
-            name_title,
-            move || cx.result_title(),
-            move || cx.a.with(|a| rows_of(pick(a), &cx.currency(), a.unit())),
-            t!("analytics.no_trades"),
-            move |name| {
-                store().trade_filter.set(kind.filter(name));
-                nav::go(Route::Trades);
-            },
-        ),
+    card(title, picked_table(name_title, cx, pick, kind, t!("analytics.no_trades")))
+}
+
+/// The table of `pick`'s groups, each line opening its trades.
+fn picked_table(
+    name_title: String,
+    cx: Cx,
+    pick: fn(&Analysis) -> &Vec<Group>,
+    kind: Pick,
+    empty: String,
+) -> impl IntoElement {
+    breakdown_table(
+        name_title,
+        move || cx.result_title(),
+        move || cx.a.with(|a| rows_of(pick(a), &cx.currency(), a.unit())),
+        empty,
+        move |name| {
+            let filter = cx.a.with(|a| pick(a).iter().find(|g| g.label == name).map(|g| kind.filter(g)));
+            if let Some(filter) = filter {
+                open_trades(filter);
+            }
+        },
     )
 }
 
@@ -361,10 +384,11 @@ fn hour_card(cx: Cx) -> impl IntoElement {
         t!("analytics.hour.title"),
         view()
             .gap_3()
-            .child(breakdown_table(
+            .child(picked_table(
                 t!("analytics.hour.name"),
-                move || cx.result_title(),
-                move || cx.a.with(|a| rows_of(&a.by_hour, &cx.currency(), a.unit())),
+                cx,
+                |a| &a.by_hour,
+                Pick::Rows("analytics.hour.name"),
                 t!("analytics.no_entry_time"),
             ))
             .child(
@@ -405,10 +429,11 @@ fn session_card(cx: Cx) -> impl IntoElement {
         t!("analytics.session.title"),
         view()
             .gap_3()
-            .child(breakdown_table(
+            .child(picked_table(
                 t!("analytics.session.name"),
-                move || cx.result_title(),
-                move || cx.a.with(|a| rows_of(&a.by_session, &cx.currency(), a.unit())),
+                cx,
+                |a| &a.by_session,
+                Pick::Rows("analytics.session.name"),
                 t!("analytics.no_entry_time"),
             ))
             .child(
@@ -481,7 +506,16 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
                             .child(view().child(total))
                             .child(text(summary).text_xs().pb_1().text_color(move || theme().muted_foreground)),
                     )
-                    .child(link(t!("analytics.mistakes.view"), move || nav::go(Route::Trades))),
+                    .child(link(t!("analytics.mistakes.view"), move || {
+                        // Every trade with a mistake, once.
+                        let keys: Vec<TradeKey> = cx.a.with(|a| {
+                            let mut all: Vec<TradeKey> = a.mistakes.costs.iter().flat_map(|c| c.keys.clone()).collect();
+                            all.sort();
+                            all.dedup();
+                            all
+                        });
+                        open_trades(focus_on(t!("analytics.mistakes.focus"), &keys));
+                    })),
             )
             .child(dynamic(move || {
                 let (costs, unit) = cx.a.with(|a| (a.mistakes.costs.clone(), a.unit()));
@@ -492,21 +526,15 @@ fn mistake_card(cx: Cx) -> impl IntoElement {
                             .into_element();
                     }
                     view()
-                        .children(costs.iter().map(|c| match unit {
-                            Unit::Money => mistake_cost_bar(
-                                &c.label,
-                                c.trades,
-                                cx.money(c.net, Sign::Always),
-                                format::r_text(Some(c.total_r)),
-                                c.share_of_losses,
-                            ),
-                            Unit::R => mistake_cost_bar(
-                                &c.label,
-                                c.trades,
-                                format::r_text(Some(c.total_r)),
-                                String::new(),
-                                c.share_of_losses,
-                            ),
+                        .children(costs.iter().map(|c| {
+                            let (net, r) = match unit {
+                                Unit::Money => (cx.money(c.net, Sign::Always), format::r_text(Some(c.total_r))),
+                                Unit::R => (format::r_text(Some(c.total_r)), String::new()),
+                            };
+                            let filter = focus_on(t!("analytics.mistakes.focus_one", mistake = c.label), &c.keys);
+                            mistake_cost_bar_pickable(&c.label, c.trades, net, r, c.share_of_losses, move || {
+                                open_trades(filter.clone());
+                            })
                         }))
                         .into_element()
                 })

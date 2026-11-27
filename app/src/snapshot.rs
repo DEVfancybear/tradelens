@@ -362,11 +362,8 @@ fn make_row(
     own.sort_by_key(|d| (d.time_msc, d.ticket));
     let notes = entry.map_or("", |e| e.notes.as_str());
     let tickets: Vec<String> = own.iter().map(|d| d.ticket.to_string()).collect();
-    // Tags too: a tag pressed in Phân tích opens the trades list searched for it.
-    let tags = entry.map_or_else(String::new, |e| e.tags.join(" "));
     let haystack =
-        format!("{} {position} {} {} {setup} {notes} {tags}", trade.symbol, tickets.join(" "), trade.comment)
-            .to_lowercase();
+        format!("{} {position} {} {} {setup} {notes}", trade.symbol, tickets.join(" "), trade.comment).to_lowercase();
     TradeRow {
         journaled: entry.is_some_and(|e| !e.is_empty()),
         account: account.to_owned(),
