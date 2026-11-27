@@ -1,4 +1,4 @@
-//! Tìm kiếm: the palette that opens with Ctrl+K or from the sidebar's search box.
+//! Tìm kiếm (search): the palette that opens with Ctrl+K or from the sidebar's search box.
 //! Design: `docs/design/screens/search.html`: results grouped by kind with the words that
 //! matched marked, the kind as a filter with its count, Enter opens the result.
 
@@ -124,7 +124,7 @@ fn filter_options(hits: &[Hit]) -> Vec<(String, String)> {
     if hits.is_empty() {
         return Vec::new();
     }
-    let mut options = vec![(ALL.to_owned(), format!("Tất cả · {}", hits.len()))];
+    let mut options = vec![(ALL.to_owned(), t!("search.filter_all", n = hits.len()))];
     for kind in DocKind::ALL {
         let count = hits.iter().filter(|h| h.kind == kind).count();
         if count > 0 {
@@ -138,20 +138,16 @@ fn filter_options(hits: &[Hit]) -> Vec<(String, String)> {
 fn meta_of(hit: &Hit, result: Option<f64>) -> String {
     match hit.kind {
         DocKind::Trade => format::r_text(result),
-        DocKind::Day => "Nhật ký ngày".to_owned(),
+        DocKind::Day => t!("search.meta.day"),
         DocKind::Review => match hit.target() {
-            Some(Target::Review { period, .. }) => format!("Tổng kết {}", period_word(period)),
-            _ => "Tổng kết".to_owned(),
+            Some(Target::Review { period: tradelens_core::review::Period::Week, .. }) => t!("search.meta.review_week"),
+            Some(Target::Review { period: tradelens_core::review::Period::Month, .. }) => {
+                t!("search.meta.review_month")
+            }
+            _ => t!("search.meta.review"),
         },
-        DocKind::Missed => "Lệnh bỏ lỡ".to_owned(),
+        DocKind::Missed => t!("search.meta.missed"),
         DocKind::Playbook => "Playbook".to_owned(),
-    }
-}
-
-fn period_word(period: tradelens_core::review::Period) -> &'static str {
-    match period {
-        tradelens_core::review::Period::Week => "tuần",
-        tradelens_core::review::Period::Month => "tháng",
     }
 }
 
@@ -213,18 +209,18 @@ fn layer() -> impl IntoElement {
             .collect()
     };
     let chips = tag_picker(
-        "Loại kết quả",
+        t!("search.filter_group"),
         move || filter_options(&hits.get()),
         move || vec![kind.get().map_or(ALL, kind_key).to_owned()],
         move |key, on| kind.set(if on { DocKind::ALL.into_iter().find(|k| kind_key(*k) == key) } else { None }),
     );
     let hint = move || {
         if typed.with(|t| t.trim().is_empty()) {
-            "Gõ để tìm trong lệnh, nhật ký ngày, tổng kết, lệnh bỏ lỡ và playbook — không cần gõ dấu.".to_owned()
+            t!("search.hint")
         } else if found.loading() {
-            "Đang tìm…".to_owned()
+            t!("search.searching")
         } else {
-            format!("Không có kết quả cho “{}”.", typed.get().trim())
+            t!("search.no_results", query = typed.get().trim())
         }
     };
     palette_layer(
@@ -338,22 +334,30 @@ mod tests {
 
     #[test]
     fn the_filter_counts_each_kind_that_has_hits() {
-        assert_eq!(filter_options(&[]).len(), 0, "no hits, no filter");
-        let hits = [hit(DocKind::Trade, "a"), hit(DocKind::Trade, "b"), hit(DocKind::Review, "week:2026-11-16:0")];
-        assert_eq!(
-            filter_options(&hits),
-            [
-                ("all".to_owned(), "Tất cả · 3".to_owned()),
-                ("trade".to_owned(), "Lệnh · 2".to_owned()),
-                ("review".to_owned(), "Tổng kết · 1".to_owned()),
-            ]
-        );
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            assert_eq!(filter_options(&[]).len(), 0, "no hits, no filter");
+            let hits = [hit(DocKind::Trade, "a"), hit(DocKind::Trade, "b"), hit(DocKind::Review, "week:2026-11-16:0")];
+            assert_eq!(
+                filter_options(&hits),
+                [
+                    ("all".to_owned(), "Tất cả · 3".to_owned()),
+                    ("trade".to_owned(), "Lệnh · 2".to_owned()),
+                    ("review".to_owned(), "Tổng kết · 1".to_owned()),
+                ]
+            );
+        });
     }
 
     #[test]
     fn a_trade_says_its_result_and_other_kinds_name_themselves() {
-        assert_eq!(meta_of(&hit(DocKind::Trade, "1:1:0"), Some(-1.0)), "\u{2212}1.0R");
-        assert_eq!(meta_of(&hit(DocKind::Day, "2026-11-20"), None), "Nhật ký ngày");
-        assert_eq!(meta_of(&hit(DocKind::Review, "month:2026-11-01:0"), None), "Tổng kết tháng");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            assert_eq!(meta_of(&hit(DocKind::Trade, "1:1:0"), Some(-1.0)), "\u{2212}1.0R");
+            assert_eq!(meta_of(&hit(DocKind::Day, "2026-11-20"), None), "Nhật ký ngày");
+            assert_eq!(meta_of(&hit(DocKind::Review, "month:2026-11-01:0"), None), "Tổng kết tháng");
+        });
+        crate::i18n::with_text(crate::i18n::Lang::En, || {
+            assert_eq!(meta_of(&hit(DocKind::Review, "month:2026-11-01:0"), None), "Month review");
+            assert_eq!(meta_of(&hit(DocKind::Missed, "3"), None), "Missed trades");
+        });
     }
 }
