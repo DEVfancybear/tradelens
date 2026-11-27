@@ -254,9 +254,9 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
         let account = accounts.iter().find(|a| a.id == account_id);
         let server_offset_min = account.and_then(|a| a.server_offset_min);
         let clock = display.clock(server_offset_min, query.local_offset_min);
-        // Every deal has its account, so the fallback is only the safe answer; it is made on a blocking
-        // thread, which cannot read the app's text, so it carries no words.
-        let title = account.map_or_else(|| format!("#{account_id}"), Account::title);
+        // Every deal has its account, so the fallback is only the safe answer. It is made on a blocking
+        // thread, which cannot read the app's text: the core words it.
+        let title = account.map_or_else(|| Account::unknown_title(account_id), Account::title);
         let currency = account.map_or_default(|a| a.currency.clone());
         let account_cash = cash_flows(deals);
         let account_rows: Vec<TradeRow> = trades

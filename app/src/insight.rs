@@ -334,8 +334,8 @@ pub(crate) fn closest_to_limits(
 /// What the trader calls the account `id` of the snapshot: its name, else its login.
 pub(crate) fn account_title(snapshot: &Snapshot, id: i64) -> Option<String> {
     let account = snapshot.accounts.iter().find(|a| a.id == id)?;
-    let name = account.name.trim();
-    Some(if name.is_empty() { account.login.clone() } else { format!("{name} ({})", account.login) })
+    let name = account.shown_name();
+    Some(if name.trim().is_empty() { account.login.clone() } else { format!("{} ({})", name.trim(), account.login) })
 }
 
 /// The balance the account has now, as far as the snapshot knows it.

@@ -247,6 +247,15 @@ core.review.queue.not_journalled:
 core.origin.manual:
   vi: "Nhập tay"
   en: "Manual entry"
+core.account.manual:
+  vi: "Nhập tay"
+  en: "Manual entry"
+core.account.unknown:
+  vi: "Tài khoản %{id}"
+  en: "Account %{id}"
+core.account.notion:
+  vi: "Nhật ký Notion"
+  en: "Notion journal"
 
 core.playbook.none:
   vi: "Chưa gắn setup"

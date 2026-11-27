@@ -269,8 +269,8 @@ fn account_cards(
         let money = |value: Option<f64>| {
             value.map_or_else(|| "—".to_owned(), |v| format::money(v, Sign::OnlyNegative, &account.currency))
         };
-        let name = if account.name.trim().is_empty() { account.login.clone() } else { account.name.clone() };
-        let identity = format!("{} · {}", account.login, account.server);
+        let name = if account.name.trim().is_empty() { account.login.clone() } else { account.shown_name() };
+        let identity = format!("{} · {}", account.login, account.shown_server());
         let synced = account
             .last_sync
             .map_or_else(|| t!("accounts.card.not_synced"), |t| t!("accounts.card.synced", ago = ago(now, t)));

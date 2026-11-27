@@ -58,5 +58,6 @@ pub mod trades;
 pub use db::{Db, DbError};
 pub use model::{
     Account, AccountInfo, ChecklistItem, DayNote, Deal, DealBatch, DealEntry, DealKind, Gaps, JournalEntry,
-    ManualTrade, Origin, PositionLevels, Rules, Side, Trade, TradeKey,
+    MANUAL_LOGIN, MANUAL_NAME, ManualTrade, NOTION_LOGIN, NOTION_NAME, Origin, PositionLevels, Rules, Side, Trade,
+    TradeKey,
 };

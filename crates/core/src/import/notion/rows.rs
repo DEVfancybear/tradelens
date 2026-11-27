@@ -7,7 +7,9 @@ use chrono::{Duration, NaiveDate, NaiveDateTime};
 
 use crate::catalog::{CustomValues, FieldKind, FieldValue};
 use crate::import::ImportError;
-use crate::model::{AccountInfo, Deal, DealEntry, DealKind, Gaps, JOURNAL_TICKET_BASE, Side};
+use crate::model::{
+    AccountInfo, Deal, DealEntry, DealKind, Gaps, JOURNAL_TICKET_BASE, NOTION_LOGIN, NOTION_NAME, Side,
+};
 use crate::time::to_ms;
 
 use super::cells::{
@@ -18,9 +20,6 @@ use super::detect::Layout;
 use super::properties::value_of;
 use super::sheet::{Row, Sheet};
 use super::{Field, NotionMapping, NotionPlan, PlannedJournal, PlannedProperty, PlannedRow, RowIssue, Verdict};
-
-/// The login of the account Notion trades go to when the caller names none.
-const DEFAULT_LOGIN: &str = "notion";
 
 /// A trade's id is 40 bits of a hash.
 const ID_MASK: u64 = (1 << 40) - 1;
@@ -100,9 +99,9 @@ pub(super) fn build(
     let name_of = |column: usize| sheet.headers[column].clone();
     let account = if overrides.account_login.trim().is_empty() {
         AccountInfo {
-            login: DEFAULT_LOGIN.to_owned(),
+            login: NOTION_LOGIN.to_owned(),
             broker: "Notion".to_owned(),
-            name: "Nhật ký Notion".to_owned(),
+            name: NOTION_NAME.to_owned(),
             currency: "USD".to_owned(),
             ..AccountInfo::default()
         }
