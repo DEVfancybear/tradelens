@@ -62,8 +62,8 @@ mt5.notice.keep_failed:
   vi: "Không lưu được tài khoản MT5: %{error}"
   en: "Could not save the MT5 account: %{error}"
 mt5.notice.no_password:
-  vi: "Chưa có mật khẩu của tài khoản này: hãy đăng nhập lại."
-  en: "There is no password for this account: sign in again."
+  vi: "Mật khẩu của tài khoản này không được lưu: hãy đăng nhập lại."
+  en: "This account's password is not saved: sign in again."
 mt5.notice.not_loaded:
   vi: "Đang đọc cài đặt, hãy thử lại sau giây lát."
   en: "Reading the settings, try again in a moment."

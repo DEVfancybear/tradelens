@@ -70,6 +70,12 @@ mt5_connect.password:
 mt5_connect.password_placeholder:
   vi: "Mật khẩu giao dịch"
   en: "Trading password"
+mt5_connect.remember:
+  vi: "Lưu mật khẩu"
+  en: "Remember password"
+mt5_connect.remember_hint:
+  vi: "Mật khẩu được lưu mã hoá trong kho mật khẩu của hệ điều hành (Credential Manager trên Windows, Keychain trên macOS), gắn với tài khoản người dùng trên máy này; không nằm trong dữ liệu app và không đồng bộ lên cloud. Bỏ tick thì mật khẩu chỉ dùng tới khi đóng app, mật khẩu đã lưu trước đó (nếu có) bị xoá, lần mở sau phải đăng nhập lại."
+  en: "The password is kept encrypted in the operating system's password store (Credential Manager on Windows, Keychain on macOS), tied to your user account on this machine; it is not in the app's data and is never synced to the cloud. Untick it to use the password only until the app closes and remove any kept before; you sign in again next time."
 mt5_connect.terminal:
   vi: "Terminal MT5"
   en: "MT5 terminal"

@@ -12,14 +12,14 @@ use tradelens_mt5::{AccountRef, install};
 use super::position;
 use crate::{
     format::{self, Sign},
-    mt5::{Live, Mt5, Notice, PlanPrompt, State, Status, mt5},
+    mt5::{Live, Mt5, Notice, PasswordChoice, PlanPrompt, State, Status, mt5},
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{
             Choice, Variant, action, action_when, confirm_then, root_owner, secret_field, select_value, text_field,
         },
         files::{Accept, Pick, pick_files},
-        forms::switch_row,
+        forms::{check_box, switch_row},
         parts::{card, error_line, warning_banner},
         theme as tokens,
     },
@@ -33,6 +33,8 @@ const TERMINAL_FILE: Accept = Accept { name: || "terminal64.exe".to_owned(), ext
 struct Form {
     login: Signal<String>,
     password: Signal<String>,
+    /// Whether the password is kept for the next start (ticked unless the trader unticks it).
+    remember: Signal<bool>,
     server: Signal<String>,
     /// The installed terminal chosen (its `terminal64.exe`), empty for the first one found.
     terminal: Signal<String>,
@@ -55,6 +57,7 @@ pub(super) fn mt5_card() -> impl IntoElement {
     let form = Form {
         login: signal(String::new()),
         password: signal(String::new()),
+        remember: signal(true),
         server: signal(String::new()),
         terminal: signal(String::new()),
         picked: signal(None),
@@ -235,7 +238,8 @@ fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
             return;
         };
         let account = AccountRef::new(&form.login.get_untracked(), &form.server.get_untracked());
-        mt5.sign_in(account, terminal, &form.password.get_untracked());
+        let choice = if form.remember.get_untracked() { PasswordChoice::Remember } else { PasswordChoice::ThisRunOnly };
+        mt5.sign_in(account, terminal, &form.password.get_untracked(), choice);
         form.password.set(String::new());
     };
     view()
@@ -246,6 +250,7 @@ fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
         .border_color(move || theme().border)
         .child(text(t!("mt5_connect.sign_in_title")).text_sm().font_weight(FontWeight::MEDIUM))
         .child(fields_row(form))
+        .child(remember_row(form))
         .child(dynamic(move || (!demo.get()).then(|| untracked(|| terminal_row(mt5, form)))))
         .child(
             view()
@@ -309,6 +314,20 @@ fn fields_row(form: Form) -> impl IntoElement {
                 },
             ),
         ))
+}
+
+/// "Remember the password", with where a remembered one is kept.
+fn remember_row(form: Form) -> impl IntoElement {
+    view()
+        .gap_1()
+        .child(
+            check_box(t!("mt5_connect.remember"), move || form.remember.get(), move |on| form.remember.set(on))
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(text(t!("mt5_connect.remember")).text_sm()),
+        )
+        .child(text(t!("mt5_connect.remember_hint")).text_xs().text_color(move || theme().muted_foreground))
 }
 
 /// The installed terminal to copy, chosen among those found or picked with the file dialog.

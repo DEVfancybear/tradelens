@@ -65,6 +65,32 @@ fn secret_name(account: &AccountRef) -> String {
     format!("mt5:{account}")
 }
 
+/// Whether a sign-in's password is kept for the next start of the app.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PasswordChoice {
+    /// Kept in the operating system's credential store (on Windows, Credential Manager encrypts it
+    /// for the Windows user); the account connects on its own at the next start.
+    Remember,
+    /// Used for this run only, and any password kept before is removed: the next start asks for it.
+    ThisRunOnly,
+}
+
+/// What a sign-in keeps once it has logged in: the account always, its password when asked to.
+#[derive(Debug, Clone)]
+enum Keep {
+    WithPassword(Password),
+    WithoutPassword,
+}
+
+impl Keep {
+    fn of(choice: PasswordChoice, password: &Password) -> Self {
+        match choice {
+            PasswordChoice::Remember => Self::WithPassword(password.clone()),
+            PasswordChoice::ThisRunOnly => Self::WithoutPassword,
+        }
+    }
+}
+
 /// An account signed in to, as the setting keeps it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct Saved {
@@ -490,8 +516,8 @@ pub(crate) struct Mt5 {
     links: Stored<Links>,
     /// What the links' threads tell the UI thread: the sending half is given to each link.
     heard: Stored<(Sender<Heard>, Receiver<Heard>)>,
-    /// The password of a sign-in that has not logged in yet, by link: kept once that link has.
-    pending: Stored<BTreeMap<u64, Password>>,
+    /// What a sign-in that has not logged in yet keeps, by link, once that link has.
+    pending: Stored<BTreeMap<u64, Keep>>,
     /// The id the next link gets.
     next_link: Stored<u64>,
     store: Store,
@@ -855,8 +881,8 @@ impl Mt5 {
     }
 
     /// Signs in to `account` with `password`, running it in a copy of the installed `terminal`.
-    /// The account is kept (with its password) once this login succeeds.
-    pub(crate) fn sign_in(self, account: AccountRef, terminal: PathBuf, password: &str) {
+    /// The account is kept once this login succeeds, with its password when `choice` says so.
+    pub(crate) fn sign_in(self, account: AccountRef, terminal: PathBuf, password: &str, choice: PasswordChoice) {
         let refuse = |why: Notice| self.state.update(|state| state.error = Some(why));
         if !self.state.with_untracked(|state| state.loaded) {
             return refuse(Notice::NotLoaded);
@@ -886,12 +912,14 @@ impl Mt5 {
                 None => state.accounts.push(Live::new(account.clone(), terminal.clone())),
             }
         });
-        // Python first (installed by the app when the machine has none), then the login. The
-        // password is kept once it logs in: for a new account, and as the new one of an account kept.
+        // Python first (installed by the app when the machine has none), then the login. What the
+        // trader chose is done once it logs in: the password kept (for a new account, and as the new
+        // one of an account kept), or the one kept before removed.
         let password = Password::new(password);
+        let keep = Keep::of(choice, &password);
         let wanted = account.clone();
         self.ensure_python(
-            move || self.start(account, terminal, password.clone(), Some(password)),
+            move || self.start(account, terminal, password, Some(keep)),
             move |why| {
                 self.state.update(|state| {
                     state.accounts.retain(|live| live.saved || live.account != wanted);
@@ -902,9 +930,9 @@ impl Mt5 {
     }
 
     /// Makes the account's terminal ready, then starts a new link for it once the old one (if any)
-    /// has stopped: two workers never drive one portable terminal. `keep` is the password to keep
-    /// once this link logs in. A start while another is making the terminal ready is dropped.
-    fn start(self, account: AccountRef, terminal: PathBuf, password: Password, keep: Option<Password>) {
+    /// has stopped: two workers never drive one portable terminal. `keep` is what to keep once this
+    /// link logs in. A start while another is making the terminal ready is dropped.
+    fn start(self, account: AccountRef, terminal: PathBuf, password: Password, keep: Option<Keep>) {
         if self.state.with_untracked(|state| state.live(&account).is_none_or(|live| live.starting)) {
             return;
         }
@@ -1055,8 +1083,9 @@ impl Mt5 {
         );
     }
 
-    /// Keeps `account` in the settings and its password in the credential store, after a login.
-    fn keep(self, account: &AccountRef, password: Password) {
+    /// Keeps `account` in the settings after a login, and its password in the credential store, or
+    /// none there when the trader chose not to keep it.
+    fn keep(self, account: &AccountRef, keep: Keep) {
         let Some(live) = self.state.with_untracked(|state| state.live(account).cloned()) else { return };
         let Some(env) = self.state.with_untracked(|state| state.env.clone()) else { return };
         let kept = Saved { login: live.account.login, server: live.account.server, terminal: live.terminal };
@@ -1070,7 +1099,12 @@ impl Mt5 {
                 })? {
                     return Ok(Err(error));
                 }
-                Ok(env.save_secret(&secret_name(&wanted), password.expose()).map_err(Notice::Words))
+                let name = secret_name(&wanted);
+                let stored = match keep {
+                    Keep::WithPassword(password) => env.save_secret(&name, password.expose()),
+                    Keep::WithoutPassword => env.clear_secret(&name),
+                };
+                Ok(stored.map_err(Notice::Words))
             },
             move |result| {
                 if let Err(error) = result.map_err(Notice::Words).and_then(|saved| saved) {
@@ -1113,15 +1147,20 @@ impl Mt5 {
                         live.saved |= keep.is_some();
                     }
                 });
-                if let Some(password) = keep {
-                    self.keep(account, password);
+                if let Some(keep) = keep {
+                    self.keep(account, keep);
                 }
             }
             LinkState::Retrying(error) => set(Status::Retrying(Notice::from(&error))),
             LinkState::Refused(error) => {
-                self.pending.with(|pending| pending.remove(&id));
+                let keep = self.pending.with(|pending| pending.remove(&id));
                 if live.saved {
-                    // An account kept before stays listed (with the password it had), saying why.
+                    if matches!(keep, Some(Keep::WithoutPassword)) {
+                        // Signing in again with "Lưu mật khẩu" unticked: none stays kept, even refused.
+                        self.forget_password(account);
+                    }
+                    // An account kept before stays listed (with the password it had, unless the
+                    // trader chose not to keep it), saying why.
                     set(Status::Refused(Notice::from(&error)));
                     self.state.update(|s| s.error = Some(Notice::from(&error)));
                 } else {
@@ -1142,6 +1181,21 @@ impl Mt5 {
                 }
             }
         }
+    }
+
+    /// Removes the password kept for `account` from the credential store: the trader chose not to
+    /// keep it, even though this login was refused.
+    fn forget_password(self, account: &AccountRef) {
+        let Some(env) = self.state.with_untracked(|state| state.env.clone()) else { return };
+        let name = secret_name(account);
+        self.owner.run(move || {
+            spawn(async move {
+                let cleared = blocking(move || env.clear_secret(&name)).await;
+                if let Some(error) = cleared.map_or_else(|error| Some(error.to_string()), Result::err) {
+                    self.state.update(|state| state.error = Some(Notice::Words(error)));
+                }
+            });
+        });
     }
 
     fn remove_copy(self, account: &AccountRef) {
@@ -1410,7 +1464,7 @@ mod tests {
         assert_eq!(
             say(crate::i18n::Lang::Vi),
             [
-                "Chưa có mật khẩu của tài khoản này: hãy đăng nhập lại.",
+                "Mật khẩu của tài khoản này không được lưu: hãy đăng nhập lại.",
                 "MT5 từ chối đăng nhập: bad password",
                 "Không lưu được tài khoản MT5: disk full",
                 "Đang tải Python cho TradeLens (12,6 MB)…",
@@ -1419,7 +1473,7 @@ mod tests {
         assert_eq!(
             say(crate::i18n::Lang::En),
             [
-                "There is no password for this account: sign in again.",
+                "This account's password is not saved: sign in again.",
                 "MT5 refused the login: bad password",
                 "Could not save the MT5 account: disk full",
                 "Downloading Python for TradeLens (12.6 MB)…",
