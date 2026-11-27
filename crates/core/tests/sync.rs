@@ -669,10 +669,11 @@ fn an_account_stored_again_after_its_deletion_comes_back_with_only_its_new_data(
     assert_same(&a, &fresh);
 }
 
-/// The copy a terminal made of the account under login `0` while it was signing in: the same deals.
-fn copy_under_login_0(db: &mut Db) -> i64 {
+/// A copy of the account under another login on its server, holding the same deals: what a terminal
+/// still signing in stored under login `0` before such a login was refused.
+fn copy_under_another_login(db: &mut Db) -> i64 {
     let copy = DealBatch {
-        account: AccountInfo { login: "0".into(), server: "Broker-Live".into(), ..AccountInfo::default() },
+        account: AccountInfo { login: "5099999".into(), server: "Broker-Live".into(), ..AccountInfo::default() },
         ..batch(vec![deal(100, 0.0), deal(101, 25.0)])
     };
     db.upsert_batch(&copy, "mt5").expect("stored").account_id
@@ -683,11 +684,11 @@ fn account_id_of(db: &Db, login: &str) -> i64 {
 }
 
 #[test]
-fn deleting_a_copy_under_login_0_moves_its_notes_to_the_account_with_the_same_deals() {
+fn deleting_a_copy_under_another_login_moves_its_notes_to_the_account_with_the_same_deals() {
     let (mut a, mut b) = (db(), db());
     let real = account(&mut a);
     a.upsert_batch(&batch(vec![deal(100, 0.0), deal(101, 25.0)]), "mt5").expect("stored");
-    let copy = copy_under_login_0(&mut a);
+    let copy = copy_under_another_login(&mut a);
     let day = chrono::NaiveDate::from_ymd_opt(2026, 11, 20).expect("a day");
     // Written on the copy: a trade the account has no journal of, a trade it has one of, a day note.
     let other_trade = |account_id| TradeKey { position_id: 101, ..trade(account_id) };
@@ -749,4 +750,34 @@ fn a_journal_edited_after_its_account_was_deleted_comes_back_whole_on_every_devi
     }
     assert_same(&a, &b);
     assert_same(&a, &c);
+}
+
+#[test]
+fn login_0_is_never_stored_from_a_terminal_or_from_another_device() {
+    let mut db = db();
+    let signing_in = DealBatch {
+        account: AccountInfo { login: " 0 ".into(), server: "Broker-Live".into(), ..AccountInfo::default() },
+        ..batch(vec![deal(100, 0.0)])
+    };
+    assert!(db.upsert_batch(&signing_in, "mt5").is_err(), "what a terminal still signing in reads is refused");
+    // A device on an older version sends its copy under login 0: the account and what it holds.
+    let change = |seq, entity: &str, key: &str, value: serde_json::Value| Change {
+        device_id: "older".into(),
+        seq,
+        at: 10 + i64::try_from(seq).expect("small"),
+        entity: entity.into(),
+        key: key.into(),
+        value: Some(value),
+    };
+    let report = db
+        .apply_changes(&[
+            change(1, entity::ACCOUNT, "0|Broker-Live", serde_json::json!([{"f": "name", "v": "Standard"}])),
+            change(2, entity::JOURNAL, "0|Broker-Live|100|0", serde_json::json!([{"f": "notes", "v": "bản sao"}])),
+        ])
+        .expect("does not fail");
+    assert_eq!((report.applied, report.stale), (0, 2), "both are skipped");
+    assert!(db.accounts().expect("accounts").is_empty(), "no account 0 is made");
+    assert!(db.deals(None).expect("deals").is_empty(), "nor any deal of it");
+    let real = account(&mut db);
+    assert!(db.accounts().expect("accounts").iter().all(|a| a.id == real), "a real login is stored as before");
 }

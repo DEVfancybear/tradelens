@@ -16,6 +16,9 @@ core.db.no_account:
 core.db.no_login:
   vi: "thiếu số tài khoản"
   en: "the account number is missing"
+core.db.unsigned_login:
+  vi: "tài khoản số 0 là terminal MT5 chưa đăng nhập xong, không phải tài khoản thật: không lưu"
+  en: "account number 0 is an MT5 terminal that has not finished signing in, not a real account: not stored"
 core.db.blank_option:
   vi: "Tên lựa chọn không được để trống."
   en: "The option name cannot be empty."

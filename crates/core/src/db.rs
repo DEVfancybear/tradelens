@@ -1524,6 +1524,9 @@ fn upsert_account_on(conn: &Connection, info: &AccountInfo) -> Result<i64> {
     if login.is_empty() {
         return Err(DbError::Invalid(crate::tr!("core.db.no_login")));
     }
+    if crate::model::is_unsigned_login(login) {
+        return Err(DbError::Invalid(crate::tr!("core.db.unsigned_login")));
+    }
     let server = info.server.trim();
     let key = join_key(&[login, server]);
     let known: bool = conn.query_row(

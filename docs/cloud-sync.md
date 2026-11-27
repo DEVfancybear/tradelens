@@ -131,6 +131,9 @@ có tem thì ghi, tem = `updated_at` của journal, các thứ khác tem 0 để
 7. **Trùng tên playbook:** hai máy cùng tạo "Breakout" thì cả hai được giữ (bảng `playbooks` không còn UNIQUE
    trên `name`, giữ UNIQUE khi lưu bằng tay: lỗi "đã có setup tên …"); người dùng đổi tên một cái khi thấy.
 8. Thay đổi hỏng hoặc thuộc loại thực thể chưa biết (bản app mới hơn) bị bỏ qua và ghi log, không làm hỏng sync.
+9. **Login `0` không bao giờ được lưu** (`model::is_unsigned_login`): đó là terminal MT5 chưa đăng nhập xong, không phải
+   tài khoản. `upsert_account`/`upsert_batch` từ chối, và thay đổi đồng bộ của tài khoản `0` hay thứ thuộc về nó (máy
+   chạy bản cũ gửi tới) bị bỏ như dữ liệu hỏng. Tài khoản `0` đã có từ trước vẫn xoá được bằng "Xoá tài khoản".
 
 ## Đẩy và kéo
 

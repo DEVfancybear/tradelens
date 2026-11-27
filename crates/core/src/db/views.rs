@@ -120,6 +120,7 @@ fn account_row(conn: &Connection, login: &str, server: &str) -> Result<Option<i6
 fn ensure_account(conn: &Connection, key: &str) -> Result<i64> {
     let parts = split_key(key);
     let [login, server] = parts.as_slice() else { return Err(bad_key(entity::ACCOUNT, key)) };
+    refuse_unsigned(login)?;
     if account_row(conn, login, server)?.is_none() && account_deleted(conn, key)? {
         return Err(DbError::Invalid(crate::tr!("core.sync.account_deleted", key = key)));
     }
@@ -129,6 +130,15 @@ fn ensure_account(conn: &Connection, key: &str) -> Result<i64> {
         [login, server],
         |r| r.get(0),
     )?)
+}
+
+/// Refuses, as bad data, the account `login` a terminal reports before it has signed in (`0`): a
+/// device on an older version may still send its copy of another account's deals.
+fn refuse_unsigned(login: &str) -> Result<()> {
+    if crate::model::is_unsigned_login(login) {
+        return Err(DbError::Invalid(crate::tr!("core.db.unsigned_login")));
+    }
+    Ok(())
 }
 
 /// Whether the account `key` was deleted (here or on another device) and not brought back since.
@@ -318,6 +328,7 @@ fn load_account(conn: &Connection, key: &str) -> Result<Option<Fields>> {
 fn store_account(conn: &Connection, key: &str, fields: &Fields) -> Result<()> {
     let parts = split_key(key);
     let [login, server] = parts.as_slice() else { return Err(bad_key(entity::ACCOUNT, key)) };
+    refuse_unsigned(login)?;
     conn.execute(
         "INSERT INTO accounts (login, server, broker, name, currency, initial_balance, last_balance, last_equity,
                                server_offset_min)

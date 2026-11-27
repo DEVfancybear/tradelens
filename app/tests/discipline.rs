@@ -212,10 +212,11 @@ fn account_details_are_saved() {
 fn an_account_is_deleted_with_its_trades_after_saying_yes() {
     let fixture = Fixture::new();
     let real = seed_today(&mut fixture.db(), 5.0);
-    // The account a terminal reported as login 0: a copy of the first one's deals, journalled.
+    // A copy of the first account's deals under another login (as a terminal still signing in once
+    // stored under login 0, which is now refused), journalled.
     let mut db = fixture.db();
     let phantom = DealBatch {
-        account: AccountInfo { login: "0".into(), server: "Demo".into(), ..AccountInfo::default() },
+        account: AccountInfo { login: "7".into(), server: "Demo".into(), ..AccountInfo::default() },
         deals: vec![deal(10, 1, now_ms(), DealKind::Buy, DealEntry::In, 0.0)],
         positions: Vec::new(),
     };
@@ -225,8 +226,8 @@ fn an_account_is_deleted_with_its_trades_after_saying_yes() {
     db.save_journal(&trade(phantom_id), &note).expect("the copy's trade is journalled");
     let mut app = fixture.start();
     open_accounts(&mut app);
-    app.press("role:button[Tài khoản 0]").expect("the copy's card is a button");
-    app.wait_for_within("0 · Demo", WAIT).expect("its details show");
+    app.press("role:button[Tài khoản 7]").expect("the copy's card is a button");
+    app.wait_for_within("7 · Demo", WAIT).expect("its details show");
 
     app.on_dialog(|dialog| {
         let title = dialog.title.clone().unwrap_or_default();
@@ -247,7 +248,7 @@ fn an_account_is_deleted_with_its_trades_after_saying_yes() {
     assert_eq!(db.deals(None).expect("deals").len(), 2, "with its own deals only");
     let moved = db.journal(&trade(real)).expect("reads").expect("the note moved to the real account");
     assert_eq!(moved.notes, "ghi trên bản sao");
-    app.wait_until("the card going", WAIT, |s| !s.shows("0 · Demo")).expect("the page reads again");
+    app.wait_until("the card going", WAIT, |s| !s.shows("7 · Demo")).expect("the page reads again");
 }
 
 fn open_journal(app: &mut Headless) {
