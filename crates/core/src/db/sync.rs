@@ -147,6 +147,8 @@ fn record(conn: &Connection, kind: &str, key: &str, before: Option<&Fields>, aft
         (None, Some(after)) => {
             // Made again after a deletion (an account its terminal reports again): another device
             // brings it back from what it held when deleted, so what it no longer has is unset too.
+            // The local tombstone stays: a tombstone does not mean "deleted" while the row exists
+            // (`views::account_deleted` is asked only when it is missing).
             let gone = tombstone(conn, kind, key)?.map_or_default(|gone| gone.data);
             let mut ops = diff(&Fields::new(), after);
             ops.extend(diff(&gone, after).into_iter().filter(|op| op.value.is_none()));

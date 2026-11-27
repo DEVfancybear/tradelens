@@ -610,8 +610,9 @@ fn a_deleted_account_goes_with_everything_it_owns_here_and_on_the_other_device()
     assert_eq!(logins(&b), ["5012345", "notion"]);
     tick();
 
-    // No other account holds its deals: its journal entry and day note go with it.
-    let deletion = AccountDeletion { twin: None, moved: 0, deleted: 2 };
+    // No other account holds its deals: its journal entry, day note, checklist item and missed trade go
+    // with it.
+    let deletion = AccountDeletion { twin: None, moved: 0, deleted: 4 };
     assert_eq!(a.account_deletion(id).expect("planned"), deletion);
     assert_eq!(a.delete_account(id).expect("deleted"), deletion);
     assert_eq!(logins(&a), ["notion"]);
@@ -780,4 +781,87 @@ fn login_0_is_never_stored_from_a_terminal_or_from_another_device() {
     assert!(db.deals(None).expect("deals").is_empty(), "nor any deal of it");
     let real = account(&mut db);
     assert!(db.accounts().expect("accounts").iter().all(|a| a.id == real), "a real login is stored as before");
+}
+
+#[test]
+fn typed_trades_of_two_accounts_do_not_make_them_twins() {
+    let mut db = db();
+    let typed = tradelens_core::model::ManualTrade {
+        symbol: "EURUSD".into(),
+        side: tradelens_core::model::Side::Long,
+        volume: Some(0.5),
+        open_time: 1_763_000_000_000,
+        open_price: Some(1.1),
+        close_time: 1_763_000_600_000,
+        close_price: Some(1.104),
+        date_only: false,
+        sl: 0.0,
+        tp: 0.0,
+        profit: Some(20.0),
+        commission: 0.0,
+        swap: 0.0,
+        result_r: None,
+    };
+    let mut ids = Vec::new();
+    for login in ["111111", "222222"] {
+        let info = AccountInfo { login: login.into(), server: "Broker-Live".into(), ..AccountInfo::default() };
+        let id = db.upsert_account(&info).expect("account");
+        // Typed trades are numbered per account (-1, -2…): both accounts hold the same tickets.
+        let key = db.add_manual_trade(id, &typed).expect("typed");
+        db.save_journal(&key, &entry("của riêng tài khoản này")).expect("saved");
+        ids.push(id);
+    }
+    let deletion = db.account_deletion(ids[0]).expect("planned");
+    assert_eq!(deletion, AccountDeletion { twin: None, moved: 0, deleted: 1 }, "nothing moves to an unrelated account");
+    db.delete_account(ids[0]).expect("deleted");
+    let left = db.journals(None).expect("journals");
+    assert_eq!(left.len(), 1, "the other account keeps only its own journal");
+    assert_eq!(left[0].0.account_id, ids[1]);
+}
+
+#[test]
+fn a_copys_missed_trades_and_own_checklist_move_with_its_journal() {
+    let (mut a, mut b) = (db(), db());
+    let real = account(&mut a);
+    a.upsert_batch(&batch(vec![deal(100, 0.0), deal(101, 25.0)]), "mt5").expect("stored");
+    let copy = copy_under_another_login(&mut a);
+    a.save_checklist(Some(copy), &[ChecklistItem { id: 0, text: "Đợi nến đóng".into() }]).expect("saved");
+    let item =
+        a.checklist(Some(copy)).expect("checklist").into_iter().find(|i| i.text == "Đợi nến đóng").expect("item");
+    let ticked = JournalEntry { checklist: vec![item.id], ..entry("đã đợi nến") };
+    a.save_journal(&trade(copy), &ticked).expect("saved");
+    let missed = tradelens_core::missed::MissedTrade {
+        id: 0,
+        account_id: Some(copy),
+        symbol: "XAUUSD".into(),
+        side: tradelens_core::model::Side::Long,
+        seen_at: 1_763_000_000_000,
+        playbook_id: None,
+        setup_grade: None,
+        reason: None,
+        entry: None,
+        stop_loss: None,
+        take_profit: None,
+        outcome_price: None,
+        notes: "bỏ lỡ trên bản sao".into(),
+        screenshots: Vec::new(),
+        custom: tradelens_core::catalog::CustomValues::new(),
+    };
+    a.save_missed_trade(&missed).expect("saved");
+    send(&a, &mut b);
+    tick();
+
+    let deletion = a.delete_account(copy).expect("deleted");
+    assert_eq!(deletion, AccountDeletion { twin: Some(real), moved: 3, deleted: 0 });
+    send(&a, &mut b);
+    for device in [&a, &b] {
+        let real = account_id_of(device, "5012345");
+        let missed = device.missed_trades(0, i64::MAX).expect("missed");
+        assert_eq!(missed.len(), 1, "the missed trade is kept");
+        assert_eq!(missed[0].account_id, Some(real), "under the account");
+        let own = device.checklist(Some(real)).expect("checklist");
+        let item = own.iter().find(|i| i.text == "Đợi nến đóng").expect("the item moved to the account");
+        assert_eq!(journal(device, real).checklist, [item.id], "the moved journal keeps its tick");
+    }
+    assert_same(&a, &b);
 }

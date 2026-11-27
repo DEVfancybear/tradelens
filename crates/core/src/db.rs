@@ -62,6 +62,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0013_removed.sql"),
     include_str!("../migrations/0014_sync_uploaded.sql"),
     include_str!("../migrations/0015_news.sql"),
+    include_str!("../migrations/0016_deals_ticket.sql"),
 ];
 
 /// One line of the import log: what an import or a sync stored, and when.
@@ -85,8 +86,8 @@ pub struct UpsertReport {
     pub updated: usize,
 }
 
-/// What deleting an account does with the trader's own notes on it: its journal entries, own day
-/// notes and reviews.
+/// What deleting an account does with what the trader wrote on it: its journal entries, own day
+/// notes, reviews, missed trades and own checklist items.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct AccountDeletion {
     /// The account the notes are moved to: another on a server of the same name holding the same
@@ -272,9 +273,10 @@ impl Db {
     }
 
     /// Deletes the account `id` with everything that belongs to it: its deals, journal entries,
-    /// rules, own day notes, reviews, checklist items and missed trades. The trader's notes (journal
-    /// entries, day notes, reviews) move first to the account holding the same deals, when there is
-    /// one and it has none of its own for the same trade, day or period ([`AccountDeletion`]). Each
+    /// rules, own day notes, reviews, checklist items and missed trades. What the trader wrote (journal
+    /// entries, day notes, reviews, missed trades, own checklist items) moves first to the account holding
+    /// the same terminal deals, when there is one; a journal entry, day note or review only when that
+    /// account has none of its own for the same trade, day or period ([`AccountDeletion`]). Each
     /// write and removal is logged, so that other devices do the same; what they stored before the
     /// deletion and send later is not brought back. An MT5 terminal that still reports the account
     /// stores it again at its next poll. The image files that only what was deleted used are removed
@@ -288,10 +290,15 @@ impl Db {
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let key = existing_account_key(&tx, id)?;
         let (twin, notes) = account_notes(&tx, id, &key)?;
+        let twin_key = twin.map(|twin| views::account_key(&tx, twin)).transpose()?;
         let images_before: BTreeSet<String> = views::attachment_paths(&tx)?.into_iter().collect();
         for note in &notes {
             let Some(moved) = &note.moved else { continue };
-            let Some(fields) = views::load(&tx, note.kind, &note.key)? else { continue };
+            let Some(mut fields) = views::load(&tx, note.kind, &note.key)? else { continue };
+            if let Some(twin) = twin_key.as_ref().filter(|_| *moved == note.key) {
+                // Kept under its uid (a checklist item, a missed trade): only its account changes.
+                fields.insert("account".to_owned(), serde_json::Value::String(twin.clone()));
+            }
             sync::logged(&tx, note.kind, Some(moved), || {
                 views::store(&tx, note.kind, moved, &fields)?;
                 Ok((moved.clone(), ()))
@@ -305,12 +312,9 @@ impl Db {
                 }
             }
         }
-        owned.extend(notes.iter().map(|note| (note.kind, note.key.clone())));
-        for (kind, table) in [(entity::CHECKLIST, "checklist"), (entity::MISSED, "missed_trades")] {
-            let mut stmt = tx.prepare(&format!("SELECT uid FROM {table} WHERE account_id = ?1 ORDER BY uid"))?;
-            let uids = stmt.query_map([id], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
-            owned.extend(uids.into_iter().map(|uid| (kind, uid)));
-        }
+        // What moved under its own uid stays; the rest goes, with what was left behind of what moved.
+        let left = notes.iter().filter(|note| note.moved.as_ref() != Some(&note.key));
+        owned.extend(left.map(|note| (note.kind, note.key.clone())));
         for (kind, child) in &owned {
             sync::logged_delete(&tx, kind, child, || views::remove(&tx, kind, child))?;
         }
@@ -1182,6 +1186,17 @@ fn account_notes(conn: &Connection, id: i64, key: &str) -> Result<(Option<i64>, 
     let twin = views::twin_account(conn, id)?;
     let twin_key = twin.map(|twin| views::account_key(conn, twin)).transpose()?;
     let mut notes = Vec::new();
+    // The account's own checklist first: the journal entries moved after it keep their ticks.
+    // Checklist items and missed trades keep their uid and only name the twin as their account.
+    for (kind, table) in [(entity::CHECKLIST, "checklist"), (entity::MISSED, "missed_trades")] {
+        let mut stmt = conn.prepare(&format!("SELECT uid FROM {table} WHERE account_id = ?1 ORDER BY uid"))?;
+        let uids = stmt.query_map([id], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        notes.extend(uids.into_iter().map(|uid| Note {
+            kind,
+            moved: twin_key.is_some().then(|| uid.clone()),
+            key: uid,
+        }));
+    }
     for kind in [entity::JOURNAL, entity::DAY_NOTE, entity::REVIEW] {
         for child in views::keys(conn, kind)? {
             if views::owner_account(kind, &child).as_deref() != Some(key) {

@@ -14,7 +14,7 @@ use serde_json::{Map, Value, json};
 use crate::catalog::{CustomValues, FieldDef};
 use crate::form::FormLayout;
 use crate::missed::MissedTrade;
-use crate::model::{DayNote, Deal, JournalEntry, Rules, TradeKey};
+use crate::model::{DayNote, Deal, JOURNAL_TICKET_BASE, JournalEntry, Rules, TradeKey};
 use crate::playbook::Playbook;
 use crate::review::{Period, PeriodReview};
 use crate::search::{missed_document, playbook_document, review_document};
@@ -194,24 +194,40 @@ pub(super) fn journal_has_trade(conn: &Connection, key: &str) -> Result<bool> {
     )?)
 }
 
-/// The account that holds the same deals as the account `id`, on a server of the same name: the
-/// copy a terminal made under another login (`0`, while it was still signing in). The one with the
-/// most deals in common; `None` when no other account shares a deal with it.
+/// The account that holds the same terminal deals as the account `id`, on a server of the same name:
+/// the copy a terminal made under another login (`0`, while it was still signing in). The one with
+/// the most deals in common; `None` when no other account shares a deal with it.
+///
+/// Only the tickets a terminal gives count: a typed trade (negative ticket) or one imported from a
+/// journal (from [`JOURNAL_TICKET_BASE`]) is numbered per account, so two unrelated accounts share
+/// those. Both accounts must have a terminal's login, and the twin never an unsigned one (`0`): no
+/// note can be stored under it.
 pub(super) fn twin_account(conn: &Connection, id: i64) -> Result<Option<i64>> {
-    Ok(conn
-        .query_row(
-            "SELECT other.account_id FROM deals AS mine
-             JOIN accounts AS me ON me.id = mine.account_id
-             JOIN deals AS other ON other.ticket = mine.ticket AND other.account_id <> mine.account_id
-             JOIN accounts AS them ON them.id = other.account_id AND them.server = me.server COLLATE NOCASE
-             WHERE mine.account_id = ?1
-             GROUP BY other.account_id
-             ORDER BY COUNT(*) DESC, other.account_id
-             LIMIT 1",
-            [id],
-            |r| r.get(0),
-        )
-        .optional()?)
+    let terminal_login = |login: &str| {
+        !login.is_empty() && login.chars().all(|c| c.is_ascii_digit()) && !crate::model::is_unsigned_login(login)
+    };
+    let mut stmt = conn.prepare(
+        "SELECT them.id, them.login, me.login FROM deals AS mine
+         JOIN accounts AS me ON me.id = mine.account_id AND me.server <> ''
+         JOIN deals AS other ON other.ticket = mine.ticket AND other.account_id <> mine.account_id
+         JOIN accounts AS them ON them.id = other.account_id AND them.server = me.server COLLATE NOCASE
+         WHERE mine.account_id = ?1 AND mine.ticket > 0 AND mine.ticket < ?2
+         GROUP BY them.id
+         ORDER BY COUNT(*) DESC, them.id",
+    )?;
+    let candidates = stmt.query_map(rusqlite::params![id, JOURNAL_TICKET_BASE], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))
+    })?;
+    for candidate in candidates {
+        let (twin, login, mine) = candidate?;
+        if !mine.chars().all(|c| c.is_ascii_digit()) || mine.is_empty() {
+            return Ok(None);
+        }
+        if terminal_login(&login) {
+            return Ok(Some(twin));
+        }
+    }
+    Ok(None)
 }
 
 /// The account of a key part that may be [`ALL_ACCOUNTS`]: its row id, 0 for all of them.
