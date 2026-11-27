@@ -213,7 +213,10 @@ mod probe {
     /// Runs the job of [`super::with_text`] where `t!` can be read.
     #[component]
     pub(super) fn TextProbe() -> impl IntoElement {
-        if let Some(job) = JOB.lock().expect("no probe panicked while holding its job").take() {
+        // Taken in its own statement: an `if let` would hold the lock while the job runs, and a job that
+        // panics would poison it for every probe after.
+        let job = JOB.lock().expect("no probe panicked while holding its job").take();
+        if let Some(job) = job {
             job();
         }
         view()
