@@ -227,6 +227,10 @@ fn recording_a_missed_trade_gives_the_keyboard_to_its_symbol() {
     app.press("role:button[Lệnh bỏ lỡ]").expect("the missed trades row");
     app.wait_for_within("Chưa có lệnh bỏ lỡ nào", WAIT).expect("the empty list is read");
     app.press("role:button[Ghi lệnh bỏ lỡ]").expect("the header button");
+    // The form says it is a new one for a moment, then the mark goes.
+    app.wait_for_within("Form mới · nhập Symbol", WAIT).expect("the form is marked as new");
+    app.wait_for_gone("Form mới · nhập Symbol", WAIT).expect("the mark goes after a moment");
+    app.press("role:button[Ghi lệnh bỏ lỡ]").expect("the header button, again");
     // The blank form is built again and its symbol input then takes the focus.
     app.wait_until("the symbol input taking the focus", WAIT, |screen| {
         screen.id("label:Symbol").is_ok_and(|id| {
