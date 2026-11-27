@@ -79,14 +79,25 @@ pub(crate) enum PasswordChoice {
 #[derive(Debug, Clone)]
 enum Keep {
     WithPassword(Password),
-    WithoutPassword,
+    /// The password is used until the app closes (kept in memory), never in the credential store.
+    ForThisRun(Password),
+}
+
+/// What the connection holds for sign-ins, on the UI thread.
+#[derive(Debug, Default)]
+struct Pending {
+    /// What a sign-in that has not logged in yet keeps, by link, once that link has.
+    by_link: BTreeMap<u64, Keep>,
+    /// The passwords of the accounts signed in to for this run only: what "Kết nối lại" and a
+    /// restore log in with, since the credential store holds none for them.
+    this_run: BTreeMap<AccountRef, Password>,
 }
 
 impl Keep {
     fn of(choice: PasswordChoice, password: &Password) -> Self {
         match choice {
             PasswordChoice::Remember => Self::WithPassword(password.clone()),
-            PasswordChoice::ThisRunOnly => Self::WithoutPassword,
+            PasswordChoice::ThisRunOnly => Self::ForThisRun(password.clone()),
         }
     }
 }
@@ -516,8 +527,8 @@ pub(crate) struct Mt5 {
     links: Stored<Links>,
     /// What the links' threads tell the UI thread: the sending half is given to each link.
     heard: Stored<(Sender<Heard>, Receiver<Heard>)>,
-    /// What a sign-in that has not logged in yet keeps, by link, once that link has.
-    pending: Stored<BTreeMap<u64, Keep>>,
+    /// What sign-ins keep: by link until it logs in, and the passwords used for this run only.
+    pending: Stored<Pending>,
     /// The id the next link gets.
     next_link: Stored<u64>,
     store: Store,
@@ -545,7 +556,7 @@ fn provide_with(terminal_setup: TerminalSetup) {
         state: signal(State { prompt_plans: true, ..State::default() }),
         links: stored(Links::default()),
         heard: stored((sender, receiver)),
-        pending: stored(BTreeMap::new()),
+        pending: stored(Pending::default()),
         next_link: stored(1),
         store: store(),
         write: writer(),
@@ -862,6 +873,16 @@ impl Mt5 {
 
     /// Connects each saved account with the password the credential store keeps for it.
     fn connect_saved(self, saved: Vec<Saved>) {
+        // Signed in to for this run only: its password is in memory, not in the credential store.
+        let (in_memory, saved): (Vec<_>, Vec<_>) = saved
+            .into_iter()
+            .partition(|saved| self.pending.with(|Pending { this_run: run, .. }| run.contains_key(&saved.account())));
+        for saved in in_memory {
+            let password = self.pending.with(|Pending { this_run: run, .. }| run.get(&saved.account()).cloned());
+            if let Some(password) = password {
+                self.start(saved.account(), saved.terminal, password, None);
+            }
+        }
         let Some(env) = self.state.with_untracked(|state| state.env.clone()) else { return };
         self.owner.run(move || {
             spawn(async move {
@@ -903,6 +924,10 @@ impl Mt5 {
         }
         if account.login.is_empty() || !account.login.chars().all(|c| c.is_ascii_digit()) {
             return refuse(Notice::LoginDigits);
+        }
+        // A copy made for another account is no terminal to copy: only MetaTrader itself is.
+        if is_own_copy(&terminal) {
+            return refuse(Notice::NoTerminal);
         }
         if account.server.is_empty() || password.is_empty() {
             return refuse(Notice::Incomplete);
@@ -967,7 +992,7 @@ impl Mt5 {
             }
         });
         if let Some(keep) = keep {
-            self.pending.with(|pending| pending.insert(id, keep));
+            self.pending.with(|Pending { by_link: pending, .. }| pending.insert(id, keep));
         }
         let setup = self.state.with_untracked(|state| state.setup.clone());
         let sender = self.heard.with(|(sender, _)| sender.clone());
@@ -986,7 +1011,7 @@ impl Mt5 {
                 // The trader may have forgotten the account, or started it again, meanwhile.
                 let current = self.state.with_untracked(|state| state.of_link(id).is_some_and(|live| !live.removing));
                 if !current {
-                    self.pending.with(|pending| pending.remove(&id));
+                    self.pending.with(|Pending { by_link: pending, .. }| pending.remove(&id));
                     return;
                 }
                 match prepared {
@@ -1005,7 +1030,7 @@ impl Mt5 {
                         });
                     }
                     Err(why) => {
-                        self.pending.with(|pending| pending.remove(&id));
+                        self.pending.with(|Pending { by_link: pending, .. }| pending.remove(&id));
                         // A new sign-in that cannot start is not listed: the form says why.
                         self.state.update(|state| {
                             state.accounts.retain(|live| live.saved || live.link_id != Some(id));
@@ -1071,6 +1096,7 @@ impl Mt5 {
     /// credential store; its portable terminal is removed once the link has stopped.
     pub(crate) fn forget(self, account: &AccountRef) {
         let had_link = self.link(account).is_some();
+        self.pending.with(|Pending { this_run: run, .. }| run.remove(account));
         self.state.update(|state| {
             if let Some(live) = state.live_mut(account) {
                 live.removing = true;
@@ -1116,7 +1142,7 @@ impl Mt5 {
                 let name = secret_name(&wanted);
                 let stored = match keep {
                     Keep::WithPassword(password) => env.save_secret(&name, password.expose()),
-                    Keep::WithoutPassword => env.clear_secret(&name),
+                    Keep::ForThisRun(_) => env.clear_secret(&name),
                 };
                 Ok(stored.map_err(Notice::Words))
             },
@@ -1153,7 +1179,7 @@ impl Mt5 {
         match state {
             LinkState::Connecting => set(Status::Connecting),
             LinkState::Connected(info) => {
-                let keep = self.pending.with(|pending| pending.remove(&id));
+                let keep = self.pending.with(|Pending { by_link: pending, .. }| pending.remove(&id));
                 self.state.update(|s| {
                     if let Some(live) = s.of_link_mut(id) {
                         live.status = Status::Connected;
@@ -1162,14 +1188,19 @@ impl Mt5 {
                     }
                 });
                 if let Some(keep) = keep {
+                    self.pending.with(|Pending { this_run: run, .. }| match &keep {
+                        Keep::ForThisRun(password) => run.insert(account.clone(), password.clone()),
+                        Keep::WithPassword(_) => run.remove(account),
+                    });
                     self.keep(account, keep);
                 }
             }
             LinkState::Retrying(error) => set(Status::Retrying(Notice::from(&error))),
             LinkState::Refused(error) => {
-                let keep = self.pending.with(|pending| pending.remove(&id));
+                let keep = self.pending.with(|Pending { by_link: pending, .. }| pending.remove(&id));
                 if live.saved {
-                    if matches!(keep, Some(Keep::WithoutPassword)) {
+                    self.pending.with(|Pending { this_run: run, .. }| run.remove(account));
+                    if matches!(keep, Some(Keep::ForThisRun(_))) {
                         // Signing in again with "Lưu mật khẩu" unticked: none stays kept, even refused.
                         self.forget_password(account);
                     }

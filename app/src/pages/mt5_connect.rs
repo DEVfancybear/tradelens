@@ -43,6 +43,9 @@ struct Form {
     /// The login and server last filled in from a chosen terminal: a field still holding them may be
     /// filled again, one the trader typed in is left alone.
     filled: Signal<(String, String)>,
+    /// The terminal (or account copy) chosen last, whose account is being read: a read that arrives
+    /// after another was chosen is dropped.
+    reading: Signal<String>,
 }
 
 pub(super) fn mt5_card() -> impl IntoElement {
@@ -62,6 +65,7 @@ pub(super) fn mt5_card() -> impl IntoElement {
         terminal: signal(String::new()),
         picked: signal(None),
         filled: signal((String::new(), String::new())),
+        reading: signal(String::new()),
     };
     card(
         t!("mt5_connect.title"),
@@ -387,23 +391,22 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
 /// are read on a blocking thread, under `owner` (the card's root, which a rebuilt select does not
 /// cancel); what arrives after another terminal was chosen is dropped.
 ///
-/// A copy the app made for an account only names that account: once its login and server are in,
-/// the terminal goes back to the first one that is no such copy, the MetaTrader the new account is
+/// A copy the app made for an account only names that account: its login and server are filled in,
+/// and the terminal goes back at once to the first one that is no such copy, the MetaTrader the new account is
 /// copied from.
 fn choose_terminal(owner: Owner, mt5: Mt5, form: Form, terminal: &str) {
-    form.terminal.set(terminal.to_owned());
     let chosen = terminal.to_owned();
+    // At once, so that a sign-in pressed before the account is read never copies the copy.
     let source =
         crate::mt5::is_own_copy(Path::new(terminal)).then(|| mt5.state.with_untracked(source_terminal)).flatten();
+    form.terminal.set(source.unwrap_or_else(|| chosen.clone()));
+    form.reading.set(chosen.clone());
     owner.run(move || {
         spawn(async move {
             let path = PathBuf::from(&chosen);
             let Ok(last) = blocking(move || install::last_login(&path)).await else { return };
-            if form.terminal.get_untracked() == chosen {
+            if form.reading.get_untracked() == chosen {
                 fill_from_terminal(form, last.unwrap_or_default());
-                if let Some(source) = source {
-                    form.terminal.set(source);
-                }
             }
         });
     });
