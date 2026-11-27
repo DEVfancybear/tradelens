@@ -1,0 +1,182 @@
+_version: 2
+
+# Nhập lệnh & nhật ký thủ công, and the edit of a trade's facts (pages/manual_entry.rs).
+
+manual_entry.title:
+  vi: "Nhập lệnh & nhật ký thủ công"
+  en: "Manual trade & journal entry"
+manual_entry.summary:
+  vi: "Cho lệnh ngoài MT5, hoặc bổ sung nhật ký cho lệnh có sẵn"
+  en: "For trades outside MT5, or to add a journal to an existing trade"
+manual_entry.save_next:
+  vi: "Lưu & nhập tiếp"
+  en: "Save & add another"
+manual_entry.save:
+  vi: "Lưu lệnh"
+  en: "Save trade"
+manual_entry.saved_next:
+  vi: "Đã lưu lệnh %{symbol}. Nhập lệnh tiếp theo."
+  en: "Saved the %{symbol} trade. Enter the next one."
+manual_entry.trade_new:
+  vi: "1 · Thông tin lệnh"
+  en: "1 · Trade info"
+manual_entry.trade_edit:
+  vi: "Thông tin lệnh"
+  en: "Trade info"
+manual_entry.journal:
+  vi: "2 · Nhật ký"
+  en: "2 · Journal"
+manual_entry.attachments:
+  vi: "Ảnh & đính kèm"
+  en: "Images & attachments"
+manual_entry.shots:
+  vi: "Ảnh chart"
+  en: "Chart images"
+manual_entry.attachments_note:
+  vi: "Ảnh lưu cùng dữ liệu trên máy, theo lệnh sau khi bấm Lưu lệnh."
+  en: "Images are kept with the data on this machine, attached to the trade after you press Save trade."
+manual_entry.r_note:
+  vi: "Nhật ký ghi bằng R: lot, giá và lãi/lỗ không bắt buộc. Có giá vào, giá ra và stop loss thì app tự tính R."
+  en: "Journal kept in R: lot, prices and profit/loss are optional. With the entry price, exit price and stop loss the app works out R itself."
+manual_entry.account_n:
+  vi: "Tài khoản %{id}"
+  en: "Account %{id}"
+manual_entry.manual_account:
+  vi: "Tài khoản nhập tay"
+  en: "Manual-entry account"
+
+# The form's fields (also what a problem names).
+manual_entry.field.account:
+  vi: "Tài khoản"
+  en: "Account"
+manual_entry.field.side:
+  vi: "Chiều"
+  en: "Side"
+manual_entry.field.opened:
+  vi: "Thời gian vào"
+  en: "Entry time"
+manual_entry.field.opened_time:
+  vi: "Giờ vào"
+  en: "Entry time of day"
+manual_entry.field.closed:
+  vi: "Thời gian ra"
+  en: "Exit time"
+manual_entry.field.closed_time:
+  vi: "Giờ ra"
+  en: "Exit time of day"
+manual_entry.field.volume:
+  vi: "Khối lượng"
+  en: "Volume"
+manual_entry.field.result_r:
+  vi: "Kết quả (R)"
+  en: "Result (R)"
+manual_entry.field.open_price:
+  vi: "Giá vào"
+  en: "Entry price"
+manual_entry.field.close_price:
+  vi: "Giá ra"
+  en: "Exit price"
+manual_entry.field.profit:
+  vi: "Lãi/lỗ"
+  en: "Profit/loss"
+manual_entry.what.result_r:
+  vi: "Kết quả R"
+  en: "Result in R"
+
+# What is wrong with a field.
+manual_entry.problem.symbol:
+  vi: "Nhập mã giao dịch (symbol)."
+  en: "Enter the trading symbol."
+manual_entry.problem.positive:
+  vi: "%{what} phải là số lớn hơn 0"
+  en: "%{what} must be a number greater than 0"
+manual_entry.problem.no_day:
+  vi: "%{what} chưa chọn: bấm ô để chọn ngày, rồi gõ giờ."
+  en: "%{what} is not chosen: press the box to pick a date, then type the time."
+manual_entry.problem.closed_before_opened:
+  vi: "Thời gian ra phải sau thời gian vào."
+  en: "The exit time must be after the entry time."
+manual_entry.problem.number:
+  vi: "%{what} phải là một số"
+  en: "%{what} must be a number"
+manual_entry.problem.profit:
+  vi: "Nhập lãi/lỗ của lệnh (chưa gồm commission và swap)."
+  en: "Enter the trade's profit/loss (before commission and swap)."
+manual_entry.problem.result_r:
+  vi: "Nhập kết quả (R) của lệnh, hoặc giá vào, giá ra và stop loss để app tự tính R."
+  en: "Enter the trade's result (R), or the entry price, exit price and stop loss so the app can work out R."
+
+# The line under the form that works things out.
+manual_entry.line.computed:
+  vi: "Tự tính: %{parts}"
+  en: "Calculated: %{parts}"
+manual_entry.line.net:
+  vi: "kết quả ròng %{amount}"
+  en: "net result %{amount}"
+manual_entry.line.held:
+  vi: "giữ %{duration}"
+  en: "held %{duration}"
+manual_entry.line.typed_r:
+  vi: "R nhập tay %{r}"
+  en: "typed R %{r}"
+manual_entry.line.stop_r:
+  vi: "R tự tính từ SL %{r}"
+  en: "R from the stop %{r}"
+manual_entry.line.empty_money:
+  vi: "Tự tính: nhập thời gian vào, ra và lãi/lỗ để xem kết quả ròng và thời gian giữ."
+  en: "Calculated: enter the entry and exit times and the profit/loss to see the net result and the hold time."
+manual_entry.line.empty_r:
+  vi: "Tự tính: nhập kết quả (R), hoặc giá vào, giá ra và stop loss để app tính R."
+  en: "Calculated: enter the result (R), or the entry price, exit price and stop loss for the app to work out R."
+
+# Editing the facts of a trade.
+manual_entry.edit.title:
+  vi: "Sửa lệnh"
+  en: "Edit trade"
+manual_entry.edit.summary:
+  vi: "Số liệu của lệnh; nhật ký, ảnh và liên kết của lệnh giữ nguyên"
+  en: "The trade's figures; its journal, images and links stay as they are"
+manual_entry.edit.reading:
+  vi: "Đang đọc lệnh…"
+  en: "Reading the trade…"
+manual_entry.edit.refused:
+  vi: "Không sửa được lệnh này"
+  en: "This trade cannot be edited"
+manual_entry.edit.back:
+  vi: "‹ Lệnh"
+  en: "‹ Trades"
+manual_entry.edit.save:
+  vi: "Lưu thay đổi"
+  en: "Save changes"
+manual_entry.edit.not_editable:
+  vi: "Lệnh này do MT5 báo cáo (hoặc gồm nhiều deal) nên không sửa số liệu được."
+  en: "This trade was reported by MT5 (or is made of several deals), so its figures cannot be edited."
+
+# What the edit page's side card says the trade keeps.
+manual_entry.kept.title:
+  vi: "Nhật ký & ảnh"
+  en: "Journal & images"
+manual_entry.kept.journal:
+  vi: "đã có nhật ký"
+  en: "a journal"
+manual_entry.kept.rating:
+  vi: "chấm %{n}/5"
+  en: "a rating of %{n}/5"
+manual_entry.kept.shots_one:
+  vi: "1 ảnh chart"
+  en: "1 chart image"
+manual_entry.kept.shots_many:
+  vi: "%{n} ảnh chart"
+  en: "%{n} chart images"
+manual_entry.kept.none:
+  vi: "Lệnh chưa có nhật ký hay ảnh."
+  en: "The trade has no journal or images yet."
+manual_entry.kept.sentence:
+  vi: "Lệnh %{kept}."
+  en: "The trade has %{kept}."
+manual_entry.kept.note:
+  vi: "Sửa số liệu không đụng tới nhật ký, ảnh và liên kết của lệnh: chúng giữ nguyên."
+  en: "Editing the figures does not touch the trade's journal, images and links: they stay as they are."
+manual_entry.kept.link:
+  vi: "Nhật ký và ảnh sửa ở trang lệnh"
+  en: "Edit the journal and images on the trade page"

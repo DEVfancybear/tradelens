@@ -1,0 +1,170 @@
+_version: 2
+
+core.attach.not_image:
+  vi: "%{name}: không phải ảnh (nhận PNG, JPG, WEBP, GIF)"
+  en: "%{name}: not an image (PNG, JPG, WEBP and GIF are accepted)"
+core.attach.too_large:
+  vi: "%{name}: ảnh lớn hơn 20 MB"
+  en: "%{name}: the image is larger than 20 MB"
+core.attach.io:
+  vi: "%{name}: không đọc/ghi được (%{source})"
+  en: "%{name}: cannot be read or written (%{source})"
+
+core.db.no_account:
+  vi: "không có tài khoản số %{id}"
+  en: "there is no account number %{id}"
+core.db.no_login:
+  vi: "thiếu số tài khoản"
+  en: "the account number is missing"
+core.db.blank_option:
+  vi: "Tên lựa chọn không được để trống."
+  en: "The option name cannot be empty."
+core.db.setup_name_taken:
+  vi: "đã có setup tên \"%{name}\""
+  en: "a setup named \"%{name}\" already exists"
+
+core.manual.many_deals:
+  vi: "lệnh này gồm nhiều deal (chốt từng phần hoặc đảo chiều), không sửa được"
+  en: "this trade is made of several deals (partial closes or a reversal), so it cannot be edited"
+core.manual.no_symbol:
+  vi: "thiếu mã giao dịch"
+  en: "the symbol is missing"
+core.manual.volume:
+  vi: "khối lượng"
+  en: "volume"
+core.manual.open_price:
+  vi: "giá vào"
+  en: "entry price"
+core.manual.close_price:
+  vi: "giá ra"
+  en: "exit price"
+core.manual.stop_loss:
+  vi: "stop loss"
+  en: "stop loss"
+core.manual.take_profit:
+  vi: "take profit"
+  en: "take profit"
+core.manual.result_r:
+  vi: "kết quả R"
+  en: "result in R"
+core.manual.must_be_positive:
+  vi: "%{label} phải là số dương"
+  en: "%{label} must be a positive number"
+core.manual.must_be_number:
+  vi: "%{label} phải là một số"
+  en: "%{label} must be a number"
+core.manual.money_must_be_numbers:
+  vi: "lãi/lỗ và phí phải là số"
+  en: "profit/loss and fees must be numbers"
+core.manual.need_profit_or_r:
+  vi: "nhập lãi/lỗ hoặc kết quả R của lệnh"
+  en: "enter the trade's profit/loss or its result in R"
+core.manual.close_before_open:
+  vi: "thời gian ra phải sau thời gian vào"
+  en: "the exit time must be after the entry time"
+core.manual.not_found:
+  vi: "không tìm thấy lệnh"
+  en: "the trade was not found"
+core.manual.from_mt5:
+  vi: "lệnh này do MT5 báo cáo nên không sửa số liệu được"
+  en: "this trade was reported by MT5, so its figures cannot be edited"
+
+core.notion.duplicate_ticket:
+  vi: "trùng mã lệnh nội bộ với một lệnh khác trong tài khoản"
+  en: "its internal ticket is the same as another trade's in the account"
+
+core.sync.negative_sequence:
+  vi: "số thứ tự âm: %{n}"
+  en: "negative sequence number: %{n}"
+core.sync.sequence_too_large:
+  vi: "số thứ tự quá lớn: %{n}"
+  en: "sequence number too large: %{n}"
+core.sync.path_not_utf8:
+  vi: "đường dẫn không phải UTF-8: %{path}"
+  en: "the path is not UTF-8: %{path}"
+core.sync.bad_key:
+  vi: "khoá đồng bộ không hợp lệ (%{entity}): %{key}"
+  en: "invalid sync key (%{entity}): %{key}"
+core.sync.unknown_kind:
+  vi: "loại đồng bộ không biết: %{kind}"
+  en: "unknown sync kind: %{kind}"
+
+core.news.bad_format:
+  vi: "lịch tin không đúng định dạng: %{error}"
+  en: "the news calendar has the wrong format: %{error}"
+core.news.bad_time:
+  vi: "lịch tin có giờ không đọc được: %{error}"
+  en: "the news calendar has a time that cannot be read: %{error}"
+core.news.empty:
+  vi: "lịch tin không có tin nào"
+  en: "the news calendar has no events"
+core.news.no_week_start:
+  vi: "không tính được đầu tuần của %{at}"
+  en: "cannot work out the start of the week of %{at}"
+
+core.legacy.copy_failed:
+  vi: "không chép được %{what}: %{source}"
+  en: "cannot copy %{what}: %{source}"
+core.legacy.checkpoint_failed:
+  vi: "không gộp được nhật ký ghi dở của dữ liệu cũ: %{error}"
+  en: "cannot merge the unfinished write log of the old data: %{error}"
+core.legacy.half_copied_folder:
+  vi: "thư mục chép dở"
+  en: "the half-copied folder"
+core.legacy.folder:
+  vi: "thư mục %{path}"
+  en: "folder %{path}"
+core.legacy.data_file:
+  vi: "tệp dữ liệu"
+  en: "the data file"
+
+core.field.wrong_kind:
+  vi: "trường \"%{field}\" cần kiểu giá trị khác"
+  en: "the field \"%{field}\" needs another kind of value"
+core.field.unknown_option:
+  vi: "\"%{value}\" không có trong lựa chọn của trường \"%{field}\""
+  en: "\"%{value}\" is not one of the options of the field \"%{field}\""
+core.field.out_of_scale:
+  vi: "trường \"%{field}\" chỉ nhận 1 – %{max}"
+  en: "the field \"%{field}\" only takes 1 – %{max}"
+core.field.bad_date:
+  vi: "ngày không hợp lệ ở trường \"%{field}\""
+  en: "invalid date in the field \"%{field}\""
+
+core.form.error.builtin_cannot_be_deleted:
+  vi: "thuộc tính có sẵn không xoá được, chỉ ẩn được"
+  en: "a built-in property cannot be deleted, only hidden"
+core.form.error.not_in_form:
+  vi: "không có thuộc tính này trong form"
+  en: "this property is not in the form"
+core.form.error.empty_label:
+  vi: "tên thuộc tính không được để trống"
+  en: "the property name cannot be empty"
+
+core.import.unreadable_file:
+  vi: "không đọc được file: %{error}"
+  en: "cannot read the file: %{error}"
+core.import.unsupported_format:
+  vi: "định dạng không hỗ trợ: %{format}"
+  en: "unsupported format: %{format}"
+core.import.no_deals:
+  vi: "không tìm thấy bảng Deals trong báo cáo"
+  en: "the Deals table was not found in the report"
+core.import.notion_csv:
+  vi: "file CSV là nhật ký Notion: đọc bằng import::notion::infer rồi lưu bằng Db::import_notion"
+  en: "the CSV file is a Notion journal: read it with import::notion::infer, then store it with Db::import_notion"
+core.import.excel_unreadable:
+  vi: "không đọc được file Excel: %{error}"
+  en: "cannot read the Excel file: %{error}"
+core.import.excel_no_sheet:
+  vi: "file Excel không có trang tính nào"
+  en: "the Excel file has no sheet"
+core.import.no_account_row:
+  vi: "không thấy dòng Account (số tài khoản, tiền tệ, server) trong báo cáo"
+  en: "the Account row (login, currency, server) was not found in the report"
+core.import.deal_not_number:
+  vi: "deal %{ticket}: cột %{column} không phải số: \"%{text}\""
+  en: "deal %{ticket}: column %{column} is not a number: \"%{text}\""
+core.import.deal_bad_time:
+  vi: "deal %{ticket}: không đọc được thời gian \"%{time}\""
+  en: "deal %{ticket}: cannot read the time \"%{time}\""

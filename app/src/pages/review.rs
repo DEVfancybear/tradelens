@@ -1,4 +1,4 @@
-//! Tổng kết & xem lại: câu hỏi tổng kết tuần/tháng, hàng chờ xem lại, mẫu ghi chú.
+//! Tổng kết & xem lại (Review): the week/month review questions, the review queue, the note templates.
 //! Design: `docs/design/screens/review.html`. The AI summary is not built yet: a disabled card.
 
 use chrono::{Duration, NaiveDate};
@@ -14,6 +14,7 @@ use super::{
     account_picker::account_picker,
     share::{self, PRIVACY_CHOICES, ShareTarget, privacy_label},
 };
+use crate::i18n::plural;
 use crate::{
     format::{self, Sign},
     insight, month_report, nav,
@@ -45,17 +46,17 @@ pub(super) fn jump(period: Period, start: NaiveDate) {
     global::<Jump>().set(Jump(Some((period, start))));
 }
 
-fn period_label(period: Period) -> &'static str {
+fn period_label(period: Period) -> String {
     match period {
-        Period::Week => "Tuần",
-        Period::Month => "Tháng",
+        Period::Week => t!("review.period.week"),
+        Period::Month => t!("review.period.month"),
     }
 }
 
-fn template_name(period: Period) -> &'static str {
+fn template_name(period: Period) -> String {
     match period {
-        Period::Week => "Tổng kết tuần",
-        Period::Month => "Tổng kết tháng",
+        Period::Week => t!("review.template.week"),
+        Period::Month => t!("review.template.month"),
     }
 }
 
@@ -96,15 +97,21 @@ pub(crate) fn review() -> impl IntoElement {
         untracked(|| requested.set(Jump(None)));
     });
     page_with(
-        "Tổng kết & xem lại",
-        "Nhìn lại tuần/tháng, trả lời câu hỏi tổng kết và dọn hàng chờ xem lại.",
+        t!("review.title"),
+        t!("review.summary"),
         view()
             .flex_row()
             .flex_wrap()
             .items_center()
             .gap_3()
             .child(account_picker())
-            .child(segmented("Kỳ", &PERIODS, period_label, move || period.get(), move |next| period.set(next)))
+            .child(segmented(
+                t!("review.period"),
+                &PERIODS,
+                period_label,
+                move || period.get(),
+                move |next| period.set(next),
+            ))
             .child(period_nav(period, anchor))
             .child(share_button(period, anchor)),
         view().gap_6().child(figures_row(period, anchor)).child(
@@ -140,27 +147,27 @@ fn period_nav(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEle
         .flex_row()
         .items_center()
         .gap_1()
-        .child(icon_action(Icon::ChevronLeft, "Kỳ trước", Variant::Ghost, move || {
+        .child(icon_action(Icon::ChevronLeft, t!("review.previous"), Variant::Ghost, move || {
             anchor.set(before(period.get_untracked(), anchor.get_untracked()));
         }))
         // Any day of the week or month picks it: the period holding that day is shown.
         .child(date_pick(
             DatePick::day(
-                "Chọn tuần hoặc tháng",
+                t!("review.pick"),
                 move || Some(anchor.get()),
                 || chrono::Local::now().date_naive(),
                 move |day| anchor.set(day),
             ),
             date_trigger(move || period.get().title(period.get().bounds(anchor.get()).0)),
         ))
-        .child(icon_action(Icon::ChevronRight, "Kỳ sau", Variant::Ghost, move || {
+        .child(icon_action(Icon::ChevronRight, t!("review.next"), Variant::Ghost, move || {
             anchor.set(after(period.get_untracked(), anchor.get_untracked()));
         }))
 }
 
 /// "Chia sẻ": the share dialog on the period shown.
 fn share_button(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoElement {
-    action_icon(Icon::Share, "Chia sẻ", Variant::Secondary, move || {
+    action_icon(Icon::Share, t!("review.share"), Variant::Secondary, move || {
         let shown = period.get_untracked();
         share::open(ShareTarget::Period(shown, shown.bounds(anchor.get_untracked()).0));
     })
@@ -176,9 +183,7 @@ fn report_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
     let note = signal(None::<String>);
     let export = move || {
         let Some(extras) = extras.value() else {
-            return failure.set(Some(
-                extras.error().unwrap_or_else(|| "Đang đọc dữ liệu của tháng, thử lại sau giây lát.".to_owned()),
-            ));
+            return failure.set(Some(extras.error().unwrap_or_else(|| t!("review.report.reading"))));
         };
         let start = Period::Month.bounds(anchor.get_untracked()).0;
         let report = month_report::build(&store.snapshot_now(), store.accounts.get_untracked().id(), start, &extras);
@@ -194,16 +199,12 @@ fn report_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
         (period.get() == Period::Month).then(|| {
             untracked(|| {
                 card(
-                    "Báo cáo tháng",
+                    t!("review.report.title"),
                     view()
                         .gap_3()
-                        .child(
-                            text("PDF A4: tổng quan, đường balance, lịch, playbook, lỗi, lệnh bỏ lỡ và tổng kết của tháng.")
-                                .text_sm()
-                                .text_color(move || theme().muted_foreground),
-                        )
+                        .child(text(t!("review.report.about")).text_sm().text_color(move || theme().muted_foreground))
                         .child(segmented(
-                            "Mức hiển thị của PDF",
+                            t!("review.report.privacy"),
                             &PRIVACY_CHOICES,
                             privacy_label,
                             move || privacy.get(),
@@ -215,7 +216,7 @@ fn report_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
                         }))
                         .child(view().flex_row().child(action_icon(
                             Icon::Download,
-                            "Xuất PDF tháng",
+                            t!("review.report.export"),
                             Variant::Secondary,
                             export,
                         ))),
@@ -263,7 +264,7 @@ fn closed_trades(snapshot: &Snapshot) -> Vec<Closed> {
             Some(Closed {
                 key: row.key().clone(),
                 title: format!("{} {} · {}", row.trade.symbol, row.trade.side.label(), closed.format("%d/%m")),
-                setup: if row.setup.is_empty() { "Không playbook".to_owned() } else { row.setup.clone() },
+                setup: if row.setup.is_empty() { t!("review.no_playbook") } else { row.setup.clone() },
                 day: closed.date(),
                 net: row.trade.net(),
                 money: row.trade.money_known(),
@@ -336,11 +337,11 @@ enum Highlight {
 }
 
 impl Highlight {
-    fn label(self) -> &'static str {
+    fn label(self) -> String {
         match self {
-            Self::Best => "Tốt nhất",
-            Self::Worst => "Tệ nhất",
-            Self::RightAndLost => "Đúng kế hoạch, vẫn thua",
+            Self::Best => t!("review.highlight.best"),
+            Self::Worst => t!("review.highlight.worst"),
+            Self::RightAndLost => t!("review.highlight.right_and_lost"),
         }
     }
 
@@ -397,10 +398,10 @@ fn share(part: usize, whole: usize) -> String {
 /// The line under the R tile: what each measured trade made on average.
 fn r_note(total: f64, measured: usize) -> String {
     if measured == 0 {
-        return "chưa có lệnh đo được R".to_owned();
+        return t!("review.r_note.none");
     }
     let average = total / f64::from(u32::try_from(measured).unwrap_or(u32::MAX));
-    format!("kỳ vọng {} / lệnh", format::r_average(Some(average)))
+    t!("review.r_note.expectancy", r = format::r_average(Some(average)))
 }
 
 fn figures_row(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoElement {
@@ -428,11 +429,11 @@ fn figures_row(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
             move || {
                 now.with(|f| {
                     if f.in_r() {
-                        format!("{} lệnh ghi theo R", f.trades)
+                        t!("review.tile.in_r", n = f.trades)
                     } else if f.money_trades < f.trades {
-                        format!("{} lệnh có tiền, {} lệnh chỉ có R", f.money_trades, f.trades - f.money_trades)
+                        t!("review.tile.mixed", money = f.money_trades, r_only = f.trades - f.money_trades)
                     } else {
-                        format!("{} lệnh", f.trades)
+                        format::trade_count(f.trades)
                     }
                 })
             },
@@ -446,17 +447,17 @@ fn figures_row(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
             move || now.with(|f| r_note(f.total_r, f.r_trades)),
         ))
         .child(stat_tile(
-            "Thắng",
+            t!("review.tile.win"),
             move || (now.with(|f| share(f.wins, f.trades)), Tone::Neutral),
             move || now.with(|f| format!("{} / {}", f.wins, f.trades)),
         ))
         .child(stat_tile(
-            "Đã ghi nhật ký",
+            t!("review.tile.journaled"),
             move || (now.with(|f| share(f.journalled, f.trades)), Tone::Neutral),
-            move || now.with(|f| format!("{} / {} lệnh", f.journalled, f.trades)),
+            move || now.with(|f| plural!(f.trades, "review.tile.journaled_of", done = f.journalled, all = f.trades)),
         ))
         .child(stat_tile(
-            "Chi phí lỗi",
+            t!("review.tile.mistake_cost"),
             move || {
                 if now.with(Figures::in_r) {
                     let cost = now.with(|f| f.mistake_r);
@@ -468,9 +469,9 @@ fn figures_row(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoEl
             move || {
                 now.with(|f| {
                     if f.in_r() {
-                        format!("{} lệnh có lỗi", f.mistake_trades)
+                        t!("review.tile.with_mistake", n = f.mistake_trades)
                     } else {
-                        format!("{} · {} lệnh", format::r_text(Some(f.mistake_r)), f.mistake_trades)
+                        format!("{} · {}", format::r_text(Some(f.mistake_r)), format::trade_count(f.mistake_trades))
                     }
                 })
             },
@@ -532,7 +533,7 @@ fn questions_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl Int
         .border_1()
         .border_color(move || theme().border)
         .bg(move || theme().card)
-        .child(text("Câu hỏi tổng kết").text_sm().font_weight(FontWeight::SEMIBOLD))
+        .child(text(t!("review.questions")).text_sm().font_weight(FontWeight::SEMIBOLD))
         .child(dynamic(move || match shown.get() {
             // The form is made once for the review it shows, then follows what is stored of it.
             Some(_) => untracked(|| match source.get_untracked() {
@@ -540,7 +541,7 @@ fn questions_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl Int
                 None => view().into_element(),
             }),
             None => untracked(|| {
-                text(move || loaded.error().unwrap_or_else(|| "Đang tải…".to_owned()))
+                text(move || loaded.error().unwrap_or_else(|| t!("common.loading")))
                     .text_sm()
                     .text_color(move || theme().muted_foreground)
                     .into_element()
@@ -623,7 +624,7 @@ fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement
     view()
         .gap_4()
         .child(answer_rows(answers))
-        .child(add_field("Thêm câu hỏi", "+ Thêm câu hỏi cho kỳ này, rồi Enter", move |typed| {
+        .child(add_field(t!("review.add_question"), t!("review.add_question_placeholder"), move |typed| {
             let prompt = typed.trim().to_owned();
             if !prompt.is_empty() {
                 answers.update(|a| a.push((prompt, String::new())));
@@ -634,8 +635,8 @@ fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement
                 .flex_row()
                 .items_center()
                 .gap_3()
-                .child(text("Điểm kỷ luật của kỳ").text_xs().text_color(move || theme().muted_foreground))
-                .child(rating("Điểm kỷ luật", move || grade.get(), move |next| grade.set(next))),
+                .child(text(t!("review.grade_caption")).text_xs().text_color(move || theme().muted_foreground))
+                .child(rating(t!("review.grade"), move || grade.get(), move |next| grade.set(next))),
         )
         .child(dynamic(move || failure.get().map(error_line)))
         .child(
@@ -647,18 +648,18 @@ fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement
                 .child(
                     save_status(move || {
                         if busy.get() {
-                            "Đang lưu…"
+                            t!("common.saving")
                         } else if dirty.get() {
-                            "Chưa lưu — bấm Lưu tổng kết trước khi đổi kỳ"
+                            t!("review.unsaved")
                         } else {
-                            "Đã lưu"
+                            t!("review.saved")
                         }
                     })
                     .text_xs(),
                 )
                 .child(action_icon_when(
                     Icon::Check,
-                    "Lưu tổng kết",
+                    t!("review.save"),
                     Variant::Primary,
                     move || dirty.get() && !busy.get(),
                     save,
@@ -671,7 +672,7 @@ fn answers_form(first: Source, latest: Memo<Option<Source>>) -> impl IntoElement
 fn highlights_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl IntoElement {
     let store = store();
     card(
-        "Lệnh nổi bật",
+        t!("review.highlights"),
         dynamic(move || {
             let p = period.get();
             let start = p.bounds(anchor.get()).0;
@@ -681,12 +682,17 @@ fn highlights_card(period: Signal<Period>, anchor: Signal<NaiveDate>) -> impl In
                 let inside = within(&trades, p, start);
                 let picked = highlights(&inside);
                 if picked.is_empty() {
-                    return empty_state("Chưa có lệnh nổi bật", "Kỳ này chưa có lệnh thắng hay thua đã đóng.")
+                    return empty_state(t!("review.highlights_empty"), t!("review.highlights_empty_hint"))
                         .into_element();
                 }
                 let currency = snapshot.currency.clone();
                 mini_table(
-                    vec![Column::start("Lệnh"), Column::start("Setup"), Column::end("R"), Column::end("Net")],
+                    vec![
+                        Column::start(t!("review.column.trade")),
+                        Column::start("Setup"),
+                        Column::end("R"),
+                        Column::end("Net"),
+                    ],
                     picked
                         .into_iter()
                         .map(|(kind, t)| {
@@ -740,17 +746,17 @@ fn queue_groups(snapshot: &Snapshot) -> (usize, Vec<(QueueReason, Vec<TradeKey>)
 
 fn queue_title(reason: QueueReason, count: usize) -> String {
     match reason {
-        QueueReason::NotJournalled => format!("{count} lệnh chưa ghi nhật ký"),
-        QueueReason::Flagged => format!("{count} lệnh đánh dấu “Xem lại sau”"),
-        QueueReason::LostMoreThanRisk => format!("{count} lệnh lỗ quá 1R"),
+        QueueReason::NotJournalled => plural!(count, "review.queue.not_journalled", count = count),
+        QueueReason::Flagged => plural!(count, "review.queue.flagged", count = count),
+        QueueReason::LostMoreThanRisk => plural!(count, "review.queue.lost_more", count = count),
     }
 }
 
-fn queue_action(reason: QueueReason) -> &'static str {
+fn queue_action(reason: QueueReason) -> String {
     match reason {
-        QueueReason::NotJournalled => "Ghi ngay",
-        QueueReason::Flagged => "Mở",
-        QueueReason::LostMoreThanRisk => "Gắn lỗi",
+        QueueReason::NotJournalled => t!("review.queue.journal_now"),
+        QueueReason::Flagged => t!("review.queue.open"),
+        QueueReason::LostMoreThanRisk => t!("review.queue.tag_mistake"),
     }
 }
 
@@ -780,23 +786,21 @@ fn queue_card() -> impl IntoElement {
                             .items_center()
                             .justify_between()
                             .child(
-                                text(format!("Hàng chờ xem lại · {total}")).text_sm().font_weight(FontWeight::SEMIBOLD),
+                                text(t!("review.queue.title", total = total))
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD),
                             )
                             .when(total > 0, |row| row.child(chip(total.to_string(), Tone::Primary))),
                     )
                     .when(groups.is_empty(), |v| {
-                        v.child(
-                            text("Hàng chờ trống: không còn lệnh nào cần xem lại.")
-                                .text_sm()
-                                .text_color(move || theme().muted_foreground),
-                        )
+                        v.child(text(t!("review.queue.empty")).text_sm().text_color(move || theme().muted_foreground))
                     })
                     .children(groups.into_iter().map(|(reason, keys)| {
                         let names: Vec<&str> =
                             keys.iter().take(NAMED).filter_map(|k| titles.get(k).map(String::as_str)).collect();
                         let more = keys.len().saturating_sub(NAMED);
                         let detail = if more > 0 {
-                            format!("{} và {more} lệnh nữa", names.join(", "))
+                            t!("review.queue.and_more", names = names.join(", "), more = more)
                         } else {
                             names.join(", ")
                         };
@@ -817,16 +821,12 @@ fn queue_card() -> impl IntoElement {
 /// The AI summary is not built yet: shown, and off.
 fn ai_card() -> impl IntoElement {
     card(
-        "Tóm tắt kỳ bằng AI",
+        t!("review.ai.title"),
         view()
             .gap_3()
-            .child(chip("Chưa làm", Tone::Neutral))
-            .child(
-                text("Tắt mặc định. Khi có, chỉ gửi R, tag, lỗi và ghi chú — không gửi số tiền — để AI gợi ý điều cần tự kiểm tra.")
-                    .text_sm()
-                    .text_color(move || theme().muted_foreground),
-            )
-            .child(view().flex_row().child(action_when("Tạo tóm tắt", Variant::Secondary, || false, || {}))),
+            .child(chip(t!("review.ai.not_built"), Tone::Neutral))
+            .child(text(t!("review.ai.about")).text_sm().text_color(move || theme().muted_foreground))
+            .child(view().flex_row().child(action_when(t!("review.ai.create"), Variant::Secondary, || false, || {}))),
     )
 }
 
@@ -837,7 +837,7 @@ fn templates_card() -> impl IntoElement {
     // Whether each template has been read: a memo, so that a re-read does not rebuild the editor.
     let (week_read, month_read) = (computed(move || week.value().is_some()), computed(move || month.value().is_some()));
     card(
-        "Mẫu ghi chú",
+        t!("review.templates"),
         view()
             .gap_2()
             .child(template_row(Period::Week, week, editing))
@@ -884,7 +884,11 @@ fn template_row(
                     text(move || {
                         template.value().map_or_else(String::new, |t| {
                             let default = *t == ReviewTemplate::default_for(period);
-                            format!("{} câu{}", t.prompts.len(), if default { " · mặc định" } else { "" })
+                            if default {
+                                plural!(t.prompts.len(), "review.template.count_default", n = t.prompts.len())
+                            } else {
+                                plural!(t.prompts.len(), "review.template.count", n = t.prompts.len())
+                            }
                         })
                     })
                     .text_xs()
@@ -892,7 +896,7 @@ fn template_row(
                 )
                 .child(icon_action(
                     Icon::Edit,
-                    format!("Sửa mẫu {}", template_name(period)),
+                    t!("review.template.edit", name = template_name(period)),
                     Variant::Ghost,
                     move || {
                         editing.set(Some(period));
@@ -910,7 +914,7 @@ fn template_editor(template: ReviewTemplate, editing: Signal<Option<Period>>) ->
     let save = move || {
         let kept = filled(&prompts.get_untracked());
         if kept.is_empty() {
-            return failure.set(Some("Cần ít nhất một câu hỏi.".to_owned()));
+            return failure.set(Some(t!("review.template.need_one")));
         }
         write.run(
             move |db| db.save_review_template(&ReviewTemplate { period, prompts: kept }),
@@ -924,11 +928,16 @@ fn template_editor(template: ReviewTemplate, editing: Signal<Option<Period>>) ->
         .gap_3()
         .pt_3()
         .child(
-            text(format!("Câu hỏi của “{}”", template_name(period)))
+            text(t!("review.template.questions_of", name = template_name(period)))
                 .text_xs()
                 .text_color(move || theme().muted_foreground),
         )
-        .child(line_list("Câu hỏi", "Thêm câu hỏi", move || prompts.get(), move |next| prompts.set(next)))
+        .child(line_list(
+            t!("review.template.questions"),
+            t!("review.add_question"),
+            move || prompts.get(),
+            move |next| prompts.set(next),
+        ))
         .child(dynamic(move || failure.get().map(error_line)))
         .child(
             view()
@@ -936,11 +945,11 @@ fn template_editor(template: ReviewTemplate, editing: Signal<Option<Period>>) ->
                 .flex_wrap()
                 .items_center()
                 .gap_2()
-                .child(action("Mặc định", Variant::Ghost, move || {
+                .child(action(t!("review.template.default"), Variant::Ghost, move || {
                     prompts.set(ReviewTemplate::default_for(period).prompts);
                 }))
-                .child(action("Huỷ", Variant::Ghost, move || editing.set(None)))
-                .child(action_icon(Icon::Check, "Lưu mẫu", Variant::Secondary, save)),
+                .child(action(t!("common.cancel"), Variant::Ghost, move || editing.set(None)))
+                .child(action_icon(Icon::Check, t!("review.template.save"), Variant::Secondary, save)),
         )
 }
 
@@ -1049,13 +1058,22 @@ mod tests {
         assert_eq!(tone_of(1.0), Tone::Profit);
         assert_eq!(tone_of(-0.5), Tone::Loss);
         assert_eq!(tone_of(0.0), Tone::Neutral);
-        assert_eq!(r_note(3.0, 4), "kỳ vọng +0.75R / lệnh");
-        assert_eq!(r_note(0.0, 0), "chưa có lệnh đo được R");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            assert_eq!(r_note(3.0, 4), "kỳ vọng +0.75R / lệnh");
+            assert_eq!(r_note(0.0, 0), "chưa có lệnh đo được R");
+        });
     }
 
     #[test]
     fn the_queue_names_what_to_do() {
-        assert_eq!(queue_title(QueueReason::NotJournalled, 3), "3 lệnh chưa ghi nhật ký");
-        assert_eq!(queue_action(QueueReason::Flagged), "Mở");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            assert_eq!(queue_title(QueueReason::NotJournalled, 3), "3 lệnh chưa ghi nhật ký");
+            assert_eq!(queue_action(QueueReason::Flagged), "Mở");
+        });
+        crate::i18n::with_text(crate::i18n::Lang::En, || {
+            assert_eq!(queue_title(QueueReason::Flagged, 2), "2 trades marked “Review later”");
+            assert_eq!(queue_action(QueueReason::LostMoreThanRisk), "Tag mistake");
+            assert_eq!(r_note(3.0, 4), "expectancy +0.75R / trade");
+        });
     }
 }

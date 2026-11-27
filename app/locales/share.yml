@@ -1,0 +1,115 @@
+_version: 2
+
+# Chia sẻ kết quả: the dialog that draws a card to save or copy, and the month's PDF (pages/share.rs).
+
+share.title:
+  vi: "Chia sẻ kết quả"
+  en: "Share a result"
+share.privacy:
+  vi: "Quyền riêng tư"
+  en: "Privacy"
+share.privacy.show_money:
+  vi: "Hiện tiền"
+  en: "Show money"
+share.privacy.only_r:
+  vi: "Chỉ R"
+  en: "R only"
+share.privacy.no_figures:
+  vi: "Ẩn số"
+  en: "No figures"
+share.preview:
+  vi: "Xem trước thẻ chia sẻ"
+  en: "Share card preview"
+share.drawing:
+  vi: "Đang dựng ảnh…"
+  en: "Drawing the image…"
+share.toggle.account:
+  vi: "Hiện tên tài khoản / broker"
+  en: "Show account / broker name"
+share.toggle.setup:
+  vi: "Hiện tên setup"
+  en: "Show setup name"
+share.toggle.chart:
+  vi: "Kèm ảnh chart"
+  en: "Include the chart image"
+share.toggle.chart_hint:
+  vi: "Ảnh chụp chart có thể hiện số tiền: xem kỹ ảnh trước khi đăng."
+  en: "A chart screenshot may show amounts of money: check the image before you post it."
+share.save_image:
+  vi: "Lưu ảnh"
+  en: "Save image"
+share.copy_image:
+  vi: "Sao chép ảnh"
+  en: "Copy image"
+share.copied:
+  vi: "Đã sao chép ảnh vào clipboard."
+  en: "The image was copied to the clipboard."
+share.export_month:
+  vi: "Xuất báo cáo PDF tháng %{month} →"
+  en: "Export the %{name} PDF report →"
+
+# Suggested file names (no extension): the word between "tradelens-" and the date.
+share.file.week:
+  vi: "tuan"
+  en: "week"
+share.file.month:
+  vi: "thang"
+  en: "month"
+share.file.report:
+  vi: "bao-cao"
+  en: "report"
+
+# The save dialogs and what they report.
+share.png.filter:
+  vi: "Ảnh PNG"
+  en: "PNG image"
+share.png.title:
+  vi: "Lưu ảnh chia sẻ"
+  en: "Save the share image"
+share.png.saved:
+  vi: "Đã lưu ảnh: %{path}"
+  en: "Image saved: %{path}"
+share.png.not_saved:
+  vi: "Không lưu được ảnh: %{error}"
+  en: "Could not save the image: %{error}"
+share.png.stopped:
+  vi: "Luồng ghi ảnh bị dừng: %{error}"
+  en: "The image-writing task stopped: %{error}"
+share.pdf.filter:
+  vi: "Báo cáo PDF"
+  en: "PDF report"
+share.pdf.title:
+  vi: "Lưu báo cáo tháng"
+  en: "Save the month report"
+share.pdf.saved:
+  vi: "Đã lưu báo cáo: %{path}"
+  en: "Report saved: %{path}"
+share.pdf.not_saved:
+  vi: "Không lưu được báo cáo: %{error}"
+  en: "Could not save the report: %{error}"
+share.pdf.stopped:
+  vi: "Luồng ghi báo cáo bị dừng: %{error}"
+  en: "The report-writing task stopped: %{error}"
+
+# Errors.
+share.error.dialog:
+  vi: "Không mở được hộp thoại lưu file: %{error}"
+  en: "Could not open the save dialog: %{error}"
+share.error.closed_only:
+  vi: "Chỉ chia sẻ được lệnh đã đóng."
+  en: "Only a closed trade can be shared."
+share.error.draw:
+  vi: "Không dựng được ảnh: %{error}"
+  en: "Could not draw the image: %{error}"
+share.error.write_preview:
+  vi: "Không ghi được ảnh xem trước: %{error}"
+  en: "Could not write the preview image: %{error}"
+share.error.draw_stopped:
+  vi: "Luồng dựng ảnh bị dừng: %{error}"
+  en: "The image-drawing task stopped: %{error}"
+share.error.copy_stopped:
+  vi: "Luồng sao chép ảnh bị dừng: %{error}"
+  en: "The image-copying task stopped: %{error}"
+share.error.reading:
+  vi: "Đang đọc dữ liệu của tháng, thử lại sau giây lát."
+  en: "Reading the month's data, try again in a moment."

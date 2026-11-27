@@ -138,8 +138,8 @@ impl KeyringStore {
 impl TokenStore for KeyringStore {
     fn load(&self, provider: Provider) -> crate::Result<Option<Tokens>> {
         let Some(json) = self.load_secret(&Self::tokens_name(provider))? else { return Ok(None) };
-        let persisted: Persisted =
-            serde_json::from_str(&json).map_err(|e| CloudError::Store(format!("token đã lưu không đọc được: {e}")))?;
+        let persisted: Persisted = serde_json::from_str(&json)
+            .map_err(|e| CloudError::Store(crate::tr!("cloud.store.unreadable_token", error = e)))?;
         Ok(Some(Tokens { access_token: String::new(), refresh_token: persisted.refresh_token, expires_at: 0 }))
     }
 

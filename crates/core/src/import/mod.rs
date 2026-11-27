@@ -15,15 +15,15 @@ mod table;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ImportError {
-    #[error("không đọc được file: {0}")]
+    #[error("{}", crate::tr!("core.import.unreadable_file", error = .0))]
     Io(#[from] std::io::Error),
-    #[error("định dạng không hỗ trợ: {0}")]
+    #[error("{}", crate::tr!("core.import.unsupported_format", format = .0))]
     Unsupported(String),
-    #[error("không tìm thấy bảng Deals trong báo cáo")]
+    #[error("{}", crate::tr!("core.import.no_deals"))]
     NoDeals,
     #[error("{0}")]
     Invalid(String),
-    #[error("chưa làm: {0}")]
+    #[error("{}", crate::tr!("db.not_implemented", what = .0))]
     NotImplemented(&'static str),
 }
 
@@ -71,9 +71,7 @@ pub fn read_file(path: &Path) -> Result<(Format, DealBatch), ImportError> {
         Format::Mt5Html => mt5_html::parse(&std::fs::read(path)?)?,
         Format::Mt5Xlsx => mt5_xlsx::read(path)?,
         Format::NotionCsv => {
-            return Err(ImportError::Invalid(
-                "file CSV là nhật ký Notion: đọc bằng import::notion::infer rồi lưu bằng Db::import_notion".into(),
-            ));
+            return Err(ImportError::Invalid(crate::tr!("core.import.notion_csv")));
         }
         Format::Json => json::parse(&std::fs::read(path)?)?,
     };

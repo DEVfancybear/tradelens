@@ -192,12 +192,12 @@ pub fn install_packages(root: &Path, source: &Source) -> Result<(), Mt5Error> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let output = python::output_within(run, PIP_LIMIT)
-        .map_err(|error| Mt5Error::Setup(format!("không chạy được pip của Python riêng: {error}")))?;
+        .map_err(|error| Mt5Error::Setup(crate::tr!("mt5.runtime.pip_launch_failed", error = error)))?;
     drop(fs::remove_file(&requirements));
     if output.status.success() {
         return Ok(());
     }
-    Err(Mt5Error::Setup(format!("pip không cài được gói MetaTrader5: {}", python::tail(&output.stderr))))
+    Err(Mt5Error::Setup(crate::tr!("mt5.runtime.pip_failed", tail = python::tail(&output.stderr))))
 }
 
 /// Unpacks pip's wheel beside `site-packages` and moves its folders in, then writes the marker:
@@ -223,7 +223,7 @@ fn put_pip(root: &Path, source: &Source, site_packages: &Path) -> Result<(), Mt5
 }
 
 fn write_error(path: &Path, error: &io::Error) -> Mt5Error {
-    Mt5Error::Setup(format!("Không ghi được {}: {error}", path.display()))
+    Mt5Error::Setup(crate::tr!("mt5.write_failed", path = path.display(), error = error))
 }
 
 /// Removes the folder `dir` when it is there.
@@ -260,9 +260,13 @@ fn fetch(asset: &Asset, path: &Path) -> Result<(), Mt5Error> {
 fn fetch_unchecked(asset: &Asset, path: &Path) -> Result<(), Mt5Error> {
     let (size, sha256) = download(&asset.url, path, asset.size.saturating_add(1))?;
     if size != asset.size || sha256 != asset.sha256 {
-        return Err(Mt5Error::Setup(format!(
-            "File tải về không đúng ({}): {size} byte, SHA-256 {sha256}; cần {} byte, {}.",
-            asset.url, asset.size, asset.sha256
+        return Err(Mt5Error::Setup(crate::tr!(
+            "mt5.runtime.wrong_download",
+            url = asset.url,
+            size = size,
+            sha256 = sha256,
+            want_size = asset.size,
+            want_sha256 = asset.sha256
         )));
     }
     Ok(())
@@ -272,7 +276,9 @@ fn fetch_unchecked(asset: &Asset, path: &Path) -> Result<(), Mt5Error> {
 /// the SHA-256 (lowercase hex) of what arrived. What was written stays at `path` when this fails:
 /// the caller removes it.
 pub(crate) fn download(url: &str, path: &Path, limit: u64) -> Result<(u64, String), Mt5Error> {
-    let network = |error: &dyn std::fmt::Display| Mt5Error::Setup(format!("Không tải được {url}: {error}"));
+    let network = |error: &dyn std::fmt::Display| {
+        Mt5Error::Setup(crate::tr!("mt5.runtime.download_failed", url = url, error = error))
+    };
     // The machine's own certificate store: an antivirus or a company proxy that inspects HTTPS adds
     // its certificate there, and the download must work where the browser does.
     let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
@@ -312,7 +318,7 @@ fn unpack(archive: &Path, into: &Path) -> io::Result<()> {
     for index in 0..zip.len() {
         let mut entry = zip.by_index(index).map_err(io::Error::other)?;
         let relative = entry.enclosed_name().ok_or_else(|| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("đường dẫn lạ trong gói: mục {index}"))
+            io::Error::new(io::ErrorKind::InvalidData, crate::tr!("mt5.runtime.odd_path", index = index))
         })?;
         let path = into.join(relative);
         if entry.is_dir() {
@@ -335,7 +341,7 @@ fn enable_site(dir: &Path) -> io::Result<()> {
         .filter_map(Result::ok)
         .map(|entry| entry.path())
         .find(|path| path.extension().is_some_and(|ext| ext == "_pth"))
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "gói Python không có file ._pth"))?;
+        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, crate::tr!("mt5.runtime.no_pth")))?;
     let text = fs::read_to_string(&pth)?;
     fs::write(&pth, site_enabled(&text))
 }

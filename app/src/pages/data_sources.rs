@@ -16,6 +16,7 @@ use tradelens_core::{
     time::naive,
 };
 
+use crate::i18n::plural;
 use crate::{
     cloud as app_cloud,
     format::{self, Sign},
@@ -30,10 +31,11 @@ use crate::{
 };
 
 /// What the report importer takes: MT5's HTML and XLSX, and the JSON the Python script writes.
-const REPORT_FILES: Accept = Accept { name: "Báo cáo MT5 hoặc JSON", extensions: &["html", "htm", "xlsx", "json"] };
+const REPORT_FILES: Accept =
+    Accept { name: || t!("data_sources.accept.reports"), extensions: &["html", "htm", "xlsx", "json"] };
 
 /// What the Notion importer takes: the CSV, or the zip Notion writes with the images beside it.
-const NOTION_FILES: Accept = Accept { name: "CSV hoặc ZIP của Notion", extensions: &["csv", "zip"] };
+const NOTION_FILES: Accept = Accept { name: || t!("data_sources.accept.notion"), extensions: &["csv", "zip"] };
 
 /// What the trader runs, in `python/`, to write the history of the open terminal to a file.
 const PYTHON_COMMAND: &str = "python tradelens_sync.py --days 365 --out deals.json";
@@ -49,8 +51,8 @@ const DEFAULT_ACCOUNT: &str = "";
 
 pub(crate) fn data_sources() -> impl IntoElement {
     page(
-        "Nguồn dữ liệu",
-        "Kết nối tài khoản MT5, import báo cáo MT5, file JSON của script Python và CSV Notion.",
+        t!("nav.data_sources"),
+        t!("data_sources.summary"),
         view()
             .flex_row()
             .flex_wrap()
@@ -72,14 +74,10 @@ pub(crate) fn data_sources() -> impl IntoElement {
 /// How to export the history of the open terminal with the Python script.
 fn python_card() -> impl IntoElement {
     card(
-        "Script Python (MetaTrader5)",
+        t!("data_sources.python.title"),
         view()
             .gap_3()
-            .child(
-                text("Ghi lịch sử của terminal MT5 đang mở ra file JSON (chỉ Windows), rồi import file đó ở thẻ bên trái.")
-                    .text_sm()
-                    .text_color(move || theme().muted_foreground),
-            )
+            .child(text(t!("data_sources.python.body")).text_sm().text_color(move || theme().muted_foreground))
             .child(
                 view()
                     .gap_1()
@@ -100,8 +98,18 @@ fn python_card() -> impl IntoElement {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct FileOutcome {
     name: String,
-    /// The summary, or why the file could not be imported (Vietnamese).
-    result: Result<String, String>,
+    /// What the file added, or why it could not be imported (in words).
+    result: Result<Imported, String>,
+}
+
+/// What importing one report added, as numbers: the import runs on a blocking thread, which cannot
+/// make the app's text, so [`outcome_line`] says it where it is shown.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Imported {
+    inserted: usize,
+    updated: usize,
+    existing: usize,
+    login: String,
 }
 
 /// Imports each file into the database, one by one: a file that cannot be read does not stop the
@@ -116,16 +124,15 @@ fn import_reports(db: &mut Db, paths: &[PathBuf]) -> Vec<FileOutcome> {
         .collect()
 }
 
-fn import_report(db: &mut Db, path: &std::path::Path) -> Result<String, String> {
+fn import_report(db: &mut Db, path: &std::path::Path) -> Result<Imported, String> {
     let (format, batch) = import::read_file(path).map_err(|error| error.to_string())?;
     let report = db.upsert_batch(&batch, format.source()).map_err(|error| error.to_string())?;
-    Ok(format!(
-        "{} deal mới, {} deal cập nhật, {} deal đã có · tài khoản {}",
-        report.inserted,
-        report.updated,
-        batch.deals.len().saturating_sub(report.inserted + report.updated),
-        batch.account.login
-    ))
+    Ok(Imported {
+        inserted: report.inserted,
+        updated: report.updated,
+        existing: batch.deals.len().saturating_sub(report.inserted + report.updated),
+        login: batch.account.login,
+    })
 }
 
 fn report_import_card() -> impl IntoElement {
@@ -133,17 +140,13 @@ fn report_import_card() -> impl IntoElement {
     let results = signal(Vec::<FileOutcome>::new());
     let busy = signal(false);
     card(
-        "Import báo cáo MT5",
+        t!("data_sources.report.title"),
         view()
             .gap_3()
-            .child(
-                text("Báo cáo MT5 (History → Report → HTML hoặc Open XML), hoặc file JSON từ script Python. Import lại cùng file không tạo trùng.")
-                    .text_sm()
-                    .text_color(move || theme().muted_foreground),
-            )
+            .child(text(t!("data_sources.report.body")).text_sm().text_color(move || theme().muted_foreground))
             .child(dropzone(
-                "Kéo thả báo cáo MT5 vào đây",
-                "HTML, XLSX hoặc JSON · chọn được nhiều file",
+                t!("data_sources.report.drop"),
+                t!("data_sources.report.drop_hint"),
                 REPORT_FILES,
                 Pick::Many,
                 move |paths: Vec<PathBuf>| {
@@ -152,12 +155,18 @@ fn report_import_card() -> impl IntoElement {
                         move |db| Ok(import_reports(db, &paths)),
                         move |outcome| {
                             busy.set(false);
-                            results.set(outcome.unwrap_or_else(|message| vec![FileOutcome { name: String::new(), result: Err(message) }]));
+                            results.set(outcome.unwrap_or_else(|message| {
+                                vec![FileOutcome { name: String::new(), result: Err(message) }]
+                            }));
                         },
                     );
                 },
             ))
-            .child(dynamic(move || busy.get().then(|| text("Đang nhập…").text_sm().text_color(move || theme().muted_foreground))))
+            .child(dynamic(move || {
+                busy.get().then(|| {
+                    text(t!("data_sources.report.importing")).text_sm().text_color(move || theme().muted_foreground)
+                })
+            }))
             .child(dynamic(move || {
                 let lines = results.get();
                 untracked(|| view().gap_1().children(lines.iter().map(outcome_line)))
@@ -165,10 +174,21 @@ fn report_import_card() -> impl IntoElement {
     )
 }
 
+/// What a report added, in a sentence.
+fn imported_text(imported: &Imported) -> String {
+    t!(
+        "data_sources.report.result",
+        inserted = imported.inserted,
+        updated = imported.updated,
+        existing = imported.existing,
+        login = imported.login
+    )
+}
+
 /// A line under the drop zone, the failure in the loss colour.
 fn outcome_line(outcome: &FileOutcome) -> impl IntoElement {
     let (line, failed) = match &outcome.result {
-        Ok(summary) => (format!("{}: {summary}", outcome.name), false),
+        Ok(imported) => (format!("{}: {}", outcome.name, imported_text(imported)), false),
         Err(reason) if outcome.name.is_empty() => (reason.clone(), true),
         Err(reason) => (format!("{}: {reason}", outcome.name), true),
     };
@@ -177,7 +197,7 @@ fn outcome_line(outcome: &FileOutcome) -> impl IntoElement {
 
 // --- importing a Notion export --------------------------------------------------------------------------
 
-/// The Notion data that was read, waiting for the trader to press "Nhập".
+/// The Notion data that was read, waiting for the trader to press "Import".
 #[derive(Debug, Clone)]
 struct Preview {
     file: String,
@@ -237,7 +257,7 @@ impl Flow {
             self.read(match read {
                 Ok(Ok((plan, archive))) => Ok(Preview { file, plan, archive }),
                 Ok(Err(error)) => Err(format!("{file}: {error}")),
-                Err(error) => Err(format!("Luồng đọc file bị dừng: {error}")),
+                Err(error) => Err(t!("data_sources.notion.read_stopped", error = error)),
             });
         });
     }
@@ -294,26 +314,35 @@ fn notion_import_card() -> impl IntoElement {
     let flow = Flow::new();
     let import_now: Rc<dyn Fn()> = Rc::new(move || flow.import(write, attachments.clone()));
     card(
-        "Import từ Notion",
+        t!("data_sources.notion.title"),
         view()
             .gap_3()
             .child(
-                view().flex_row().items_center().gap_2().child(chip("Tự động", Tone::Primary)).child(
-                    text("Database → ••• → Export → Markdown & CSV, rồi thả file .zip (hoặc file .csv đã giải nén) vào đây. Không cần ghép cột: app tự nhận ra cột nào là gì từ nội dung.")
-                        .text_sm()
-                        .flex_1()
-                        .text_color(move || theme().muted_foreground),
-                ),
+                view()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(chip(t!("data_sources.notion.auto"), Tone::Primary))
+                    .child(
+                        text(t!("data_sources.notion.body"))
+                            .text_sm()
+                            .flex_1()
+                            .text_color(move || theme().muted_foreground),
+                    ),
             )
             .child(dropzone(
-                "Kéo thả file ZIP hoặc CSV của Notion vào đây",
-                "Nhận file .zip (kèm ảnh) hoặc .csv",
+                t!("data_sources.notion.drop"),
+                t!("data_sources.notion.drop_hint"),
                 NOTION_FILES,
                 Pick::One,
                 move |paths| flow.read_file(paths),
             ))
             .child(notion_api_section(flow))
-            .child(dynamic(move || flow.busy.get().then(|| text("Đang xử lý…").text_sm().text_color(move || theme().muted_foreground))))
+            .child(dynamic(move || {
+                flow.busy.get().then(|| {
+                    text(t!("data_sources.notion.processing")).text_sm().text_color(move || theme().muted_foreground)
+                })
+            }))
             .child(dynamic(move || flow.failure.get().map(error_line)))
             .child(dynamic(move || {
                 let shown = flow.preview.get()?;
@@ -327,8 +356,27 @@ fn notion_import_card() -> impl IntoElement {
     )
 }
 
-/// The message when a Notion call is made with no token kept.
-const NO_TOKEN: &str = "Chưa có token Notion: dán token rồi bấm «Lưu token & tải danh sách».";
+/// Why a Notion call failed. It is made on a blocking thread, which cannot make the app's text;
+/// [`NotionFailure::text`] says it on the UI thread.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum NotionFailure {
+    /// The call needs a token and none is kept.
+    NoToken,
+    /// Words that were already made (the credential store's, the API's).
+    Words(String),
+    /// The working thread stopped before it answered.
+    Stopped(String),
+}
+
+impl NotionFailure {
+    fn text(&self) -> String {
+        match self {
+            Self::NoToken => t!("data_sources.api.no_token"),
+            Self::Words(words) => words.clone(),
+            Self::Stopped(error) => t!("data_sources.api.stopped", error = error),
+        }
+    }
+}
 
 /// What the API section of the card holds: the token, the databases shared with the integration and
 /// the one chosen.
@@ -395,18 +443,20 @@ impl Api {
         self.flow.busy.set(true);
         self.flow.failure.set(None);
         spawn(async move {
-            let result = blocking(move || -> Result<Vec<NotionDatabase>, String> {
+            let result = blocking(move || -> Result<Vec<NotionDatabase>, NotionFailure> {
                 let token = match new_token {
                     Some(token) => {
-                        env.save_secret(TOKEN_SECRET, &token)?;
+                        env.save_secret(TOKEN_SECRET, &token).map_err(NotionFailure::Words)?;
                         token
                     }
-                    None => env.load_secret(TOKEN_SECRET)?.ok_or_else(|| NO_TOKEN.to_owned())?,
+                    None => {
+                        env.load_secret(TOKEN_SECRET).map_err(NotionFailure::Words)?.ok_or(NotionFailure::NoToken)?
+                    }
                 };
-                env.notion_client(&token).databases().map_err(|error| error.to_string())
+                env.notion_client(&token).databases().map_err(|error| NotionFailure::Words(error.to_string()))
             })
             .await
-            .unwrap_or_else(|error| Err(format!("Luồng Notion bị dừng: {error}")));
+            .unwrap_or_else(|error| Err(NotionFailure::Stopped(error.to_string())));
             batch(|| {
                 self.flow.busy.set(false);
                 match result {
@@ -417,7 +467,7 @@ impl Api {
                         self.listed.set(true);
                         self.databases.set(found);
                     }
-                    Err(message) => self.flow.failure.set(Some(message)),
+                    Err(failure) => self.flow.failure.set(Some(failure.text())),
                 }
             });
         });
@@ -431,14 +481,15 @@ impl Api {
         self.flow.busy.set(true);
         self.flow.failure.set(None);
         spawn(async move {
-            let result = blocking(move || -> Result<notion::NotionPlan, String> {
-                let token = env.load_secret(TOKEN_SECRET)?.ok_or_else(|| NO_TOKEN.to_owned())?;
-                env.notion_client(&token).plan(&id).map_err(|error| error.to_string())
+            let result = blocking(move || -> Result<notion::NotionPlan, NotionFailure> {
+                let token =
+                    env.load_secret(TOKEN_SECRET).map_err(NotionFailure::Words)?.ok_or(NotionFailure::NoToken)?;
+                env.notion_client(&token).plan(&id).map_err(|error| NotionFailure::Words(error.to_string()))
             })
             .await
-            .unwrap_or_else(|error| Err(format!("Luồng Notion bị dừng: {error}")));
-            self.flow.read(result.map(|plan| Preview {
-                file: format!("{} (Notion API)", title.unwrap_or_default()),
+            .unwrap_or_else(|error| Err(NotionFailure::Stopped(error.to_string())));
+            self.flow.read(result.map_err(|failure| failure.text()).map(|plan| Preview {
+                file: t!("data_sources.api.file_name", title = title.unwrap_or_default()),
                 plan,
                 archive: None,
             }));
@@ -457,7 +508,7 @@ impl Api {
                     self.chosen.set(String::new());
                 }),
                 Ok(Err(message)) => self.flow.failure.set(Some(message)),
-                Err(error) => self.flow.failure.set(Some(format!("Luồng Notion bị dừng: {error}"))),
+                Err(error) => self.flow.failure.set(Some(NotionFailure::Stopped(error.to_string()).text())),
             }
         });
     }
@@ -502,20 +553,12 @@ fn notion_api_section(flow: Flow) -> impl IntoElement {
         .border_1()
         .border_color(move || theme().border)
         .bg(move || theme().background)
-        .child(text("Kết nối Notion (API)").text_sm().font_weight(FontWeight::MEDIUM))
-        .child(
-            text(
-                "Không cần xuất file: tạo integration nội bộ tại notion.so/my-integrations (chỉ cần quyền đọc nội dung), \
-                 chia sẻ database nhật ký cho nó (••• → Connections), rồi dán token vào đây. Token chỉ nằm trong kho khoá \
-                 của hệ điều hành, không nằm trong file dữ liệu.",
-            )
-            .text_xs()
-            .text_color(move || theme().muted_foreground),
-        )
+        .child(text(t!("data_sources.api.title")).text_sm().font_weight(FontWeight::MEDIUM))
+        .child(text(t!("data_sources.api.body")).text_xs().text_color(move || theme().muted_foreground))
         .child(text_field(
-            "Token tích hợp Notion",
+            t!("data_sources.api.token"),
             None,
-            "ntn_… hoặc secret_…",
+            t!("data_sources.api.token_placeholder"),
             move || api.token.get(),
             move |value| api.token.set(value.to_owned()),
         ))
@@ -530,19 +573,19 @@ fn api_buttons(api: Api) -> impl IntoElement {
         .flex_wrap()
         .gap_2()
         .child(action_when(
-            "Lưu token & tải danh sách",
+            t!("data_sources.api.save"),
             Variant::Secondary,
             move || !api.token.get().trim().is_empty() && idle(),
             move || api.ask(Ask::List(Some(api.token.get_untracked().trim().to_owned()))),
         ))
         .child(action_when(
-            "Tải lại danh sách",
+            t!("data_sources.api.reload"),
             Variant::Ghost,
             move || api.has_token.get() && idle(),
             move || api.ask(Ask::List(None)),
         ))
         .child(action_when(
-            "Xoá token",
+            t!("data_sources.api.forget"),
             Variant::Ghost,
             move || api.has_token.get() && idle(),
             move || api.ask(Ask::Forget),
@@ -558,9 +601,7 @@ fn databases_list(api: Api) -> impl IntoElement {
             if found.is_empty() {
                 return view()
                     .children(asked.then(|| {
-                        text("Không thấy database nào: mở database nhật ký trong Notion → ••• → Connections → thêm integration vừa tạo.")
-                            .text_xs()
-                            .text_color(crate::ui::theme::warning)
+                        text(t!("data_sources.api.no_database")).text_xs().text_color(crate::ui::theme::warning)
                     }))
                     .into_element();
             }
@@ -568,13 +609,13 @@ fn databases_list(api: Api) -> impl IntoElement {
             view()
                 .gap_2()
                 .child(select_field(
-                    "Database Notion",
+                    t!("data_sources.api.database"),
                     move || choices.clone(),
                     move || SharedString::from(api.chosen.get()),
                     move |value| api.chosen.set(value.to_string()),
                 ))
                 .child(view().flex_row().child(action_when(
-                    "Xem trước database",
+                    t!("data_sources.api.preview"),
                     Variant::Primary,
                     move || !api.flow.busy.get() && !api.chosen.get().is_empty(),
                     move || api.ask(Ask::Preview),
@@ -582,6 +623,49 @@ fn databases_list(api: Api) -> impl IntoElement {
                 .into_element()
         })
     })
+}
+
+/// The period the file covers and its total, in a line; `None` when it has no dated trade.
+fn period_line(plan: &notion::NotionPlan) -> Option<String> {
+    plan.period().map(|(first, last)| {
+        let total = if plan.is_in_r() {
+            let (wins, losses, even) = plan.verdicts();
+            t!(
+                "data_sources.preview.total_r",
+                r = format::r_text(Some(plan.total_r())),
+                wins = wins,
+                losses = losses,
+                even = even
+            )
+        } else {
+            t!(
+                "data_sources.preview.total_money",
+                net = format::money(plan.net_total(), Sign::Always, &plan.account.currency)
+            )
+        };
+        t!(
+            "data_sources.preview.period",
+            from = naive(first).format("%d/%m/%Y"),
+            to = naive(last).format("%d/%m/%Y"),
+            total = total
+        )
+    })
+}
+
+/// What each column was taken for: found from what the column holds, shown so it can be checked.
+fn recognised_columns(plan: &notion::NotionPlan) -> Vec<String> {
+    let mut fields: Vec<String> = plan
+        .mapping
+        .columns
+        .iter()
+        .map(|(field, column)| t!("data_sources.preview.column", column = column, field = field.label()))
+        .collect();
+    if let Some(outcome) = &plan.outcome {
+        let values: Vec<String> =
+            outcome.values.iter().map(|(value, verdict)| format!("{value} = {}", verdict.label())).collect();
+        fields.push(t!("data_sources.preview.outcome", column = outcome.column, values = values.join(", ")));
+    }
+    fields
 }
 
 /// The short preview of a Notion file: what was found, what will be created, what is odd, and
@@ -594,44 +678,32 @@ fn preview_view(
     import_now: Rc<dyn Fn()>,
 ) -> impl IntoElement {
     let plan = &shown.plan;
-    let currency = plan.account.currency.clone();
     let accounts_of_plan = plan.account.login.clone();
     let count = plan.rows.len();
-    let found = format!(
-        "{} · {} dòng: {} lệnh đọc được, {} dòng bị bỏ qua",
-        shown.file,
-        plan.total_rows,
-        count,
-        plan.issues.len()
+    let found = t!(
+        "data_sources.preview.found",
+        file = shown.file,
+        rows = plan.total_rows,
+        count = format::trade_count(count),
+        skipped = plan.issues.len()
     );
-    let period = plan.period().map(|(first, last)| {
-        let total = if plan.is_in_r() {
-            let (wins, losses, even) = plan.verdicts();
-            format!(
-                "tổng kết quả trong file {} · {wins} thắng, {losses} thua, {even} hòa vốn",
-                format::r_text(Some(plan.total_r()))
-            )
-        } else {
-            format!("tổng lãi/lỗ trong file {}", format::money(plan.net_total(), Sign::Always, &currency))
-        };
-        format!("Từ {} đến {} · {total}", naive(first).format("%d/%m/%Y"), naive(last).format("%d/%m/%Y"))
-    });
+    let period = period_line(plan);
     let images = shown.archive.as_ref().map(|archive| {
         let counts = archive.count(plan);
-        format!("Ảnh: {} tìm thấy trong file zip, {} không có trong zip", counts.attached, counts.missing)
+        t!("data_sources.preview.images", found = counts.attached, missing = counts.missing)
     });
-    // What each column was taken for: found from what the column holds, shown so it can be checked.
-    let mut fields: Vec<String> =
-        plan.mapping.columns.iter().map(|(field, column)| format!("Cột «{column}» → {}", field.label())).collect();
-    if let Some(outcome) = &plan.outcome {
-        let values: Vec<String> =
-            outcome.values.iter().map(|(value, verdict)| format!("{value} = {}", verdict.label())).collect();
-        fields.push(format!("Cột «{}» → thắng/thua ({})", outcome.column, values.join(", ")));
-    }
+    let fields = recognised_columns(plan);
     let properties: Vec<String> = plan
         .properties
         .iter()
-        .map(|p| format!("{} · {} · {} lệnh có giá trị", p.label, kind_name(p.kind), p.filled))
+        .map(|p| {
+            t!(
+                "data_sources.preview.property",
+                label = p.label,
+                kind = kind_name(p.kind),
+                trades = format::trade_count(p.filled)
+            )
+        })
         .collect();
     let muted = |line: String| text(line).text_xs().text_color(move || theme().muted_foreground);
     view()
@@ -644,15 +716,17 @@ fn preview_view(
         .child(text(found).text_sm().font_weight(FontWeight::MEDIUM))
         .children(period.map(&muted))
         .child(section(
-            "Cột tự nhận ra (từ nội dung, không cần ghép tay)",
-            if fields.is_empty() { vec!["Không có.".to_owned()] } else { fields },
+            t!("data_sources.preview.columns_title"),
+            if fields.is_empty() { vec![t!("data_sources.preview.none")] } else { fields },
         ))
         .children(images.map(&muted))
-        .when(!properties.is_empty(), |v| {
-            v.child(section("Thuộc tính sẽ tạo trong form lệnh (dùng lại nếu đã có cùng tên)", properties))
-        })
+        .when(!properties.is_empty(), |v| v.child(section(t!("data_sources.preview.properties_title"), properties)))
         .when(!plan.ignored_columns.is_empty(), |v| {
-            v.child(muted(format!("Bỏ qua {} cột: {}", plan.ignored_columns.len(), plan.ignored_columns.join(", "))))
+            v.child(muted(t!(
+                "data_sources.preview.ignored",
+                n = plan.ignored_columns.len(),
+                columns = plan.ignored_columns.join(", ")
+            )))
         })
         .when(!plan.warnings.is_empty(), |v| {
             v.child(view().gap_1().children(
@@ -662,14 +736,18 @@ fn preview_view(
         .when(!plan.issues.is_empty(), |v| {
             let mut lines: Vec<String> = plan.issues.iter().take(ISSUES_SHOWN).map(ToString::to_string).collect();
             if plan.issues.len() > ISSUES_SHOWN {
-                lines.push(format!("… và {} dòng nữa", plan.issues.len() - ISSUES_SHOWN));
+                lines.push(plural!(
+                    plan.issues.len() - ISSUES_SHOWN,
+                    "data_sources.preview.more_rows",
+                    n = plan.issues.len() - ISSUES_SHOWN
+                ));
             }
-            v.child(section("Dòng sẽ bị bỏ qua", lines))
+            v.child(section(t!("data_sources.preview.skipped_title"), lines))
         })
         .child(select_field(
-            "Nhập vào tài khoản",
+            t!("data_sources.preview.account"),
             move || {
-                let mut choices = vec![Choice::new(DEFAULT_ACCOUNT, "Nhật ký Notion (mặc định)")];
+                let mut choices = vec![Choice::new(DEFAULT_ACCOUNT, t!("data_sources.preview.default_account"))];
                 choices.extend(
                     store
                         .snapshot()
@@ -685,7 +763,7 @@ fn preview_view(
         ))
         .child(view().flex_row().justify_end().child(action_icon_when(
             crate::ui::icons::Icon::Download,
-            format!("Nhập {count} lệnh"),
+            t!("data_sources.preview.import", trades = format::trade_count(count)),
             Variant::Primary,
             move || count > 0 && !busy.get(),
             move || import_now(),
@@ -693,7 +771,7 @@ fn preview_view(
 }
 
 /// A heading over a few lines of detail.
-fn section(heading: &'static str, lines: Vec<String>) -> impl IntoElement {
+fn section(heading: String, lines: Vec<String>) -> impl IntoElement {
     view()
         .gap_1()
         .child(text(heading).text_xs().text_color(move || theme().muted_foreground))
@@ -702,31 +780,31 @@ fn section(heading: &'static str, lines: Vec<String>) -> impl IntoElement {
 
 /// What an import stored, in lines.
 fn summary_lines(report: &notion::NotionImportReport) -> Vec<String> {
-    let mut lines = vec![format!(
-        "Đã nhập {} lệnh mới · {} cập nhật · {} không đổi",
-        report.created, report.updated, report.unchanged
+    let mut lines = vec![t!(
+        "data_sources.summary.imported",
+        created = report.created,
+        updated = report.updated,
+        unchanged = report.unchanged
     )];
     if report.matched_mt5 > 0 {
-        lines.push(format!(
-            "{} lệnh trùng lệnh MT5: chỉ gắn nhật ký vào lệnh MT5, không tạo thêm lệnh",
-            report.matched_mt5
-        ));
+        lines.push(plural!(report.matched_mt5, "data_sources.summary.matched", n = report.matched_mt5));
     }
     if !report.properties_created.is_empty() {
         let created: Vec<String> =
             report.properties_created.iter().map(|p| format!("{} ({})", p.label, kind_name(p.kind))).collect();
-        lines.push(format!("Thuộc tính đã tạo: {}", created.join(", ")));
+        lines.push(t!("data_sources.summary.properties_created", list = created.join(", ")));
     }
     if !report.properties_reused.is_empty() {
-        lines.push(format!("Thuộc tính dùng lại: {}", report.properties_reused.join(", ")));
+        lines.push(t!("data_sources.summary.properties_reused", list = report.properties_reused.join(", ")));
     }
     if report.options_added > 0 {
-        lines.push(format!("{} lựa chọn mới đã thêm vào danh sách tag, lỗi, cảm xúc…", report.options_added));
+        lines.push(plural!(report.options_added, "data_sources.summary.options", n = report.options_added));
     }
     if report.images_attached + report.images_missing > 0 {
-        lines.push(format!(
-            "Ảnh gắn vào lệnh: {} · không có trong file zip: {}",
-            report.images_attached, report.images_missing
+        lines.push(t!(
+            "data_sources.summary.images",
+            attached = report.images_attached,
+            missing = report.images_missing
         ));
     }
     lines
@@ -750,8 +828,12 @@ fn summary_view(report: &notion::NotionImportReport) -> impl IntoElement {
         )
         .when(!report.skipped.is_empty(), |v| {
             v.child(section(
-                "Dòng bị bỏ qua",
-                skipped.iter().cloned().chain((more > 0).then(|| format!("… và {more} dòng nữa"))).collect(),
+                t!("data_sources.summary.skipped_title"),
+                skipped
+                    .iter()
+                    .cloned()
+                    .chain((more > 0).then(|| plural!(more, "data_sources.preview.more_rows", n = more)))
+                    .collect(),
             ))
         })
         .children(report.warnings.iter().map(|w| text(w.clone()).text_xs().text_color(crate::ui::theme::warning)))
@@ -763,12 +845,12 @@ fn summary_view(report: &notion::NotionImportReport) -> impl IntoElement {
 fn source_label(source: &str) -> String {
     match source {
         "ea" => "EA".to_owned(),
-        "mt5" => "Kết nối MT5".to_owned(),
+        "mt5" => t!("data_sources.source.mt5"),
         "python" => "Python".to_owned(),
-        "html" => "Import HTML".to_owned(),
-        "xlsx" => "Import Excel".to_owned(),
-        "json" => "Import JSON".to_owned(),
-        "notion" => "Import Notion".to_owned(),
+        "html" => t!("data_sources.source.html"),
+        "xlsx" => t!("data_sources.source.xlsx"),
+        "json" => t!("data_sources.source.json"),
+        "notion" => t!("data_sources.source.notion"),
         other => other.to_owned(),
     }
 }
@@ -780,10 +862,14 @@ fn logged_at(ms: i64) -> String {
 }
 
 fn log_row(entry: &ImportLogEntry) -> impl IntoElement + use<> {
+    // The stored message is in Vietnamese whatever the language then: the sentence is made again from
+    // the counts, in the language now.
     let result = if entry.message.is_empty() {
-        format!("+{} · {} cập nhật", entry.inserted, entry.updated)
+        t!("data_sources.log.counts", inserted = entry.inserted, updated = entry.updated)
+    } else if entry.source == "notion" {
+        t!("data_sources.log.notion", inserted = entry.inserted, updated = entry.updated)
     } else {
-        entry.message.clone()
+        t!("data_sources.log.deals", inserted = entry.inserted, updated = entry.updated)
     };
     view()
         .gap_1()
@@ -811,12 +897,12 @@ fn log_row(entry: &ImportLogEntry) -> impl IntoElement + use<> {
 fn import_log_card() -> impl IntoElement {
     let log = query(|db, _| db.import_log(LOG_LINES));
     card(
-        "Nhật ký import",
+        t!("data_sources.log.title"),
         dynamic(move || {
             let lines = log.value().map_or_else(Vec::new, |l| l.to_vec());
             untracked(|| {
                 if lines.is_empty() {
-                    return empty_state("Chưa import gì", "Kết quả mỗi lần import hiện ở đây.").into_element();
+                    return empty_state(t!("data_sources.log.empty"), t!("data_sources.log.empty_hint")).into_element();
                 }
                 view().children(lines.iter().map(log_row)).into_element()
             })
@@ -832,29 +918,33 @@ mod tests {
 
     #[test]
     fn sources_read_as_the_trader_names_them() {
-        assert_eq!(source_label("html"), "Import HTML");
-        assert_eq!(source_label("ea"), "EA");
-        assert_eq!(source_label("sync"), "sync");
+        let label = |source: &'static str, lang| crate::i18n::with_text(lang, move || source_label(source));
+        assert_eq!(label("html", crate::i18n::Lang::Vi), "Import HTML");
+        assert_eq!(label("html", crate::i18n::Lang::En), "HTML import");
+        assert_eq!(label("ea", crate::i18n::Lang::Vi), "EA");
+        assert_eq!(label("sync", crate::i18n::Lang::Vi), "sync");
         assert_eq!(logged_at(1_763_716_920_000).len(), "21/11 09:42:00".len());
     }
 
     #[test]
     fn a_summary_lists_what_changed_and_nothing_else() {
-        let quiet = notion::NotionImportReport { created: 3, ..notion::NotionImportReport::default() };
-        assert_eq!(summary_lines(&quiet), ["Đã nhập 3 lệnh mới · 0 cập nhật · 0 không đổi"]);
-        let busy = notion::NotionImportReport {
-            created: 2,
-            updated: 1,
-            matched_mt5: 1,
-            properties_created: vec![PropertyCreated { label: "Mood".into(), kind: FieldKind::Select }],
-            properties_reused: vec!["Setup".into()],
-            options_added: 4,
-            ..notion::NotionImportReport::default()
-        };
-        let lines = summary_lines(&busy);
-        assert_eq!(lines.len(), 5);
-        assert!(lines[2].contains("Mood (Chọn một)"), "{}", lines[2]);
-        assert!(lines[4].starts_with("4 lựa chọn mới"));
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let quiet = notion::NotionImportReport { created: 3, ..notion::NotionImportReport::default() };
+            assert_eq!(summary_lines(&quiet), ["Đã nhập 3 lệnh mới · 0 cập nhật · 0 không đổi"]);
+            let busy = notion::NotionImportReport {
+                created: 2,
+                updated: 1,
+                matched_mt5: 1,
+                properties_created: vec![PropertyCreated { label: "Mood".into(), kind: FieldKind::Select }],
+                properties_reused: vec!["Setup".into()],
+                options_added: 4,
+                ..notion::NotionImportReport::default()
+            };
+            let lines = summary_lines(&busy);
+            assert_eq!(lines.len(), 5);
+            assert!(lines[2].contains("Mood (Chọn một)"), "{}", lines[2]);
+            assert!(lines[4].starts_with("4 lựa chọn mới"));
+        });
     }
 
     #[test]

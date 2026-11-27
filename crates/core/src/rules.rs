@@ -40,10 +40,14 @@ pub enum ViolationKind {
 impl ViolationKind {
     pub fn label(&self) -> String {
         match self {
-            Self::DailyLoss(loss, limit) => format!("Lỗ trong ngày {loss:.2} vượt giới hạn {limit:.2}"),
-            Self::DailyTrades(n, limit) => format!("{n} lệnh trong ngày, giới hạn {limit}"),
-            Self::RiskPerTrade(pct, limit) => format!("Rủi ro {pct:.2}% vượt {limit:.2}%/lệnh"),
-            Self::AfterLosingStreak(n, limit) => format!("Vào lệnh sau {n} lệnh thua liên tiếp (giới hạn {limit})"),
+            Self::DailyLoss(loss, limit) => {
+                crate::tr!("core.rules.daily_loss", loss = format!("{loss:.2}"), limit = format!("{limit:.2}"))
+            }
+            Self::DailyTrades(n, limit) => crate::tr!("core.rules.daily_trades", n = n, limit = limit),
+            Self::RiskPerTrade(pct, limit) => {
+                crate::tr!("core.rules.risk_per_trade", pct = format!("{pct:.2}"), limit = format!("{limit:.2}"))
+            }
+            Self::AfterLosingStreak(n, limit) => crate::tr!("core.rules.after_streak", n = n, limit = limit),
         }
     }
 }

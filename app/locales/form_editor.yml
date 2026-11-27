@@ -1,0 +1,201 @@
+_version: 2
+
+# The form editor (pages/form_editor.rs).
+form_editor.scope.trade:
+  vi: "Nhật ký lệnh"
+  en: "Trade journal"
+form_editor.scope.entry_plan:
+  vi: "Kế hoạch lúc vào"
+  en: "Plan at entry"
+form_editor.scope.day:
+  vi: "Nhật ký ngày"
+  en: "Daily journal"
+form_editor.scope.missed:
+  vi: "Lệnh bỏ lỡ"
+  en: "Missed trades"
+form_editor.scope.review:
+  vi: "Tổng kết tuần/tháng"
+  en: "Weekly/monthly review"
+form_editor.title:
+  vi: "Tuỳ biến form nhập liệu"
+  en: "Customize entry forms"
+form_editor.summary:
+  vi: "Như thuộc tính trong Notion: đổi tên, đổi thứ tự, ẩn, thêm, sửa, đổi kiểu, xoá"
+  en: "Like properties in Notion: rename, reorder, hide, add, edit, change type, delete"
+form_editor.done:
+  vi: "Xong"
+  en: "Done"
+form_editor.tabs:
+  vi: "Form"
+  en: "Form"
+form_editor.hint.catalog:
+  vi: "Danh mục %{kind}"
+  en: "Catalog: %{kind}"
+form_editor.hint.playbook:
+  vi: "Liên kết Playbook"
+  en: "Playbook link"
+form_editor.hint.rating:
+  vi: "1–5 sao"
+  en: "1–5 stars"
+form_editor.hint.checklist:
+  vi: "Checklist của tài khoản"
+  en: "Account checklist"
+form_editor.hint.screenshots:
+  vi: "Thư viện ảnh"
+  en: "Picture gallery"
+form_editor.summary.shown.one:
+  vi: "%{n} thuộc tính · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa"
+  en: "%{n} property · drag ⋮⋮ to reorder, press a name to edit"
+form_editor.summary.shown.other:
+  vi: "%{n} thuộc tính · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa"
+  en: "%{n} properties · drag ⋮⋮ to reorder, press a name to edit"
+form_editor.summary.hidden.one:
+  vi: "%{n} thuộc tính · %{hidden} đang ẩn · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa"
+  en: "%{n} property · %{hidden} hidden · drag ⋮⋮ to reorder, press a name to edit"
+form_editor.summary.hidden.other:
+  vi: "%{n} thuộc tính · %{hidden} đang ẩn · kéo ⋮⋮ để đổi thứ tự, bấm tên để sửa"
+  en: "%{n} properties · %{hidden} hidden · drag ⋮⋮ to reorder, press a name to edit"
+form_editor.kind.lose_title:
+  vi: "Đổi kiểu sẽ mất giá trị đã ghi?"
+  en: "Change the type and lose written values?"
+form_editor.kind.lose_body.one:
+  vi: "%{lost} giá trị đã ghi không chuyển được sang kiểu “%{kind}” và sẽ bị bỏ trống."
+  en: "%{lost} written value cannot be converted to the “%{kind}” type and will be left empty."
+form_editor.kind.lose_body.other:
+  vi: "%{lost} giá trị đã ghi không chuyển được sang kiểu “%{kind}” và sẽ bị bỏ trống."
+  en: "%{lost} written values cannot be converted to the “%{kind}” type and will be left empty."
+form_editor.kind.lose_confirm:
+  vi: "Đổi kiểu"
+  en: "Change type"
+form_editor.empty:
+  vi: "Form này chưa có thuộc tính"
+  en: "This form has no properties yet"
+form_editor.empty_hint:
+  vi: "Thêm một thuộc tính ở khung bên phải."
+  en: "Add a property in the panel on the right."
+form_editor.restore_deleted:
+  vi: "Khôi phục thuộc tính đã xoá (%{n})"
+  en: "Restore deleted properties (%{n})"
+form_editor.reset:
+  vi: "Đặt lại mặc định"
+  en: "Reset to default"
+form_editor.reset.title:
+  vi: "Đặt lại thứ tự và tên mặc định?"
+  en: "Reset the default order and names?"
+form_editor.reset.body:
+  vi: "Thứ tự, tên đã đổi và thuộc tính đang ẩn của form này về như ban đầu. Thuộc tính riêng và dữ liệu đã ghi được giữ nguyên."
+  en: "The order, renamed properties and hidden properties of this form go back to how they were. Your own properties and the data already written are kept."
+form_editor.reset.confirm:
+  vi: "Đặt lại"
+  en: "Reset"
+form_editor.restore:
+  vi: "Khôi phục %{label}"
+  en: "Restore %{label}"
+form_editor.shared.title:
+  vi: "Danh mục lựa chọn dùng chung"
+  en: "Shared choice catalogs"
+form_editor.shared.body:
+  vi: "Tag, lỗi, khung thời gian và lý do không vào lệnh: thêm ngay ở ô chọn của chúng (gõ rồi Enter) và xoá bằng ✕ sau mỗi lựa chọn. Xoá một lựa chọn chỉ ẩn khỏi danh sách chọn, nhật ký cũ giữ nguyên."
+  en: "Tags, mistakes, timeframes and reasons for not entering: add a choice right in its picker (type, then Enter) and remove one with the ✕ after it. Removing a choice only hides it from the pick list; older journal entries keep it."
+form_editor.row.drag:
+  vi: "Kéo để đổi thứ tự %{name}"
+  en: "Drag to reorder %{name}"
+form_editor.row.edit:
+  vi: "Sửa thuộc tính %{label}"
+  en: "Edit property %{label}"
+form_editor.row.custom:
+  vi: "riêng"
+  en: "custom"
+form_editor.row.builtin:
+  vi: "có sẵn"
+  en: "built-in"
+form_editor.row.show:
+  vi: "Hiện %{label}"
+  en: "Show %{label}"
+form_editor.row.hide:
+  vi: "Ẩn %{label}"
+  en: "Hide %{label}"
+form_editor.panel.title:
+  vi: "Sửa thuộc tính"
+  en: "Edit property"
+form_editor.panel.title_of:
+  vi: "Sửa thuộc tính · %{label}"
+  en: "Edit property · %{label}"
+form_editor.panel.pick:
+  vi: "Bấm tên một thuộc tính ở bảng bên trái để sửa."
+  en: "Press the name of a property in the table on the left to edit it."
+form_editor.panel.name:
+  vi: "Tên"
+  en: "Name"
+form_editor.panel.name_label:
+  vi: "Tên thuộc tính"
+  en: "Property name"
+form_editor.panel.builtin_note:
+  vi: "Thuộc tính có sẵn gắn với một mục của nhật ký: chỉ đổi tên hoặc ẩn được. Lựa chọn của nó (nếu là tag, lỗi, khung thời gian) thêm và xoá ngay ở ô chọn."
+  en: "A built-in property is tied to a part of the journal: it can only be renamed or hidden. Its choices (tags, mistakes, timeframes) are added and removed right in the picker."
+form_editor.panel.show:
+  vi: "Hiện trong form"
+  en: "Show in the form"
+form_editor.panel.hide:
+  vi: "Ẩn khỏi form"
+  en: "Hide from the form"
+form_editor.panel.kind:
+  vi: "Kiểu"
+  en: "Type"
+form_editor.panel.scale_max:
+  vi: "Điểm tối đa"
+  en: "Highest score"
+form_editor.panel.expected:
+  vi: "Nên điền khi lưu"
+  en: "Should be filled when saving"
+form_editor.panel.expected_hint:
+  vi: "Nhắc nếu để trống; không chặn việc lưu"
+  en: "Reminds you if left empty; does not block saving"
+form_editor.panel.analysed:
+  vi: "Đưa vào Phân tích"
+  en: "Include in Analytics"
+form_editor.panel.analysed_hint:
+  vi: "Thành một cột trong bảng Lệnh và một nhóm trong Phân tích"
+  en: "Becomes a column in the Trades table and a group in Analytics"
+form_editor.panel.delete:
+  vi: "Xoá thuộc tính"
+  en: "Delete property"
+form_editor.kind_note.title:
+  vi: "Đổi kiểu dữ liệu"
+  en: "Changing the data type"
+form_editor.kind_note.body:
+  vi: "Chọn một → Chọn nhiều: giữ nguyên giá trị. Văn bản → Chọn một: tạo lựa chọn từ chữ đã ghi. Số → Thang điểm: làm tròn. Giá trị không chuyển được sẽ được báo trước khi đổi."
+  en: "Select one → Select several: values are kept. Text → Select one: choices are made from the text written. Number → Scale: values are rounded. Values that cannot be converted are reported before the change."
+form_editor.delete.title:
+  vi: "Xoá thuộc tính “%{name}”?"
+  en: "Delete the property “%{name}”?"
+form_editor.delete.body:
+  vi: "Giá trị đã ghi ở các lệnh cũ được giữ lại; thuộc tính chỉ biến khỏi form và khôi phục được ở đây."
+  en: "Values written on older trades are kept; the property only disappears from the form and can be restored here."
+form_editor.delete.confirm:
+  vi: "Xoá thuộc tính"
+  en: "Delete property"
+form_editor.options.title:
+  vi: "Lựa chọn (đổi tên ở đây thì mọi lệnh cũ đổi theo)"
+  en: "Options (rename one here and every older trade follows)"
+form_editor.options.add:
+  vi: "Thêm lựa chọn"
+  en: "Add an option"
+form_editor.options.add_placeholder:
+  vi: "+ Thêm lựa chọn"
+  en: "+ Add an option"
+form_editor.options.name_of:
+  vi: "Tên lựa chọn %{name}"
+  en: "Option name %{name}"
+form_editor.options.name:
+  vi: "Tên lựa chọn"
+  en: "Option name"
+form_editor.options.remove:
+  vi: "Xoá lựa chọn %{name}"
+  en: "Remove option %{name}"
+form_editor.add.title:
+  vi: "Thêm thuộc tính — chọn kiểu"
+  en: "Add a property — choose its type"
+form_editor.add.of_kind:
+  vi: "Thêm thuộc tính kiểu %{kind}"
+  en: "Add a property of type %{kind}"

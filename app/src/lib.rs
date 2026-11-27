@@ -8,6 +8,7 @@
 //! - `journal_draft` the journal fields the trade page edits
 //! - `zone`       the clock times are shown on (the `time_display` setting) and "today"
 //! - `format`     numbers and times as text
+//! - `i18n`       the language of the text (the `language` setting); the text itself is `locales/`
 //! - `month_report` the week or month a share card or the monthly PDF is made from
 //! - `insight`   the calendar, analytics and discipline figures read out of a snapshot
 //! - `mt5`        the direct MT5 connection: a hidden terminal per account the trader signed in to
@@ -17,6 +18,7 @@
 
 mod cloud;
 mod format;
+mod i18n;
 mod insight;
 mod journal_draft;
 mod month_report;
@@ -36,6 +38,7 @@ use nsh_base::theme;
 use nsh_core::{element::desktop::window, prelude::*};
 
 pub use cloud::CREDENTIALS_SETTING;
+pub use i18n::window_builds;
 pub use news::{OFF as NEWS_OFF, URL_SETTING as NEWS_URL_SETTING};
 pub use store::{Reading, Writer, data_changed, query, query_with, writer};
 
@@ -92,7 +95,10 @@ const FONTS: [&[u8]; 7] = [
 pub fn root() -> nsh_core::element::Root {
     let manifest: serde_json::Value = serde_json::from_str(MANIFEST).expect("nsh.json is valid JSON");
     let id = manifest["id"].as_str().expect("nsh.json has an id");
-    let root = FONTS.iter().fold(nsh_core::element::Root::of::<App>().app_id(id), |root, font| root.font(*font));
+    let root = FONTS
+        .iter()
+        .fold(nsh_core::element::Root::of::<App>().app_id(id), |root, font| root.font(*font))
+        .translations_json(i18n::TRANSLATIONS);
     // The theme's tokens are there from the first frame, with the family names of its fonts.
     let root = match ui::theme::tokens() {
         Some(tokens) => root.tokens(tokens),
@@ -113,6 +119,7 @@ pub const APP_ID: &str = "vn.dat.tradelens";
 #[component]
 pub fn Workspace() -> impl IntoElement {
     ui::theme::install();
+    i18n::install();
     store::provide();
     ui::controls::provide_root_owner();
     cloud::provide();
@@ -120,7 +127,12 @@ pub fn Workspace() -> impl IntoElement {
     mt5::provide();
     news::provide();
     pages::follow_appearance();
-    view().flex_1().bg(move || theme().background).text_color(move || theme().foreground).child(shell::shell())
+    i18n::follow_language();
+    view()
+        .flex_1()
+        .bg(move || theme().background)
+        .text_color(move || theme().foreground)
+        .child(i18n::translated(shell::shell))
 }
 
 #[cfg(test)]

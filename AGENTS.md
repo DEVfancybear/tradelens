@@ -36,5 +36,9 @@ Repo đóng gói sẵn các skill trong `.claude/skills/` (danh sách và nguồ
   Không tự chế bố cục khác; lệch thì ghi vào bảng cuối README thiết kế.
 - UI NSH: theo skill `nsh` của repo NSH (https://github.com/longbridge/nsh, `skills/nsh`). Màu chỉ lấy từ
   token `theme()` / `ui::theme`, component chỉ lấy từ `app/src/ui/`, không style lại control ở trang.
-- Thông điệp lỗi và chữ hiển thị bằng tiếng Việt; comment và doc trong code bằng tiếng Anh.
+- Song ngữ Việt/Anh, mặc định tiếng Việt; người dùng chọn ở Cài đặt (setting `language`). Mọi chữ hiển thị
+  và thông điệp lỗi người dùng thấy là khoá trong bảng, không viết thẳng trong code: ở `app/` dùng `t!("khu.khoá")`
+  của NSH (https://nsh.dev/docs/i18n) với `app/locales/<khu>.yml`; ở `crates/*` dùng `tr!` của crate với
+  `crates/<crate>/locales/<khu>.yml`. Bảng theo định dạng rust-i18n `_version: 2`, `vi` và `en` cạnh nhau, đủ
+  cả hai. Thêm khoá thì viết cả câu tiếng Việt lẫn tiếng Anh. Comment và doc trong code bằng tiếng Anh.
 - Mỗi commit một chức năng, tiêu đề dạng `feat(core): …`, `fix(app): …`, `docs: …`, `ci: …`.

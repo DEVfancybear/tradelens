@@ -201,7 +201,7 @@ pub fn install_package(python: &Python) -> Result<(), Mt5Error> {
     if output.status.success() {
         return Ok(());
     }
-    Err(Mt5Error::Setup(format!("pip không cài được {PACKAGE}: {}", tail(&output.stderr))))
+    Err(Mt5Error::Setup(crate::tr!("mt5.python.pip_failed", package = PACKAGE, tail = tail(&output.stderr))))
 }
 
 /// Runs `pip install` of the package with `extra` arguments (`--user`), up to ten minutes.
@@ -214,7 +214,7 @@ fn pip_install(python: &Python, extra: &[&str]) -> Result<std::process::Output, 
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     output_within(run, Duration::from_mins(10))
-        .map_err(|error| Mt5Error::Setup(format!("không chạy được pip: {error}")))
+        .map_err(|error| Mt5Error::Setup(crate::tr!("mt5.python.pip_launch_failed", error = error)))
 }
 
 /// Whether pip refused `--user` because it runs in a virtual environment, whose own site-packages
@@ -257,7 +257,7 @@ pub(crate) fn output_within(mut command: Command, limit: Duration) -> io::Result
         if Instant::now() >= deadline {
             drop(child.kill());
             drop(child.wait());
-            return Err(io::Error::new(io::ErrorKind::TimedOut, "quá thời gian chờ"));
+            return Err(io::Error::new(io::ErrorKind::TimedOut, crate::tr!("mt5.python.timed_out")));
         }
         thread::sleep(Duration::from_millis(50));
     };
@@ -314,9 +314,10 @@ impl Worker {
         if let Some(folder) = script.parent() {
             run.current_dir(folder);
         }
-        let mut child = run.spawn().map_err(|error| Mt5Error::Setup(format!("không chạy được Python: {error}")))?;
-        let stdin = child.stdin.take().ok_or_else(|| Mt5Error::Setup("Python không có stdin".to_owned()))?;
-        let stdout = child.stdout.take().ok_or_else(|| Mt5Error::Setup("Python không có stdout".to_owned()))?;
+        let mut child =
+            run.spawn().map_err(|error| Mt5Error::Setup(crate::tr!("mt5.python.launch_failed", error = error)))?;
+        let stdin = child.stdin.take().ok_or_else(|| Mt5Error::Setup(crate::tr!("mt5.python.no_stdin")))?;
+        let stdout = child.stdout.take().ok_or_else(|| Mt5Error::Setup(crate::tr!("mt5.python.no_stdout")))?;
         let (lines, replies) = mpsc::channel();
         thread::spawn(move || {
             for line in BufReader::new(stdout).lines() {
@@ -346,12 +347,12 @@ impl Worker {
         self.stdin
             .write_all(line.as_bytes())
             .and_then(|()| self.stdin.flush())
-            .map_err(|error| Mt5Error::Unreachable(format!("worker MT5 đã dừng: {error}")))?;
+            .map_err(|error| Mt5Error::Unreachable(crate::tr!("mt5.python.worker_stopped", error = error)))?;
         let deadline = Instant::now() + limit;
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
             let line = self.replies.recv_timeout(left).map_err(|error| match error {
-                RecvTimeoutError::Timeout => Mt5Error::Unreachable("MT5 không trả lời kịp".to_owned()),
+                RecvTimeoutError::Timeout => Mt5Error::Unreachable(crate::tr!("mt5.python.no_reply")),
                 RecvTimeoutError::Disconnected => Mt5Error::Unreachable(self.exit_reason()),
             })?;
             let Ok(reply) = serde_json::from_str::<Value>(&line) else {
@@ -369,8 +370,8 @@ impl Worker {
 
     fn exit_reason(&mut self) -> String {
         match self.child.try_wait() {
-            Ok(Some(status)) => format!("worker MT5 đã thoát ({status})"),
-            _ => "worker MT5 đã đóng kết nối".to_owned(),
+            Ok(Some(status)) => crate::tr!("mt5.python.worker_exited", status = status),
+            _ => crate::tr!("mt5.python.worker_closed"),
         }
     }
 }
@@ -380,14 +381,14 @@ fn reply_data(reply: &Value) -> Result<Value, Mt5Error> {
     if reply["ok"].as_bool() == Some(true) {
         return Ok(reply["data"].clone());
     }
-    let message = reply["error"].as_str().unwrap_or("MT5 báo lỗi không rõ").to_owned();
+    let message = reply["error"].as_str().map_or_else(|| crate::tr!("mt5.python.unknown_error"), str::to_owned);
     let code = reply["code"].as_i64().unwrap_or(-1);
     Err(if code == AUTH_FAILED {
         Mt5Error::LoginRefused(message)
     } else if reply["id"].is_null() {
         Mt5Error::Setup(message)
     } else if UNSETTLED.contains(&code) {
-        Mt5Error::Uncertain(format!("{message}; hãy xem lại lệnh trên MT5 trước khi gửi lần nữa"))
+        Mt5Error::Uncertain(crate::tr!("mt5.python.unsettled", message = message))
     } else {
         Mt5Error::Refused { code, message }
     })
@@ -395,11 +396,8 @@ fn reply_data(reply: &Value) -> Result<Value, Mt5Error> {
 
 impl Terminal for Worker {
     fn connect(&mut self, login: &Login) -> Result<AccountInfo, Mt5Error> {
-        let number: i64 = login
-            .account
-            .login
-            .parse()
-            .map_err(|_| Mt5Error::LoginRefused("số tài khoản MT5 chỉ gồm chữ số".to_owned()))?;
+        let number: i64 =
+            login.account.login.parse().map_err(|_| Mt5Error::LoginRefused(crate::tr!("mt5.python.login_digits")))?;
         let timeout_ms = u64::try_from(CONNECT_TIMEOUT.as_millis()).unwrap_or(u64::MAX);
         let request = json!({
             "op": "connect",
@@ -414,13 +412,13 @@ impl Terminal for Worker {
             .call(request, CONNECT_TIMEOUT + Duration::from_secs(15))
             .map_err(|error| explain_connect_failure(error, &login.account.server))?;
         serde_json::from_value(data)
-            .map_err(|error| Mt5Error::Unreachable(format!("worker trả về tài khoản lạ: {error}")))
+            .map_err(|error| Mt5Error::Unreachable(crate::tr!("mt5.python.odd_account", error = error)))
     }
 
     fn poll(&mut self, since_msc: Option<i64>, days: u32) -> Result<Poll, Mt5Error> {
         let data = self.call(json!({"op": "poll", "since_msc": since_msc, "days": days}), CALL_TIMEOUT)?;
         serde_json::from_value(data)
-            .map_err(|error| Mt5Error::Unreachable(format!("worker trả về dữ liệu lạ: {error}")))
+            .map_err(|error| Mt5Error::Unreachable(crate::tr!("mt5.python.odd_data", error = error)))
     }
 
     fn close(&mut self, ticket: i64, volume: Option<f64>) -> Result<(), Mt5Error> {
@@ -441,11 +439,9 @@ impl Terminal for Worker {
 /// worth trying again (another sign-in may bring the server list), so it is not a refusal.
 fn explain_connect_failure(error: Mt5Error, server: &str) -> Mt5Error {
     match error {
-        Mt5Error::Refused { code: IPC_TIMEOUT, .. } => Mt5Error::Unreachable(format!(
-            "terminal không nối được tới server {server} (IPC timeout). Thường là terminal chưa có server \
-             này trong danh sách: hãy mở MetaTrader 5 bạn vẫn dùng cho tài khoản này, đăng nhập một lần để \
-             nó tải danh sách server, rồi bấm \"Kết nối lại\""
-        )),
+        Mt5Error::Refused { code: IPC_TIMEOUT, .. } => {
+            Mt5Error::Unreachable(crate::tr!("mt5.python.ipc_timeout", server = server))
+        }
         other => other,
     }
 }
@@ -454,9 +450,7 @@ fn explain_connect_failure(error: Mt5Error, server: &str) -> Mt5Error {
 /// terminal may still have carried it out.
 fn sent_order(error: Mt5Error) -> Mt5Error {
     match error {
-        Mt5Error::Unreachable(why) => Mt5Error::Uncertain(format!(
-            "{why}; lệnh có thể đã được thực hiện, hãy xem lại trên MT5 trước khi gửi lần nữa"
-        )),
+        Mt5Error::Unreachable(why) => Mt5Error::Uncertain(crate::tr!("mt5.python.maybe_done", why = why)),
         other => other,
     }
 }

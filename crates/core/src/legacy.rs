@@ -32,13 +32,13 @@ pub struct Adopted {
 /// Why the data could not be copied.
 #[derive(Debug, thiserror::Error)]
 pub enum AdoptError {
-    #[error("không chép được {what}: {source}")]
+    #[error("{}", crate::tr!("core.legacy.copy_failed", what = .what, source = .source))]
     Io {
         what: String,
         #[source]
         source: io::Error,
     },
-    #[error("không gộp được nhật ký ghi dở của dữ liệu cũ: {0}")]
+    #[error("{}", crate::tr!("core.legacy.checkpoint_failed", error = .0))]
     Checkpoint(#[from] rusqlite::Error),
 }
 
@@ -67,9 +67,9 @@ pub fn adopt(target: &Path, legacy: &Path) -> Result<Option<Adopted>, AdoptError
     }
     let staging = target.join(STAGING_DIR);
     if staging.exists() {
-        fs::remove_dir_all(&staging).map_err(io_error("thư mục chép dở"))?;
+        fs::remove_dir_all(&staging).map_err(io_error(crate::tr!("core.legacy.half_copied_folder")))?;
     }
-    fs::create_dir_all(&staging).map_err(io_error(format!("thư mục {}", staging.display())))?;
+    fs::create_dir_all(&staging).map_err(io_error(crate::tr!("core.legacy.folder", path = staging.display())))?;
 
     // The database and its write-ahead log and shared memory, as a set.
     for suffix in ["", "-wal", "-shm"] {
@@ -97,7 +97,7 @@ pub fn adopt(target: &Path, legacy: &Path) -> Result<Option<Adopted>, AdoptError
     }
 
     let images = copy_missing(&legacy.join(ATTACHMENTS_DIR), &target.join(ATTACHMENTS_DIR))?;
-    fs::rename(staging.join(DB_FILE), target.join(DB_FILE)).map_err(io_error("tệp dữ liệu"))?;
+    fs::rename(staging.join(DB_FILE), target.join(DB_FILE)).map_err(io_error(crate::tr!("core.legacy.data_file")))?;
     // The staging folder is empty now; failing to remove it changes nothing.
     drop(fs::remove_dir_all(&staging));
     Ok(Some(Adopted { from: legacy.to_path_buf(), images }))
@@ -106,7 +106,7 @@ pub fn adopt(target: &Path, legacy: &Path) -> Result<Option<Adopted>, AdoptError
 /// Copies the files of `from` that `to` lacks, folders included; returns how many files were copied.
 fn copy_missing(from: &Path, to: &Path) -> Result<usize, AdoptError> {
     let Ok(entries) = fs::read_dir(from) else { return Ok(0) };
-    fs::create_dir_all(to).map_err(io_error(format!("thư mục {}", to.display())))?;
+    fs::create_dir_all(to).map_err(io_error(crate::tr!("core.legacy.folder", path = to.display())))?;
     let mut copied = 0;
     for entry in entries {
         let entry = entry.map_err(io_error(from.display().to_string()))?;

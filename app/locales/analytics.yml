@@ -1,0 +1,156 @@
+_version: 2
+
+# The Analytics screen (pages/analytics.rs).
+analytics.summary:
+  vi: "%{range} · %{trades} đã đóng"
+  en: "%{range} · %{trades} closed"
+analytics.range:
+  vi: "Khoảng thời gian"
+  en: "Time range"
+analytics.tab.overview:
+  vi: "Tổng hợp"
+  en: "Summary"
+analytics.tab.symbol:
+  vi: "Symbol"
+  en: "Symbol"
+analytics.tab.time:
+  vi: "Thời gian"
+  en: "Time"
+analytics.tab.setup:
+  vi: "Setup & tag"
+  en: "Setup & tag"
+analytics.tab.mistakes:
+  vi: "Lỗi & cảm xúc"
+  en: "Mistakes & emotions"
+analytics.tab.risk:
+  vi: "Rủi ro (R)"
+  en: "Risk (R)"
+analytics.by_symbol:
+  vi: "Theo symbol"
+  en: "By symbol"
+analytics.symbol:
+  vi: "Symbol"
+  en: "Symbol"
+analytics.by_side:
+  vi: "Buy so với Sell"
+  en: "Buy vs Sell"
+analytics.side:
+  vi: "Chiều"
+  en: "Side"
+analytics.by_setup:
+  vi: "Theo setup"
+  en: "By setup"
+analytics.setup:
+  vi: "Setup"
+  en: "Setup"
+analytics.by_tag:
+  vi: "Theo tag"
+  en: "By tag"
+analytics.tag:
+  vi: "Tag"
+  en: "Tag"
+analytics.by_emotion:
+  vi: "Theo cảm xúc trước lệnh"
+  en: "By emotion before the trade"
+analytics.emotion:
+  vi: "Cảm xúc"
+  en: "Emotion"
+analytics.result.money:
+  vi: "Net"
+  en: "Net"
+analytics.result.r:
+  vi: "Tổng R"
+  en: "Total R"
+analytics.no_trades:
+  vi: "Chưa có lệnh nào trong khoảng này"
+  en: "No trades in this period"
+analytics.no_entry_time:
+  vi: "Dữ liệu không có giờ vào lệnh"
+  en: "The data has no entry times"
+analytics.time_unknown:
+  vi: "%{trades} không có giờ vào, không tính ở đây"
+  en: "%{trades} with no entry time, left out here"
+analytics.heat.title:
+  vi: "Giờ vào lệnh × thứ"
+  en: "Entry hour × weekday"
+analytics.heat.cell:
+  vi: "%{day} %{hour}:00: %{result} (%{trades})"
+  en: "%{day} %{hour}:00: %{result} (%{trades})"
+analytics.heat.hint:
+  vi: "Đậm hơn = lãi/lỗ lớn hơn"
+  en: "Darker = bigger profit or loss"
+analytics.heat.hint_extremes:
+  vi: "Đậm hơn = lãi/lỗ lớn hơn · Tốt nhất: %{best}:00 (%{best_result}) · Tệ nhất: %{worst}:00 (%{worst_result})"
+  en: "Darker = bigger profit or loss · Best: %{best}:00 (%{best_result}) · Worst: %{worst}:00 (%{worst_result})"
+analytics.heat.basis:
+  vi: "Tính theo %{clock}"
+  en: "Based on %{clock}"
+analytics.heat.clock_local:
+  vi: "giờ của bạn"
+  en: "your time"
+analytics.heat.clock_server:
+  vi: "giờ server"
+  en: "server time"
+analytics.heat.day_only:
+  vi: "%{trades} chỉ có ngày"
+  en: "%{trades} dated by day only"
+analytics.hour.title:
+  vi: "Theo giờ vào lệnh"
+  en: "By entry hour"
+analytics.hour.name:
+  vi: "Giờ"
+  en: "Hour"
+analytics.weekday.title:
+  vi: "Theo thứ trong tuần"
+  en: "By weekday"
+analytics.weekday.won:
+  vi: "%{pct}% thắng"
+  en: "%{pct}% won"
+analytics.weekday.label:
+  vi: "Kết quả theo thứ trong tuần"
+  en: "Result by weekday"
+analytics.session.title:
+  vi: "Theo phiên"
+  en: "By session"
+analytics.session.name:
+  vi: "Phiên"
+  en: "Session"
+analytics.mistakes.title:
+  vi: "Chi phí của lỗi"
+  en: "Cost of mistakes"
+analytics.mistakes.summary_money:
+  vi: "= %{r} · %{trades} có gắn lỗi trong %{range}"
+  en: "= %{r} · %{trades} with a mistake tagged (%{range})"
+analytics.mistakes.summary_r:
+  vi: "%{trades} có gắn lỗi trong %{range}"
+  en: "%{trades} with a mistake tagged (%{range})"
+analytics.mistakes.note:
+  vi: "Nếu bỏ được riêng lỗi %{mistake}, lợi nhuận tăng +%{pct}%. Tính trên P/L thực của lệnh có lỗi, không ước đoán."
+  en: "Without the %{mistake} mistake alone, profit would be up +%{pct}%. Based on the real P/L of the trades with that mistake, not an estimate."
+analytics.mistakes.view:
+  vi: "Xem lệnh"
+  en: "View trades"
+analytics.mistakes.focus_one:
+  vi: "Lỗi %{mistake}"
+  en: "Mistake: %{mistake}"
+analytics.mistakes.focus:
+  vi: "Lệnh có gắn lỗi"
+  en: "Trades with a mistake"
+analytics.mistakes.empty:
+  vi: "Chưa có lệnh nào gắn lỗi"
+  en: "No trades have a mistake tagged"
+analytics.mistakes.empty_hint:
+  vi: "Gắn lỗi vào nhật ký của lệnh để thấy mỗi lỗi tốn bao nhiêu."
+  en: "Tag mistakes in a trade’s journal to see what each one costs."
+analytics.r.title:
+  vi: "Phân phối R"
+  en: "R distribution"
+analytics.r.label:
+  vi: "Phân phối kết quả theo R"
+  en: "Distribution of results by R"
+analytics.r.none:
+  vi: "Chưa có lệnh nào đo được R: đặt SL hoặc ghi rủi ro dự định."
+  en: "No trade has a measurable R yet: set a stop loss or write the planned risk."
+analytics.r.facts:
+  vi: "Expectancy %{avg} trên %{measured} có SL · %{beyond} lỗ quá −2R"
+  en: "Expectancy %{avg} over %{measured} with a stop loss · %{beyond} lost more than −2R"

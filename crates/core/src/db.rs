@@ -39,7 +39,7 @@ pub enum DbError {
     Json(#[from] serde_json::Error),
     #[error("{0}")]
     Invalid(String),
-    #[error("chưa làm: {0}")]
+    #[error("{}", crate::tr!("db.not_implemented", what = .0))]
     NotImplemented(&'static str),
 }
 
@@ -213,7 +213,7 @@ impl Db {
         let key = match views::account_key(&tx, account.id) {
             Ok(key) => key,
             Err(DbError::Sqlite(rusqlite::Error::QueryReturnedNoRows)) => {
-                return Err(DbError::Invalid(format!("không có tài khoản số {}", account.id)));
+                return Err(DbError::Invalid(crate::tr!("core.db.no_account", id = account.id)));
             }
             Err(other) => return Err(other),
         };
@@ -607,7 +607,7 @@ impl Db {
     pub fn add_catalog_label(&mut self, kind: CatalogKind, label: &str) -> Result<String> {
         let label = label.trim();
         if label.is_empty() {
-            return Err(DbError::Invalid("Tên lựa chọn không được để trống.".to_owned()));
+            return Err(DbError::Invalid(crate::tr!("core.db.blank_option")));
         }
         let tx = self.conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let lowered = label.to_lowercase();
@@ -721,7 +721,7 @@ impl Db {
             |r| r.get(0),
         )?;
         if taken > 0 {
-            return Err(DbError::Invalid(format!("đã có setup tên \"{}\"", playbook.name)));
+            return Err(DbError::Invalid(crate::tr!("core.db.setup_name_taken", name = playbook.name)));
         }
         let known = if playbook.id == 0 { None } else { views::uid_of(&tx, "playbooks", playbook.id)? };
         let id = sync::logged(&tx, entity::PLAYBOOK, known.as_deref(), || {
@@ -1395,7 +1395,7 @@ fn keep_measured(deal: &mut Deal, stored: &Deal) {
 fn upsert_account_on(conn: &Connection, info: &AccountInfo) -> Result<i64> {
     let login = info.login.trim();
     if login.is_empty() {
-        return Err(DbError::Invalid("thiếu số tài khoản".into()));
+        return Err(DbError::Invalid(crate::tr!("core.db.no_login")));
     }
     let key = join_key(&[login, info.server.trim()]);
     let id = sync::logged(conn, entity::ACCOUNT, Some(&key), || {
@@ -1495,7 +1495,7 @@ pub(super) fn journal_document(conn: &Connection, key: &TradeKey, entry: &Journa
             let opened = chrono::DateTime::from_timestamp_millis(t.open_time)?;
             Some(format!("{} {} {}", t.symbol, t.side.label(), opened.format("%d/%m")))
         })
-        .unwrap_or_else(|| format!("Lệnh {}", key.position_id));
+        .unwrap_or_else(|| format!("{}{}", search::TRADE_PREFIX, key.position_id));
 
     let mut parts: Vec<&str> = vec![&entry.setup];
     parts.extend(entry.tags.iter().chain(&entry.mistakes).map(String::as_str));

@@ -10,14 +10,15 @@ use super::forms::{NumberRange, number_field, setting_row, switch_control};
 /// `default` is the limit a rule that was never on starts with. `on_change` hears the new
 /// limit, or `None` when the rule is turned off.
 pub fn rule_row(
-    label: &'static str,
-    hint: &'static str,
-    unit: Option<&'static str>,
+    label: impl Into<SharedString>,
+    hint: impl Into<SharedString>,
+    unit: Option<SharedString>,
     range: NumberRange,
     default: f64,
     value: impl Fn() -> Option<f64> + Copy + 'static,
     on_change: impl Fn(Option<f64>) + Copy + 'static,
 ) -> impl IntoElement {
+    let label: SharedString = label.into();
     // The last limit the rule had, so that switching off and on again gives it back.
     let kept = signal(default);
     effect(move || {
@@ -33,19 +34,26 @@ pub fn rule_row(
         .child(
             // An emptied field is a limit being typed, not a rule turned off: only the switch turns it
             // off. Read as off, the field vanished under the trader's keys.
-            when(on, move || {
-                untracked(|| {
-                    number_field(format!("{label}: giá trị"), unit, range, value, move |typed| {
-                        if typed.is_some() {
-                            on_change(typed);
-                        }
+            when(on, {
+                let (label, unit) = (label.clone(), unit);
+                move || {
+                    untracked(|| {
+                        number_field(t!("ui.rule.value", label = label), unit.clone(), range, value, move |typed| {
+                            if typed.is_some() {
+                                on_change(typed);
+                            }
+                        })
                     })
-                })
+                }
             })
-            .otherwise(|| text("Tắt").text_sm().text_color(move || theme().muted_foreground)),
+            .otherwise(|| text(t!("ui.rule.off")).text_sm().text_color(move || theme().muted_foreground)),
         )
-        .child(switch_control(label, move || on.get(), move |next| on_change(next.then(|| kept.get_untracked()))));
-    setting_row(label, Some(hint), control)
+        .child(switch_control(
+            label.clone(),
+            move || on.get(),
+            move |next| on_change(next.then(|| kept.get_untracked())),
+        ));
+    setting_row(label, Some(hint.into()), control)
 }
 
 #[cfg(test)]
@@ -61,13 +69,14 @@ mod tests {
     #[component]
     fn Harness() -> impl IntoElement {
         super::super::theme::install();
+        crate::i18n::install();
         let limit = signal(Some(300.0_f64));
         view()
             .gap_2()
             .child(rule_row(
                 "Lỗ tối đa trong ngày",
                 "Chạm ngưỡng thì cảnh báo",
-                Some("USD"),
+                Some("USD".into()),
                 NumberRange::between(0.0, 1_000_000.0).stepping(10.0),
                 100.0,
                 move || limit.get(),

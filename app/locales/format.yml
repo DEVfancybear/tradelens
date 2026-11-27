@@ -1,0 +1,128 @@
+_version: 2
+
+# Text of numbers and states (format.rs).
+format.open:
+  vi: "đang mở"
+  en: "open"
+format.trade_count.one:
+  vi: "%{n} lệnh"
+  en: "%{n} trade"
+format.trade_count.other:
+  vi: "%{n} lệnh"
+  en: "%{n} trades"
+
+# Weekday and month names.
+format.weekday.mon:
+  vi: "Thứ 2"
+  en: "Monday"
+format.weekday.tue:
+  vi: "Thứ 3"
+  en: "Tuesday"
+format.weekday.wed:
+  vi: "Thứ 4"
+  en: "Wednesday"
+format.weekday.thu:
+  vi: "Thứ 5"
+  en: "Thursday"
+format.weekday.fri:
+  vi: "Thứ 6"
+  en: "Friday"
+format.weekday.sat:
+  vi: "Thứ 7"
+  en: "Saturday"
+format.weekday.sun:
+  vi: "Chủ nhật"
+  en: "Sunday"
+format.weekday_short.mon:
+  vi: "T2"
+  en: "Mon"
+format.weekday_short.tue:
+  vi: "T3"
+  en: "Tue"
+format.weekday_short.wed:
+  vi: "T4"
+  en: "Wed"
+format.weekday_short.thu:
+  vi: "T5"
+  en: "Thu"
+format.weekday_short.fri:
+  vi: "T6"
+  en: "Fri"
+format.weekday_short.sat:
+  vi: "T7"
+  en: "Sat"
+format.weekday_short.sun:
+  vi: "CN"
+  en: "Sun"
+format.month.1:
+  vi: "Tháng 1"
+  en: "January"
+format.month.2:
+  vi: "Tháng 2"
+  en: "February"
+format.month.3:
+  vi: "Tháng 3"
+  en: "March"
+format.month.4:
+  vi: "Tháng 4"
+  en: "April"
+format.month.5:
+  vi: "Tháng 5"
+  en: "May"
+format.month.6:
+  vi: "Tháng 6"
+  en: "June"
+format.month.7:
+  vi: "Tháng 7"
+  en: "July"
+format.month.8:
+  vi: "Tháng 8"
+  en: "August"
+format.month.9:
+  vi: "Tháng 9"
+  en: "September"
+format.month.10:
+  vi: "Tháng 10"
+  en: "October"
+format.month.11:
+  vi: "Tháng 11"
+  en: "November"
+format.month.12:
+  vi: "Tháng 12"
+  en: "December"
+format.month_short.1:
+  vi: "Th 1"
+  en: "Jan"
+format.month_short.2:
+  vi: "Th 2"
+  en: "Feb"
+format.month_short.3:
+  vi: "Th 3"
+  en: "Mar"
+format.month_short.4:
+  vi: "Th 4"
+  en: "Apr"
+format.month_short.5:
+  vi: "Th 5"
+  en: "May"
+format.month_short.6:
+  vi: "Th 6"
+  en: "Jun"
+format.month_short.7:
+  vi: "Th 7"
+  en: "Jul"
+format.month_short.8:
+  vi: "Th 8"
+  en: "Aug"
+format.month_short.9:
+  vi: "Th 9"
+  en: "Sep"
+format.month_short.10:
+  vi: "Th 10"
+  en: "Oct"
+format.month_short.11:
+  vi: "Th 11"
+  en: "Nov"
+format.month_short.12:
+  vi: "Th 12"
+  en: "Dec"

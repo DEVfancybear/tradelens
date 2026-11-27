@@ -1,0 +1,9 @@
+_version: 2
+
+# The monthly report and share cards (month_report.rs).
+month_report.all_accounts:
+  vi: "Tất cả tài khoản"
+  en: "All accounts"
+month_report.no_playbook:
+  vi: "Không playbook"
+  en: "No playbook"

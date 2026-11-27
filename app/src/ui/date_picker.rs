@@ -1,9 +1,9 @@
 //! A date chosen from a calendar in a popup, on `nsh_base`'s date picker: the month as a grid (Monday
-//! first, the weekdays named in Vietnamese), arrows and a month and a year view to move far, today and the
-//! chosen day marked, a dot on the days the app marks, a "Hôm nay" button, the keyboard (arrows, Enter,
+//! first, the weekdays named in the language chosen), arrows and a month and a year view to move far, today and the
+//! chosen day marked, a dot on the days the app marks, a "Today" button, the keyboard (arrows, Enter,
 //! Escape). The app gives the trigger: the date's own text, or a field.
 
-use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Weekday};
 use nsh_base::{
     CalendarEntry, CalendarItemKind, DatePickerEvent, DateRangePreset, DateTime, PickedDate, TimeOfDay, TimePrecision,
     date_picker, input, theme,
@@ -14,9 +14,11 @@ use super::{
     icons::{Icon, icon},
     theme::{self as tokens, mono},
 };
+use crate::format;
 
-/// The names of the weekdays over the grid, Sunday first (as `nsh_base` numbers them).
-const WEEKDAY_NAMES: [&str; 7] = ["CN", "T2", "T3", "T4", "T5", "T6", "T7"];
+/// The weekdays over the grid, Sunday first (as `nsh_base` numbers them).
+const WEEKDAYS: [Weekday; 7] =
+    [Weekday::Sun, Weekday::Mon, Weekday::Tue, Weekday::Wed, Weekday::Thu, Weekday::Fri, Weekday::Sat];
 
 /// The weekday the grid starts on: Monday.
 const MONDAY: u32 = 1;
@@ -41,7 +43,7 @@ pub struct DatePick {
     pub value: Box<dyn Fn() -> Option<NaiveDateTime>>,
     /// The days to mark with a dot (a day with trades, a day with a note).
     pub marked: Box<dyn Fn(NaiveDate) -> bool>,
-    /// The day the "Hôm nay" button picks.
+    /// The day the "Today" button picks.
     pub today: Box<dyn Fn() -> NaiveDate>,
     /// Told when the trader picks.
     pub on_pick: Box<dyn Fn(NaiveDateTime)>,
@@ -106,8 +108,8 @@ pub fn date_pick(pick: DatePick, trigger: impl IntoElement) -> impl IntoElement 
     let mut picker = date_picker()
         .accessibility_label(label)
         .first_day_of_week(MONDAY)
-        .previous_accessibility_label("Tháng trước")
-        .next_accessibility_label("Tháng sau")
+        .previous_accessibility_label(t!("ui.date.previous_month"))
+        .next_accessibility_label(t!("ui.date.next_month"))
         .value({
             let shown = std::rc::Rc::clone(&shown);
             move || DateTime::Single(shown())
@@ -133,7 +135,7 @@ pub fn date_pick(pick: DatePick, trigger: impl IntoElement) -> impl IntoElement 
              focus-visible:ring-2 disabled:opacity-40",
         )
         .render_item(move |entry: &CalendarEntry| render_entry(entry, &marked))
-        .presets(vec![DateRangePreset::single("Hôm nay", today())])
+        .presets(vec![DateRangePreset::single(t!("common.today"), today())])
         .trigger(trigger)
         .on_change(move |picked: &PickedDate| {
             if let Some(at) = picked.value.start() {
@@ -145,8 +147,8 @@ pub fn date_pick(pick: DatePick, trigger: impl IntoElement) -> impl IntoElement 
         picker = picker
             .time_precision(Some(TimePrecision::Minute))
             .default_time(Some(TimeOfDay(NaiveTime::MIN)))
-            .time_accessibility_label("Giờ")
-            .time_label(text("Giờ").text_sm())
+            .time_accessibility_label(t!("ui.date.time"))
+            .time_label(text(t!("ui.date.time")).text_sm())
             // The segment being edited is marked, and the ring shows where the keyboard is: the hour,
             // the minute, the arrows and the digits all act on it.
             .segment_class(
@@ -157,22 +159,25 @@ pub fn date_pick(pick: DatePick, trigger: impl IntoElement) -> impl IntoElement 
     picker
 }
 
-/// One cell of the calendar as the app draws it: Vietnamese names for the weekdays, months and years, a
-/// dot under a marked day.
+/// One cell of the calendar as the app draws it: the names of the weekdays and months in the language
+/// chosen, a dot under a marked day.
 fn render_entry(entry: &CalendarEntry, marked: &std::rc::Rc<Box<dyn Fn(NaiveDate) -> bool>>) -> AnyElement {
     let muted = move || theme().muted_foreground;
     match entry.kind {
         CalendarItemKind::Weekday => {
-            let name = usize::try_from(entry.value).ok().and_then(|i| WEEKDAY_NAMES.get(i)).copied().unwrap_or("");
+            let name = usize::try_from(entry.value)
+                .ok()
+                .and_then(|i| WEEKDAYS.get(i))
+                .map_or_else(String::new, |day| format::weekday_short(*day));
             text(name).text_xs().text_color(muted).into_element()
         }
         CalendarItemKind::MonthToggle => {
-            text(format!("Tháng {}", entry.value)).text_sm().font_weight(FontWeight::SEMIBOLD).into_element()
+            text(month_of(entry.value, format::month_name)).text_sm().font_weight(FontWeight::SEMIBOLD).into_element()
         }
         CalendarItemKind::YearToggle | CalendarItemKind::Year => {
             text(entry.value.to_string()).text_sm().font_weight(FontWeight::SEMIBOLD).into_element()
         }
-        CalendarItemKind::Month => text(format!("Th {}", entry.value)).text_sm().into_element(),
+        CalendarItemKind::Month => text(month_of(entry.value, format::month_short)).text_sm().into_element(),
         CalendarItemKind::Previous => icon(Icon::ChevronLeft, 16.0).into_element(),
         CalendarItemKind::Next => icon(Icon::ChevronRight, 16.0).into_element(),
         CalendarItemKind::Day => {
@@ -189,6 +194,11 @@ fn render_entry(entry: &CalendarEntry, marked: &std::rc::Rc<Box<dyn Fn(NaiveDate
                 .into_element()
         }
     }
+}
+
+/// The name of month `number` (1 to 12) as `name` gives it.
+fn month_of(number: i32, name: fn(u32) -> String) -> String {
+    u32::try_from(number).map_or_else(|_| String::new(), name)
 }
 
 /// The trigger of a date picker as a field: a calendar glyph and the text, which follows `shown`.
@@ -262,13 +272,13 @@ impl MomentValue {
 pub struct Moment {
     day: Signal<Option<NaiveDate>>,
     time: Signal<Option<NaiveTime>>,
-    /// What is wrong with the time typed (Vietnamese), until it is corrected.
-    problem: Signal<Option<String>>,
+    /// Whether the time typed is not one, until it is corrected.
+    problem: Signal<bool>,
 }
 
 impl Moment {
     pub fn new(value: MomentValue) -> Self {
-        Self { day: signal(value.day), time: signal(value.time), problem: signal(None) }
+        Self { day: signal(value.day), time: signal(value.time), problem: signal(false) }
     }
 
     /// What is chosen now (not tracked: for a listener).
@@ -283,18 +293,13 @@ impl Moment {
 
     /// What is wrong with the time typed, if anything.
     pub fn problem(&self) -> Option<String> {
-        self.problem.get_untracked()
+        self.problem.get_untracked().then(|| t!("ui.date.bad_time"))
     }
 }
 
-/// A time of day typed as `0930`, `930`, `9:30`, `09:30`, `9.30`, `9h30` or just `9` (the hour), or the
-/// Vietnamese reason it is not one.
-///
-/// # Errors
-///
-/// The sentence that tells how to type it, when `typed` is not a time between 00:00 and 23:59.
-pub fn parse_clock(typed: &str) -> Result<NaiveTime, String> {
-    let wrong = || "Giờ không hợp lệ: gõ 0930 hoặc 9:30 (từ 00:00 đến 23:59).".to_owned();
+/// A time of day typed as `0930`, `930`, `9:30`, `09:30`, `9.30`, `9h30` or just `9` (the hour); `None`
+/// when `typed` is not a time between 00:00 and 23:59 (the field says how to type it).
+pub fn parse_clock(typed: &str) -> Option<NaiveTime> {
     let typed = typed.trim();
     let (hour, minute) = if let Some((hour, minute)) = typed.split_once([':', '.', 'h', 'H']) {
         (hour.trim(), minute.trim().trim_end_matches(['p', 'P']))
@@ -311,30 +316,30 @@ pub fn parse_clock(typed: &str) -> Result<NaiveTime, String> {
     };
     let minute = if minute.is_empty() { Some(0) } else { number(minute, 2).filter(|_| minute.len() == 2) };
     let (Some(hour), Some(minute)) = (number(hour, 2), minute) else {
-        return Err(wrong());
+        return None;
     };
-    NaiveTime::from_hms_opt(hour, minute, 0).ok_or_else(wrong)
+    NaiveTime::from_hms_opt(hour, minute, 0)
 }
 
 /// The field for a time of day, next to the day: type `0930` or `9:30`, kept when Enter is pressed or the
 /// field is left; a wrong time says why under the field. Empty means the time is not known.
-fn time_input(label: &'static str, moment: Moment) -> impl IntoElement {
+fn time_input(label: impl Into<SharedString>, moment: Moment) -> impl IntoElement {
     let draft = signal(String::new());
     effect(move || draft.set(moment.time.get().map_or_default(|t| t.format("%H:%M").to_string())));
     let keep: std::rc::Rc<dyn Fn()> = std::rc::Rc::new(move || {
         let typed = draft.get_untracked();
         if typed.trim().is_empty() {
-            moment.problem.set(None);
+            moment.problem.set(false);
             moment.time.set(None);
             return;
         }
         match parse_clock(&typed) {
-            Ok(time) => {
-                moment.problem.set(None);
+            Some(time) => {
+                moment.problem.set(false);
                 moment.time.set(Some(time));
                 draft.set(time.format("%H:%M").to_string());
             }
-            Err(reason) => moment.problem.set(Some(reason)),
+            None => moment.problem.set(true),
         }
     });
     let on_enter = std::rc::Rc::clone(&keep);
@@ -346,13 +351,13 @@ fn time_input(label: &'static str, moment: Moment) -> impl IntoElement {
         .px_3()
         .rounded(move || theme().radius)
         .border_1()
-        .border_color(move || if moment.problem.get().is_some() { theme().destructive } else { theme().input })
+        .border_color(move || if moment.problem.get() { theme().destructive } else { theme().input })
         .bg(move || theme().card)
         .focus_within(|s| s.border_color(move || theme().ring).outline(px(2.0)).outline_color(move || theme().ring))
         .child(
             input()
                 .flex_1()
-                .label(label)
+                .label(label.into())
                 .text_sm()
                 .font_family(mono)
                 .tabular_nums()
@@ -370,7 +375,11 @@ fn time_input(label: &'static str, moment: Moment) -> impl IntoElement {
 /// A day and a time of day, to enter either way: the day from the calendar (its popup has the time's
 /// hour and minute too, set with the arrows or the digits), the time typed in the field beside it.
 /// Both change `moment`.
-pub fn moment_field(label: &'static str, time_label: &'static str, moment: Moment) -> impl IntoElement {
+pub fn moment_field(
+    label: impl Into<SharedString>,
+    time_label: impl Into<SharedString>,
+    moment: Moment,
+) -> impl IntoElement {
     let chosen = move || moment.tracked().at();
     let pick = DatePick::moment(
         label,
@@ -378,13 +387,13 @@ pub fn moment_field(label: &'static str, time_label: &'static str, moment: Momen
         || chrono::Local::now().date_naive(),
         move |at| {
             let unknown = moment.time.get_untracked().is_none() && at.time() == NaiveTime::MIN;
-            moment.problem.set(None);
+            moment.problem.set(false);
             moment.day.set(Some(at.date()));
             moment.time.set((!unknown).then_some(at.time()));
         },
     );
     let trigger = date_trigger(move || {
-        moment.day.get().map_or_else(|| "Chọn ngày".to_owned(), |day| day.format("%d/%m/%Y").to_string())
+        moment.day.get().map_or_else(|| t!("ui.date.choose"), |day| day.format("%d/%m/%Y").to_string())
     });
     view()
         .gap_1()
@@ -396,13 +405,15 @@ pub fn moment_field(label: &'static str, time_label: &'static str, moment: Momen
                 .child(date_pick(pick, trigger))
                 .child(time_input(time_label, moment)),
         )
-        .child(dynamic(move || moment.problem.get().map(|reason| text(reason).text_xs().text_color(tokens::loss))))
+        .child(dynamic(move || {
+            moment.problem.get().then(|| text(t!("ui.date.bad_time")).text_xs().text_color(tokens::loss))
+        }))
 }
 
 /// The date as the trigger of a page's title says it: `Thứ 7, 21/11/2026`.
 #[must_use]
 pub fn weekday_title(day: NaiveDate) -> String {
-    let weekday = tradelens_core::time::weekday_vi(day.weekday());
+    let weekday = format::weekday_name(day.weekday());
     format!("{weekday}, {}", day.format("%d/%m/%Y"))
 }
 
@@ -411,10 +422,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_day_is_titled_by_its_weekday_in_vietnamese() {
+    fn a_day_is_titled_by_its_weekday_in_the_language_chosen() {
+        use crate::i18n::{Lang, with_text};
         let day = NaiveDate::from_ymd_opt(2026, 11, 21).expect("a date");
-        assert_eq!(weekday_title(day), "Thứ 7, 21/11/2026");
-        assert_eq!(WEEKDAY_NAMES[0], "CN");
+        assert_eq!(with_text(Lang::Vi, move || weekday_title(day)), "Thứ 7, 21/11/2026");
+        assert_eq!(with_text(Lang::En, move || weekday_title(day)), "Saturday, 21/11/2026");
+        assert_eq!(WEEKDAYS[0], Weekday::Sun, "nsh_base numbers Sunday 0");
     }
 
     #[test]
@@ -431,15 +444,16 @@ mod tests {
             ("2359", at(23, 59)),
             ("00:00", at(0, 0)),
         ] {
-            assert_eq!(parse_clock(typed), Ok(want), "{typed:?}");
+            assert_eq!(parse_clock(typed), Some(want), "{typed:?}");
         }
     }
 
     #[test]
     fn a_time_that_is_not_one_says_how_to_type_it() {
         for typed in ["", "abc", "2460", "24:00", "9:5", "12:60", "99999", "9:30:15", "-1:30"] {
-            let reason = parse_clock(typed).expect_err(typed);
-            assert!(reason.starts_with("Giờ không hợp lệ"), "{typed:?}: {reason}");
+            assert_eq!(parse_clock(typed), None, "{typed:?}");
         }
+        let said = crate::i18n::with_text(crate::i18n::Lang::Vi, || t!("ui.date.bad_time"));
+        assert!(said.starts_with("Giờ không hợp lệ"), "{said}");
     }
 }

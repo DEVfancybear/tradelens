@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     catalog::CustomValues,
+    i18n::{Lang, current},
     model::{JournalEntry, Trade, TradeKey},
 };
 
@@ -34,14 +35,29 @@ impl Period {
         }
     }
 
-    /// `Tuần 47 · 16–22/11` or `Tháng 11/2026`: the period starting `start`, as titled to the trader.
+    /// `Tuần 47 · 16–22/11` or `Tháng 11/2026`: the period starting `start`, as titled to the trader,
+    /// in the language of the process.
     pub fn title(self, start: NaiveDate) -> String {
+        self.title_in(start, current())
+    }
+
+    /// [`Period::title`] in `lang`: what is stored (the search index) is titled in one language, whichever
+    /// the trader reads the app in.
+    pub fn title_in(self, start: NaiveDate, lang: Lang) -> String {
         let (first, last) = self.bounds(start);
+        let locale = lang.key();
         match self {
-            Self::Week => {
-                format!("Tuần {} · {}–{}", first.iso_week().week(), first.format("%d"), last.format("%d/%m"))
+            Self::Week => rust_i18n::t!(
+                "core.review.week_title",
+                locale = locale,
+                week = first.iso_week().week(),
+                from = first.format("%d"),
+                to = last.format("%d/%m"),
+            )
+            .into_owned(),
+            Self::Month => {
+                rust_i18n::t!("core.review.month_title", locale = locale, month = first.format("%m/%Y")).into_owned()
             }
-            Self::Month => format!("Tháng {}", first.format("%m/%Y")),
         }
     }
 
@@ -74,22 +90,22 @@ pub struct ReviewTemplate {
 
 impl ReviewTemplate {
     pub fn default_for(period: Period) -> Self {
-        let prompts: &[&str] = match period {
+        let keys: &[&str] = match period {
             Period::Week => &[
-                "3 điều làm tốt tuần này",
-                "3 lỗi lặp lại và cái giá của chúng",
-                "Setup nào hiệu quả nhất, setup nào nên tạm dừng",
-                "Mục tiêu và quy tắc cho tuần sau",
+                "core.review.week_prompt.good",
+                "core.review.week_prompt.mistakes",
+                "core.review.week_prompt.setups",
+                "core.review.week_prompt.next",
             ],
             Period::Month => &[
-                "Kết quả so với mục tiêu tháng",
-                "Thay đổi lớn nhất trong cách giao dịch",
-                "Lỗi tốn kém nhất và kế hoạch loại bỏ",
-                "Điều chỉnh playbook và quy tắc rủi ro",
-                "Mục tiêu tháng sau",
+                "core.review.month_prompt.goal",
+                "core.review.month_prompt.change",
+                "core.review.month_prompt.costly",
+                "core.review.month_prompt.rules",
+                "core.review.month_prompt.next",
             ],
         };
-        Self { period, prompts: prompts.iter().map(|p| (*p).to_owned()).collect() }
+        Self { period, prompts: keys.iter().map(|key| crate::tr!(key)).collect() }
     }
 }
 
@@ -139,11 +155,11 @@ pub enum QueueReason {
 }
 
 impl QueueReason {
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::Flagged => "Bạn đánh dấu xem lại",
-            Self::LostMoreThanRisk => "Lỗ quá 1R",
-            Self::NotJournalled => "Chưa ghi nhật ký",
+            Self::Flagged => crate::tr!("core.review.queue.flagged"),
+            Self::LostMoreThanRisk => crate::tr!("core.review.queue.lost_more_than_risk"),
+            Self::NotJournalled => crate::tr!("core.review.queue.not_journalled"),
         }
     }
 }
@@ -192,6 +208,8 @@ mod tests {
     fn periods_are_named_for_the_trader_and_for_storage() {
         assert_eq!(Period::Week.title(day("2026-11-18")), "Tuần 47 · 16–22/11");
         assert_eq!(Period::Month.title(day("2026-11-18")), "Tháng 11/2026");
+        assert_eq!(Period::Week.title_in(day("2026-11-18"), Lang::En), "Week 47 · 16–22/11");
+        assert_eq!(Period::Month.title_in(day("2026-11-18"), Lang::Vi), "Tháng 11/2026");
         assert_eq!(Period::parse(Period::Week.name()), Some(Period::Week));
         assert_eq!(Period::parse("year"), None);
     }

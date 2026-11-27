@@ -1,0 +1,39 @@
+_version: 2
+
+# The store: what a failed read, write or restore says.
+store.not_open:
+  vi: "Chưa mở được cơ sở dữ liệu."
+  en: "The database could not be opened yet."
+store.read_failed:
+  vi: "Không đọc được dữ liệu: %{error}"
+  en: "Could not read the data: %{error}"
+store.read_stopped:
+  vi: "Luồng đọc dữ liệu bị dừng: %{error}"
+  en: "The data-reading task stopped: %{error}"
+store.write_failed:
+  vi: "Không ghi được dữ liệu: %{error}"
+  en: "Could not write the data: %{error}"
+store.write_stopped:
+  vi: "Luồng ghi dữ liệu bị dừng: %{error}"
+  en: "The data-writing task stopped: %{error}"
+store.no_file:
+  vi: "Chưa mở được tệp dữ liệu trên máy này."
+  en: "The data file could not be opened on this machine yet."
+store.backup_failed:
+  vi: "Không sao lưu được dữ liệu hiện tại: %{error}"
+  en: "Could not back up the current data: %{error}"
+store.close_failed:
+  vi: "Không đóng được dữ liệu hiện tại: %{error}"
+  en: "Could not close the current data: %{error}"
+store.restore_stopped:
+  vi: "Luồng khôi phục bị dừng: %{error}"
+  en: "The restore task stopped: %{error}"
+store.open_failed:
+  vi: "Không mở được cơ sở dữ liệu: %{error}"
+  en: "Could not open the database: %{error}"
+store.open_stopped:
+  vi: "Luồng mở dữ liệu bị dừng: %{error}"
+  en: "The database-opening task stopped: %{error}"
+store.legacy_failed:
+  vi: "Không chép được dữ liệu từ thư mục cũ (%{folder}): %{error}"
+  en: "Could not copy the data from the old folder (%{folder}): %{error}"

@@ -1,4 +1,4 @@
-//! Nhập lệnh & nhật ký thủ công: a trade the terminal never saw (another broker, a journal kept by
+//! Nhập lệnh & nhật ký thủ công (manual trade and journal entry): a trade the terminal never saw (another broker, a journal kept by
 //! hand) typed in with its journal. The trade becomes an entry and an exit deal
 //! (`Db::add_manual_trade`) and the journal goes with it. The same form edits the facts of a trade
 //! the trader owns (`Db::update_manual_trade`): pre-filled, saved over the same trade.
@@ -30,7 +30,7 @@ use crate::{
 };
 
 /// The value of the account choice that stands for the app's own account of hand-entered trades.
-const MANUAL_ACCOUNT: &str = "manual";
+const MANUAL_ACCOUNT: &str = tradelens_core::MANUAL_LOGIN;
 
 const SIDES: &[Side] = &[Side::Long, Side::Short];
 
@@ -44,7 +44,7 @@ enum Lead {
     R,
 }
 
-/// The page: a form that starts blank again after "Lưu & nhập tiếp".
+/// The page: a form that starts blank again after "Lưu & nhập tiếp" (Save & add another).
 pub(crate) fn manual_entry() -> impl IntoElement {
     let round = signal(0_u32);
     let notice = signal(None::<String>);
@@ -128,7 +128,7 @@ impl Part {
     }
 }
 
-/// What is wrong with a field of the form, in Vietnamese: it is said under that field.
+/// What is wrong with a field of the form, in words: it is said under that field.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Problem {
     part: Part,
@@ -147,12 +147,12 @@ fn positive(problems: &mut Vec<Problem>, lead: Lead, value: Option<f64>, part: P
     match value {
         Some(v) if v.is_finite() && v > 0.0 => Some(v),
         Some(_) => {
-            problems.push(Problem::new(part, format!("{what} phải là số lớn hơn 0")));
+            problems.push(Problem::new(part, t!("manual_entry.problem.positive", what = what)));
             None
         }
         None => {
             if lead == Lead::Money {
-                problems.push(Problem::new(part, format!("{what} phải là số lớn hơn 0")));
+                problems.push(Problem::new(part, t!("manual_entry.problem.positive", what = what)));
             }
             None
         }
@@ -165,20 +165,24 @@ fn build_trade(input: &TradeInput, zone: Zone) -> Result<ManualTrade, Vec<Proble
     let needed = zone.lead == Lead::Money;
     let mut problems = Vec::new();
     if input.symbol.trim().is_empty() {
-        problems.push(Problem::new(Part::Symbol, "Nhập mã giao dịch (symbol)."));
+        problems.push(Problem::new(Part::Symbol, t!("manual_entry.problem.symbol")));
     }
-    let volume = positive(&mut problems, zone.lead, input.volume, Part::Volume, "Khối lượng");
-    let open_price = positive(&mut problems, zone.lead, input.open_price, Part::OpenPrice, "Giá vào");
-    let close_price = positive(&mut problems, zone.lead, input.close_price, Part::ClosePrice, "Giá ra");
+    let volume = positive(&mut problems, zone.lead, input.volume, Part::Volume, &t!("manual_entry.field.volume"));
+    let open_price =
+        positive(&mut problems, zone.lead, input.open_price, Part::OpenPrice, &t!("manual_entry.field.open_price"));
+    let close_price =
+        positive(&mut problems, zone.lead, input.close_price, Part::ClosePrice, &t!("manual_entry.field.close_price"));
     let mut day = |moment: MomentValue, part: Part, what: &str| {
         let day = moment.day;
         if day.is_none() {
-            problems.push(Problem::new(part, format!("{what} chưa chọn: bấm ô để chọn ngày, rồi gõ giờ.")));
+            problems.push(Problem::new(part, t!("manual_entry.problem.no_day", what = what)));
         }
         day
     };
-    let (open_day, close_day) =
-        (day(input.opened, Part::Opened, "Thời gian vào"), day(input.closed, Part::Closed, "Thời gian ra"));
+    let (open_day, close_day) = (
+        day(input.opened, Part::Opened, &t!("manual_entry.field.opened")),
+        day(input.closed, Part::Closed, &t!("manual_entry.field.closed")),
+    );
     // Without a time of day on either end the trade is kept by its days; one typed makes both known.
     let date_only =
         (zone.lead == Lead::R || zone.date_only_ok) && input.opened.time.is_none() && input.closed.time.is_none();
@@ -190,19 +194,19 @@ fn build_trade(input: &TradeInput, zone: Zone) -> Result<ManualTrade, Vec<Proble
     if let Some((open, close)) = times
         && close < open
     {
-        problems.push(Problem::new(Part::Closed, "Thời gian ra phải sau thời gian vào."));
+        problems.push(Problem::new(Part::Closed, t!("manual_entry.problem.closed_before_opened")));
     }
     let mut finite = |value: Option<f64>, part: Part, what: &str| match value {
         Some(v) if !v.is_finite() => {
-            problems.push(Problem::new(part, format!("{what} phải là một số")));
+            problems.push(Problem::new(part, t!("manual_entry.problem.number", what = what)));
             None
         }
         other => other,
     };
-    let profit = finite(input.profit, Part::Profit, "Lãi/lỗ");
-    let result_r = finite(input.result_r, Part::ResultR, "Kết quả R");
+    let profit = finite(input.profit, Part::Profit, &t!("manual_entry.field.profit"));
+    let result_r = finite(input.result_r, Part::ResultR, &t!("manual_entry.what.result_r"));
     if needed && input.profit.is_none() {
-        problems.push(Problem::new(Part::Profit, "Nhập lãi/lỗ của lệnh (chưa gồm commission và swap)."));
+        problems.push(Problem::new(Part::Profit, t!("manual_entry.problem.profit")));
     }
     let (Some((open_time, close_time)), true) = (times, problems.is_empty()) else {
         problems.sort_by_key(|problem| problem.part.rank(zone.lead));
@@ -226,12 +230,9 @@ fn build_trade(input: &TradeInput, zone: Zone) -> Result<ManualTrade, Vec<Proble
     };
     if trade.profit.is_none() && trade.result_r.is_none() {
         // A trade without money is kept by its R: the one the prices and the stop say.
-        trade.result_r = Some(trade.computed_r().ok_or_else(|| {
-            vec![Problem::new(
-                Part::ResultR,
-                "Nhập kết quả (R) của lệnh, hoặc giá vào, giá ra và stop loss để app tự tính R.",
-            )]
-        })?);
+        trade.result_r = Some(
+            trade.computed_r().ok_or_else(|| vec![Problem::new(Part::ResultR, t!("manual_entry.problem.result_r"))])?,
+        );
     }
     Ok(trade)
 }
@@ -243,7 +244,7 @@ fn computed_line(input: &TradeInput, zone: Zone, currency: &str) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(profit) = input.profit {
         let net = profit + input.commission.unwrap_or(0.0) + input.swap.unwrap_or(0.0);
-        parts.push(format!("kết quả ròng {}", format::money(net, Sign::Always, currency)));
+        parts.push(t!("manual_entry.line.net", amount = format::money(net, Sign::Always, currency)));
     }
     // As `build_trade` reads them: a day with no time is midnight, unless the trade is kept by its days.
     let by_days =
@@ -257,7 +258,7 @@ fn computed_line(input: &TradeInput, zone: Zone, currency: &str) -> String {
     if let (Some(open), Some(close)) = (known(input.opened), known(input.closed))
         && close >= open
     {
-        parts.push(format!("giữ {}", format_duration((close - open) / 1000)));
+        parts.push(t!("manual_entry.line.held", duration = format_duration((close - open) / 1000)));
     }
     let measured = ManualTrade {
         symbol: String::new(),
@@ -276,17 +277,17 @@ fn computed_line(input: &TradeInput, zone: Zone, currency: &str) -> String {
         result_r: None,
     };
     match (input.result_r, measured.computed_r()) {
-        (Some(typed), _) => parts.push(format!("R nhập tay {}", format::r_text(Some(typed)))),
-        (None, Some(computed)) => parts.push(format!("R tự tính từ SL {}", format::r_text(Some(computed)))),
+        (Some(typed), _) => parts.push(t!("manual_entry.line.typed_r", r = format::r_text(Some(typed)))),
+        (None, Some(computed)) => parts.push(t!("manual_entry.line.stop_r", r = format::r_text(Some(computed)))),
         (None, None) => {}
     }
     if parts.is_empty() {
         return match zone.lead {
-            Lead::Money => "Tự tính: nhập thời gian vào, ra và lãi/lỗ để xem kết quả ròng và thời gian giữ.".to_owned(),
-            Lead::R => "Tự tính: nhập kết quả (R), hoặc giá vào, giá ra và stop loss để app tính R.".to_owned(),
+            Lead::Money => t!("manual_entry.line.empty_money"),
+            Lead::R => t!("manual_entry.line.empty_r"),
         };
     }
-    format!("Tự tính: {}", parts.join(" · "))
+    t!("manual_entry.line.computed", parts = parts.join(" · "))
 }
 
 /// The elements of the form's fields, to bring one into view.
@@ -477,8 +478,8 @@ fn store_trade(db: &mut Db, account: &str, trade: &ManualTrade, entry: &JournalE
         Ok(id) => id,
         Err(_) => db.upsert_account(&AccountInfo {
             login: MANUAL_ACCOUNT.to_owned(),
-            server: "Nhập tay".to_owned(),
-            name: "Nhập tay".to_owned(),
+            server: tradelens_core::MANUAL_NAME.to_owned(),
+            name: tradelens_core::MANUAL_NAME.to_owned(),
             ..AccountInfo::default()
         })?,
     };
@@ -546,7 +547,7 @@ fn entry_page(round: Signal<u32>, notice: Signal<Option<String>>) -> impl IntoEl
                             nav::show_trade(key);
                         }
                         After::Continue => {
-                            notice.set(Some(format!("Đã lưu lệnh {symbol}. Nhập lệnh tiếp theo.")));
+                            notice.set(Some(t!("manual_entry.saved_next", symbol = symbol)));
                             round.update(|n| *n += 1);
                         }
                     },
@@ -560,12 +561,19 @@ fn entry_page(round: Signal<u32>, notice: Signal<Option<String>>) -> impl IntoEl
         .flex_row()
         .items_center()
         .gap_3()
-        .child(action("Huỷ", Variant::Ghost, nav::close_manual_entry))
-        .child(action_when("Lưu & nhập tiếp", Variant::Secondary, move || !busy.get(), move || save(After::Continue)))
-        .child(view().child(action_icon(Icon::Check, "Lưu lệnh", Variant::Primary, move || save(After::Open))));
+        .child(action(t!("common.cancel"), Variant::Ghost, nav::close_manual_entry))
+        .child(action_when(
+            t!("manual_entry.save_next"),
+            Variant::Secondary,
+            move || !busy.get(),
+            move || save(After::Continue),
+        ))
+        .child(view().child(action_icon(Icon::Check, t!("manual_entry.save"), Variant::Primary, move || {
+            save(After::Open);
+        })));
     page_with(
-        "Nhập lệnh & nhật ký thủ công",
-        "Cho lệnh ngoài MT5, hoặc bổ sung nhật ký cho lệnh có sẵn",
+        t!("manual_entry.title"),
+        t!("manual_entry.summary"),
         actions,
         view()
             .flex_row()
@@ -580,7 +588,7 @@ fn entry_page(round: Signal<u32>, notice: Signal<Option<String>>) -> impl IntoEl
                     .child(dynamic(move || notice.get().map(warning_line)))
                     .child(failure_line(failure))
                     .child(trade_card(inputs, String::new(), TradeMode::New))
-                    .child(card("2 · Nhật ký", journal_form(fields, shot_count, None, failure))),
+                    .child(card(t!("manual_entry.journal"), journal_form(fields, shot_count, None, failure))),
             )
             .child(attachments_column(shots)),
     )
@@ -595,12 +603,11 @@ fn failure_line(failure: Signal<Option<String>>) -> impl IntoElement {
 /// The column of chart images beside the form.
 fn attachments_column(shots: Signal<Vec<Attachment>>) -> impl IntoElement {
     view().w(px(SIDE_WIDTH)).gap_6().child(card(
-        "Ảnh & đính kèm",
-        view().gap_2().child(gallery("Ảnh chart", move || shots.get(), move |list| shots.set(list))).child(
-            text("Ảnh lưu cùng dữ liệu trên máy, theo lệnh sau khi bấm Lưu lệnh.")
-                .text_xs()
-                .text_color(move || theme().muted_foreground),
-        ),
+        t!("manual_entry.attachments"),
+        view()
+            .gap_2()
+            .child(gallery(t!("manual_entry.shots"), move || shots.get(), move |list| shots.set(list)))
+            .child(text(t!("manual_entry.attachments_note")).text_xs().text_color(move || theme().muted_foreground)),
     ))
 }
 
@@ -615,31 +622,29 @@ fn kept_card(key: TradeKey) -> impl IntoElement {
         let entry = store.snapshot().journal(&key);
         let mut kept = Vec::new();
         if !entry.is_empty() {
-            kept.push("đã có nhật ký".to_owned());
+            kept.push(t!("manual_entry.kept.journal"));
         }
         if entry.rating > 0 {
-            kept.push(format!("chấm {}/5", entry.rating));
+            kept.push(t!("manual_entry.kept.rating", n = entry.rating));
         }
-        if !entry.screenshots.is_empty() {
-            kept.push(format!("{} ảnh chart", entry.screenshots.len()));
+        match entry.screenshots.len() {
+            0 => {}
+            1 => kept.push(t!("manual_entry.kept.shots_one")),
+            n => kept.push(t!("manual_entry.kept.shots_many", n = n)),
         }
         if kept.is_empty() {
-            "Lệnh chưa có nhật ký hay ảnh.".to_owned()
+            t!("manual_entry.kept.none")
         } else {
-            format!("Lệnh {}.", kept.join(", "))
+            t!("manual_entry.kept.sentence", kept = kept.join(", "))
         }
     };
     card(
-        "Nhật ký & ảnh",
+        t!("manual_entry.kept.title"),
         view()
             .gap_2()
             .child(text(summary).text_sm())
-            .child(
-                text("Sửa số liệu không đụng tới nhật ký, ảnh và liên kết của lệnh: chúng giữ nguyên.")
-                    .text_xs()
-                    .text_color(move || theme().muted_foreground),
-            )
-            .child(view().flex_row().child(link("Nhật ký và ảnh sửa ở trang lệnh", nav::close_edit_trade))),
+            .child(text(t!("manual_entry.kept.note")).text_xs().text_color(move || theme().muted_foreground))
+            .child(view().flex_row().child(link(t!("manual_entry.kept.link"), nav::close_edit_trade))),
     )
 }
 
@@ -656,7 +661,7 @@ pub(crate) fn edit_trade(key: TradeKey) -> impl IntoElement {
             move |result| {
                 loaded.set(Some(match result {
                     Ok(Some(trade)) => Ok(trade),
-                    Ok(None) => Err("Lệnh này do MT5 báo cáo (hoặc gồm nhiều deal) nên không sửa số liệu được.".into()),
+                    Ok(None) => Err(t!("manual_entry.edit.not_editable")),
                     Err(error) => Err(error),
                 }));
             },
@@ -667,16 +672,16 @@ pub(crate) fn edit_trade(key: TradeKey) -> impl IntoElement {
         let key = key.clone();
         match loaded.get() {
             None => page_with(
-                "Sửa lệnh",
-                "Đang đọc lệnh…",
-                action("Huỷ", Variant::Ghost, back),
-                view().child(text("Đang tải…").text_sm().text_color(move || theme().muted_foreground)),
+                t!("manual_entry.edit.title"),
+                t!("manual_entry.edit.reading"),
+                action(t!("common.cancel"), Variant::Ghost, back),
+                view().child(text(t!("common.loading")).text_sm().text_color(move || theme().muted_foreground)),
             )
             .into_element(),
             Some(Err(problem)) => page_with(
-                "Sửa lệnh",
-                "Không sửa được lệnh này",
-                action("‹ Lệnh", Variant::Secondary, back),
+                t!("manual_entry.edit.title"),
+                t!("manual_entry.edit.refused"),
+                action(t!("manual_entry.edit.back"), Variant::Secondary, back),
                 view().child(error_line(problem)),
             )
             .into_element(),
@@ -697,7 +702,7 @@ fn edit_page(key: &TradeKey, stored: &ManualTrade) -> impl IntoElement {
     let complete =
         stored.profit.is_some() && stored.volume.is_some() && stored.open_price.is_some() && !stored.date_only;
     let zone = Zone { clock, lead: if complete { Lead::Money } else { Lead::R }, date_only_ok: stored.date_only };
-    let account = account_row.map_or_else(|| format!("Tài khoản {}", key.account_id), Account::title);
+    let account = account_row.map_or_else(|| t!("manual_entry.account_n", id = key.account_id), Account::title);
     let busy = signal(false);
     let failure = signal(None::<String>);
     let save = {
@@ -728,11 +733,11 @@ fn edit_page(key: &TradeKey, stored: &ManualTrade) -> impl IntoElement {
         .flex_row()
         .items_center()
         .gap_3()
-        .child(action("Huỷ", Variant::Ghost, nav::close_edit_trade))
-        .child(view().child(action_icon(Icon::Check, "Lưu thay đổi", Variant::Primary, save)));
+        .child(action(t!("common.cancel"), Variant::Ghost, nav::close_edit_trade))
+        .child(view().child(action_icon(Icon::Check, t!("manual_entry.edit.save"), Variant::Primary, save)));
     page_with(
-        "Sửa lệnh",
-        "Số liệu của lệnh; nhật ký, ảnh và liên kết của lệnh giữ nguyên",
+        t!("manual_entry.edit.title"),
+        t!("manual_entry.edit.summary"),
         actions,
         view()
             .flex_row()
@@ -752,17 +757,22 @@ fn edit_page(key: &TradeKey, stored: &ManualTrade) -> impl IntoElement {
 const FIELD_MIN: f32 = 184.0;
 
 /// A caption over a control, in the form's grid.
-fn field(label: &'static str, control: impl IntoElement) -> View {
+fn field(label: impl Into<SharedString>, control: impl IntoElement) -> View {
     view()
         .flex_1()
         .min_w(px(FIELD_MIN))
         .gap_1()
-        .child(text(label).text_xs().text_color(move || theme().muted_foreground))
+        .child(text(label.into()).text_xs().text_color(move || theme().muted_foreground))
         .child(control)
 }
 
 /// A [`field`] that says what is wrong with it under it, and can be brought into view.
-fn checked_field(inputs: Inputs, part: Part, label: &'static str, control: impl IntoElement) -> impl IntoElement {
+fn checked_field(
+    inputs: Inputs,
+    part: Part,
+    label: impl Into<SharedString>,
+    control: impl IntoElement,
+) -> impl IntoElement {
     field(label, control).element_ref(&inputs.marks.of(part)).child(dynamic(move || {
         inputs
             .problems
@@ -775,13 +785,19 @@ fn checked_field(inputs: Inputs, part: Part, label: &'static str, control: impl 
 fn number(
     inputs: Inputs,
     part: Option<Part>,
-    label: &'static str,
+    label: impl Into<SharedString>,
     unit: Option<&'static str>,
     value: Signal<Option<f64>>,
     step: f64,
 ) -> impl IntoElement {
-    let control =
-        number_field_fluid(label, unit, NumberRange::any().stepping(step), move || value.get(), move |n| value.set(n));
+    let label: SharedString = label.into();
+    let control = number_field_fluid(
+        label.clone(),
+        unit.map(Into::into),
+        NumberRange::any().stepping(step),
+        move || value.get(),
+        move |n| value.set(n),
+    );
     match part {
         Some(part) => checked_field(inputs, part, label, control).into_element(),
         None => field(label, control).into_element(),
@@ -810,7 +826,7 @@ fn who_row(inputs: Inputs, account_title: String, mode: TradeMode) -> impl IntoE
     let accounts = move || {
         let mut all: Vec<Choice> =
             store.snapshot().accounts.iter().map(|a| Choice::new(a.id.to_string(), a.title())).collect();
-        all.push(Choice::new(MANUAL_ACCOUNT, "Tài khoản nhập tay"));
+        all.push(Choice::new(MANUAL_ACCOUNT, t!("manual_entry.manual_account")));
         all
     };
     let (symbol, side) = (inputs.symbol, inputs.side);
@@ -820,10 +836,10 @@ fn who_row(inputs: Inputs, account_title: String, mode: TradeMode) -> impl IntoE
         .items_end()
         .gap_3()
         .child(field(
-            "Tài khoản",
+            t!("manual_entry.field.account"),
             match mode {
                 TradeMode::New => select_value(
-                    "Tài khoản",
+                    t!("manual_entry.field.account"),
                     accounts,
                     move || SharedString::from(inputs.account.get()),
                     move |value| inputs.account.set(value.to_string()),
@@ -842,7 +858,10 @@ fn who_row(inputs: Inputs, account_title: String, mode: TradeMode) -> impl IntoE
             "Symbol",
             text_field("Symbol", None, "XAUUSD", move || symbol.get(), move |t| symbol.set(t.to_owned())),
         ))
-        .child(field("Chiều", segmented("Chiều", SIDES, Side::label, move || side.get(), move |s| side.set(s))))
+        .child(field(
+            t!("manual_entry.field.side"),
+            segmented(t!("manual_entry.field.side"), SIDES, Side::label, move || side.get(), move |s| side.set(s)),
+        ))
 }
 
 /// When the trade opened and closed, and how big it was.
@@ -854,16 +873,16 @@ fn when_row(inputs: Inputs) -> impl IntoElement {
         .child(checked_field(
             inputs,
             Part::Opened,
-            "Thời gian vào",
-            moment_field("Thời gian vào", "Giờ vào", inputs.opened),
+            t!("manual_entry.field.opened"),
+            moment_field(t!("manual_entry.field.opened"), t!("manual_entry.field.opened_time"), inputs.opened),
         ))
         .child(checked_field(
             inputs,
             Part::Closed,
-            "Thời gian ra",
-            moment_field("Thời gian ra", "Giờ ra", inputs.closed),
+            t!("manual_entry.field.closed"),
+            moment_field(t!("manual_entry.field.closed"), t!("manual_entry.field.closed_time"), inputs.closed),
         ))
-        .child(number(inputs, Some(Part::Volume), "Khối lượng", Some("lot"), inputs.volume, 0.01))
+        .child(number(inputs, Some(Part::Volume), t!("manual_entry.field.volume"), Some("lot"), inputs.volume, 0.01))
 }
 
 /// The widest the field of the result in R grows: it is one number, not a row of them.
@@ -874,7 +893,7 @@ fn r_row(inputs: Inputs) -> impl IntoElement {
     view().flex_row().flex_wrap().gap_3().max_w(px(RESULT_MAX)).child(number(
         inputs,
         Some(Part::ResultR),
-        "Kết quả (R)",
+        t!("manual_entry.field.result_r"),
         Some("R"),
         inputs.result_r,
         0.1,
@@ -895,24 +914,21 @@ fn trade_card(inputs: Inputs, account_title: String, mode: TradeMode) -> impl In
     let leads_money = computed(move || lead() == Lead::Money);
     card(
         match mode {
-            TradeMode::New => "1 · Thông tin lệnh",
-            TradeMode::Edit(_) => "Thông tin lệnh",
+            TradeMode::New => t!("manual_entry.trade_new"),
+            TradeMode::Edit(_) => t!("manual_entry.trade_edit"),
         },
         view()
             .gap_3()
             .child(who_row(inputs, account_title, mode))
             .child(dynamic(move || {
                 // A journal kept in R: its result leads, and the rest says it is optional.
-                leads_r.get().then(|| untracked(|| {
-                    view()
-                        .gap_2()
-                        .child(r_row(inputs))
-                        .child(
-                            text("Nhật ký ghi bằng R: lot, giá và lãi/lỗ không bắt buộc. Có giá vào, giá ra và stop loss thì app tự tính R.")
-                                .text_xs()
-                                .text_color(move || theme().muted_foreground),
+                leads_r.get().then(|| {
+                    untracked(|| {
+                        view().gap_2().child(r_row(inputs)).child(
+                            text(t!("manual_entry.r_note")).text_xs().text_color(move || theme().muted_foreground),
                         )
-                }))
+                    })
+                })
             }))
             .child(when_row(inputs))
             .child(
@@ -920,8 +936,22 @@ fn trade_card(inputs: Inputs, account_title: String, mode: TradeMode) -> impl In
                     .flex_row()
                     .flex_wrap()
                     .gap_3()
-                    .child(number(inputs, Some(Part::OpenPrice), "Giá vào", None, inputs.open_price, 0.01))
-                    .child(number(inputs, Some(Part::ClosePrice), "Giá ra", None, inputs.close_price, 0.01))
+                    .child(number(
+                        inputs,
+                        Some(Part::OpenPrice),
+                        t!("manual_entry.field.open_price"),
+                        None,
+                        inputs.open_price,
+                        0.01,
+                    ))
+                    .child(number(
+                        inputs,
+                        Some(Part::ClosePrice),
+                        t!("manual_entry.field.close_price"),
+                        None,
+                        inputs.close_price,
+                        0.01,
+                    ))
                     .child(number(inputs, None, "Stop loss", None, inputs.sl, 0.01))
                     .child(number(inputs, None, "Take profit", None, inputs.tp, 0.01)),
             )
@@ -930,16 +960,25 @@ fn trade_card(inputs: Inputs, account_title: String, mode: TradeMode) -> impl In
                     .flex_row()
                     .flex_wrap()
                     .gap_3()
-                    .child(number(inputs, Some(Part::Profit), "Lãi/lỗ", None, inputs.profit, 1.0))
+                    .child(number(
+                        inputs,
+                        Some(Part::Profit),
+                        t!("manual_entry.field.profit"),
+                        None,
+                        inputs.profit,
+                        1.0,
+                    ))
                     .child(number(inputs, None, "Commission", None, inputs.commission, 0.1))
                     .child(number(inputs, None, "Swap", None, inputs.swap, 0.1)),
             )
             .child(dynamic(move || leads_money.get().then(|| untracked(|| r_row(inputs)))))
-            .child(view().p_3().rounded(move || theme().radius).border_1().border_color(move || theme().border).child(
-                text(move || preview_line(store, inputs, lead()))
-                    .text_xs()
-                    .text_color(move || theme().muted_foreground),
-            )),
+            .child(
+                view().p_3().rounded(move || theme().radius).border_1().border_color(move || theme().border).child(
+                    text(move || preview_line(store, inputs, lead()))
+                        .text_xs()
+                        .text_color(move || theme().muted_foreground),
+                ),
+            ),
     )
 }
 
@@ -984,65 +1023,104 @@ mod tests {
         Zone { clock: Clock { server_offset_min: None, local_offset_min: 420 }, lead, date_only_ok: false }
     }
 
+    /// Runs `check` where the text is Vietnamese.
+    fn in_vietnamese<R: Send + 'static>(check: impl FnOnce() -> R + Send + 'static) -> R {
+        crate::i18n::with_text(crate::i18n::Lang::Vi, check)
+    }
+
     #[test]
     fn a_complete_form_becomes_a_trade() {
-        let trade = build_trade(&input(), zone(Lead::Money)).expect("a valid trade");
-        assert_eq!(trade.symbol, "GBPUSD");
-        assert_eq!(trade.side, Side::Short);
-        assert_eq!(trade.tp, 0.0, "a level left empty is 0, which means none");
-        assert_eq!(trade.swap, 0.0);
-        assert_eq!((trade.close_time - trade.open_time) / 60_000, 95);
-        assert_eq!(trade.result_r, None, "the R is read from the stop, not stored, unless the trader typed one");
-        assert_eq!(
-            computed_line(&input(), zone(Lead::Money), "USD"),
-            "Tự tính: kết quả ròng +$258.40 · giữ 1g 35p · R tự tính từ SL +1.6R"
-        );
+        in_vietnamese(|| {
+            let trade = build_trade(&input(), zone(Lead::Money)).expect("a valid trade");
+            assert_eq!(trade.symbol, "GBPUSD");
+            assert_eq!(trade.side, Side::Short);
+            assert_eq!(trade.tp, 0.0, "a level left empty is 0, which means none");
+            assert_eq!(trade.swap, 0.0);
+            assert_eq!((trade.close_time - trade.open_time) / 60_000, 95);
+            assert_eq!(trade.result_r, None, "the R is read from the stop, not stored, unless the trader typed one");
+            assert_eq!(
+                computed_line(&input(), zone(Lead::Money), "USD"),
+                "Tự tính: kết quả ròng +$258.40 · giữ 1g 35p · R tự tính từ SL +1.6R"
+            );
+        });
+        crate::i18n::with_text(crate::i18n::Lang::En, || {
+            let blank = TradeInput {
+                profit: None,
+                opened: MomentValue::default(),
+                closed: MomentValue::default(),
+                open_price: None,
+                close_price: None,
+                ..input()
+            };
+            assert_eq!(
+                computed_line(&blank, zone(Lead::Money), "USD"),
+                "Calculated: enter the entry and exit times and the profit/loss to see the net result and the hold time."
+            );
+            assert!(computed_line(&input(), zone(Lead::Money), "USD").starts_with("Calculated: net result +$258.40"));
+        });
     }
 
     #[test]
     fn the_r_the_trader_types_stands_over_the_one_the_stop_says() {
-        let typed = TradeInput { result_r: Some(2.0), ..input() };
-        assert_eq!(build_trade(&typed, zone(Lead::Money)).expect("valid").result_r, Some(2.0));
-        assert!(computed_line(&typed, zone(Lead::Money), "USD").ends_with("R nhập tay +2.0R"));
+        in_vietnamese(|| {
+            let typed = TradeInput { result_r: Some(2.0), ..input() };
+            assert_eq!(build_trade(&typed, zone(Lead::Money)).expect("valid").result_r, Some(2.0));
+            assert!(computed_line(&typed, zone(Lead::Money), "USD").ends_with("R nhập tay +2.0R"));
+        });
     }
 
     #[test]
     fn typed_times_move_to_the_servers_clock() {
-        // 16:05 in Vietnam (UTC+7) is 11:05 on a server at UTC+2.
-        let on_server =
-            Zone { clock: Clock { server_offset_min: Some(120), local_offset_min: 420 }, ..zone(Lead::Money) };
-        let trade = build_trade(&input(), on_server).expect("valid");
-        assert_eq!(tradelens_core::time::naive(trade.open_time).format("%H:%M").to_string(), "11:05");
-        let kept = build_trade(&input(), zone(Lead::Money)).expect("valid");
-        assert_eq!(tradelens_core::time::naive(kept.open_time).format("%H:%M").to_string(), "16:05");
+        in_vietnamese(|| {
+            // 16:05 in Vietnam (UTC+7) is 11:05 on a server at UTC+2.
+            let on_server =
+                Zone { clock: Clock { server_offset_min: Some(120), local_offset_min: 420 }, ..zone(Lead::Money) };
+            let trade = build_trade(&input(), on_server).expect("valid");
+            assert_eq!(tradelens_core::time::naive(trade.open_time).format("%H:%M").to_string(), "11:05");
+            let kept = build_trade(&input(), zone(Lead::Money)).expect("valid");
+            assert_eq!(tradelens_core::time::naive(kept.open_time).format("%H:%M").to_string(), "16:05");
+        });
     }
 
     #[test]
     fn what_is_wrong_is_said_in_words_and_under_the_field_it_concerns() {
-        let fix = |edit: fn(&mut TradeInput)| {
-            let mut input = input();
-            edit(&mut input);
-            build_trade(&input, zone(Lead::Money)).expect_err("must be refused").remove(0)
-        };
-        let said = |problem: Problem, part: Part, text: &str| {
-            assert_eq!(problem.part, part, "{}", problem.message);
-            assert!(problem.message.contains(text), "{}", problem.message);
-        };
-        said(fix(|i| i.symbol = " ".into()), Part::Symbol, "symbol");
-        said(fix(|i| i.volume = None), Part::Volume, "Khối lượng");
-        said(fix(|i| i.close_price = Some(0.0)), Part::ClosePrice, "Giá ra");
-        said(fix(|i| i.opened = MomentValue::default()), Part::Opened, "Thời gian vào");
-        said(fix(|i| i.closed = moment(20, 15, 0)), Part::Closed, "sau thời gian vào");
-        said(fix(|i| i.profit = None), Part::Profit, "Nhập lãi/lỗ");
+        in_vietnamese(|| {
+            let fix = |edit: fn(&mut TradeInput)| {
+                let mut input = input();
+                edit(&mut input);
+                build_trade(&input, zone(Lead::Money)).expect_err("must be refused").remove(0)
+            };
+            let said = |problem: Problem, part: Part, text: &str| {
+                assert_eq!(problem.part, part, "{}", problem.message);
+                assert!(problem.message.contains(text), "{}", problem.message);
+            };
+            said(fix(|i| i.symbol = " ".into()), Part::Symbol, "symbol");
+            said(fix(|i| i.volume = None), Part::Volume, "Khối lượng");
+            said(fix(|i| i.close_price = Some(0.0)), Part::ClosePrice, "Giá ra");
+            said(fix(|i| i.opened = MomentValue::default()), Part::Opened, "Thời gian vào");
+            said(fix(|i| i.closed = moment(20, 15, 0)), Part::Closed, "sau thời gian vào");
+            said(fix(|i| i.profit = None), Part::Profit, "Nhập lãi/lỗ");
+        });
+        crate::i18n::with_text(crate::i18n::Lang::En, || {
+            let refused = build_trade(&TradeInput { volume: None, ..input() }, zone(Lead::Money)).expect_err("refused");
+            assert_eq!(refused[0].message, "Volume must be a number greater than 0");
+        });
     }
 
     #[test]
     fn every_problem_is_listed_the_one_the_form_shows_first_first() {
-        let empty =
-            TradeInput { symbol: String::new(), closed: MomentValue::default(), volume: None, profit: None, ..input() };
-        let parts: Vec<Part> =
-            build_trade(&empty, zone(Lead::Money)).expect_err("refused").iter().map(|p| p.part).collect();
-        assert_eq!(parts, [Part::Symbol, Part::Closed, Part::Volume, Part::Profit]);
+        in_vietnamese(|| {
+            let empty = TradeInput {
+                symbol: String::new(),
+                closed: MomentValue::default(),
+                volume: None,
+                profit: None,
+                ..input()
+            };
+            let parts: Vec<Part> =
+                build_trade(&empty, zone(Lead::Money)).expect_err("refused").iter().map(|p| p.part).collect();
+            assert_eq!(parts, [Part::Symbol, Part::Closed, Part::Volume, Part::Profit]);
+        });
         // A journal kept in R shows its result before the rest.
         assert!(Part::ResultR.rank(Lead::R) < Part::Symbol.rank(Lead::R));
         assert!(Part::ResultR.rank(Lead::Money) > Part::Profit.rank(Lead::Money));
@@ -1050,6 +1128,10 @@ mod tests {
 
     #[test]
     fn a_trade_kept_in_r_needs_only_its_r_or_what_makes_one() {
+        in_vietnamese(trade_kept_in_r_needs_only_its_r_or_what_makes_one);
+    }
+
+    fn trade_kept_in_r_needs_only_its_r_or_what_makes_one() {
         let bare = TradeInput {
             volume: None,
             open_price: None,
@@ -1081,15 +1163,17 @@ mod tests {
 
     #[test]
     fn the_money_form_keeps_asking_for_money_even_when_an_r_is_typed() {
-        let typed = TradeInput { profit: None, result_r: Some(1.0), ..input() };
-        assert!(build_trade(&typed, zone(Lead::Money)).expect_err("refused")[0].message.starts_with("Nhập lãi/lỗ"));
-        assert!(build_trade(&typed, zone(Lead::R)).is_ok());
+        in_vietnamese(|| {
+            let typed = TradeInput { profit: None, result_r: Some(1.0), ..input() };
+            assert!(build_trade(&typed, zone(Lead::Money)).expect_err("refused")[0].message.starts_with("Nhập lãi/lỗ"));
+            assert!(build_trade(&typed, zone(Lead::R)).is_ok());
+        });
     }
 
     #[test]
     fn a_trade_and_its_journal_are_stored_together_on_the_manual_account() {
+        let trade = in_vietnamese(|| build_trade(&input(), zone(Lead::Money)).expect("a valid trade"));
         let mut db = Db::in_memory().expect("opens");
-        let trade = build_trade(&input(), zone(Lead::Money)).expect("a valid trade");
         let entry = JournalEntry { notes: "vào sớm".into(), rating: 3, ..JournalEntry::default() };
         let key = store_trade(&mut db, MANUAL_ACCOUNT, &trade, &entry).expect("stored");
         assert_eq!(db.journal(&key).expect("reads").expect("an entry").notes, "vào sớm");

@@ -12,7 +12,7 @@ use tradelens_mt5::{AccountRef, install};
 use super::position;
 use crate::{
     format::{self, Sign},
-    mt5::{Live, Mt5, PlanPrompt, State, Status, mt5},
+    mt5::{Live, Mt5, Notice, PlanPrompt, State, Status, mt5},
     ui::{
         chips::{Tone, chip, pnl_text},
         controls::{
@@ -26,7 +26,7 @@ use crate::{
 };
 
 /// What the terminal picker takes.
-const TERMINAL_FILE: Accept = Accept { name: "terminal64.exe", extensions: &["exe"] };
+const TERMINAL_FILE: Accept = Accept { name: || "terminal64.exe".to_owned(), extensions: &["exe"] };
 
 /// The sign-in form's fields, kept while the card lives.
 #[derive(Clone, Copy)]
@@ -57,20 +57,16 @@ pub(super) fn mt5_card() -> impl IntoElement {
         picked: signal(None),
     };
     card(
-        "Kết nối MT5",
+        t!("mt5_connect.title"),
         view()
             .gap_4()
-            .child(
-                text("Đăng nhập tài khoản MT5 ngay tại đây: TradeLens chạy một bản MetaTrader 5 riêng, ẩn cho mỗi tài khoản và tự đưa lệnh vào nhật ký trong vài giây, không cần mở MT5 hay cài EA. Mật khẩu được giữ trong Windows Credential Manager.")
-                    .text_sm()
-                    .text_color(move || theme().muted_foreground),
-            )
+            .child(text(t!("mt5_connect.intro")).text_sm().text_color(move || theme().muted_foreground))
             .child(setup_view(mt5))
             .child(sign_in_form(mt5, form))
             .child(accounts_view(mt5))
             .child(switch_row(
-                "Hỏi kế hoạch khi có lệnh mới",
-                Some("Mở popup ghi kế hoạch khi một lệnh vừa vào trên tài khoản đang kết nối"),
+                t!("mt5_connect.plan_switch"),
+                Some(t!("mt5_connect.plan_hint")),
                 move || mt5.state.with(|state| state.prompt_plans),
                 move |on| mt5.set_prompt_plans(if on { PlanPrompt::Ask } else { PlanPrompt::Skip }),
             )),
@@ -86,16 +82,18 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
         untracked(|| {
             let idle = busy.is_none();
             let line = match (&setup.python, setup.demo) {
-                (_, true) => Some("Chế độ thử: tài khoản và lệnh là dữ liệu mẫu trong bộ nhớ.".to_owned()),
+                (_, true) => Some(t!("mt5_connect.demo")),
                 (Some(python), false) if python.has_package => {
-                    Some(format!("Python {} · gói MetaTrader5 sẵn sàng ({})", python.version, python.display()))
+                    Some(t!("mt5_connect.ready", version = python.version, path = python.display()))
                 }
                 _ => None,
             };
             view()
                 .gap_2()
-                .when_some(busy, |v, busy| v.child(text(busy).text_xs().text_color(move || theme().muted_foreground)))
-                .when_some(missing.filter(|_| idle), |v, missing| v.child(warning_banner(missing)))
+                .when_some(busy, |v, busy| {
+                    v.child(text(busy.text()).text_xs().text_color(move || theme().muted_foreground))
+                })
+                .when_some(missing.filter(|_| idle), |v, missing| v.child(warning_banner(missing.text())))
                 .when_some(line, |v, line| v.child(text(line).text_xs().text_color(move || theme().muted_foreground)))
                 .when(!setup.demo && setup.checked, |v| {
                     v.child(
@@ -104,16 +102,16 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
                             .flex_wrap()
                             .gap_2()
                             .child(action_when(
-                                "Kiểm tra lại",
+                                t!("mt5_connect.check_again"),
                                 Variant::Secondary,
                                 move || idle,
                                 move || mt5.check_again(),
                             ))
                             .when(setup.needs_python(), |v| {
                                 let label = if setup.python.is_some() {
-                                    "Cài gói MetaTrader5"
+                                    t!("mt5_connect.install_package")
                                 } else {
-                                    "Cài Python tự động"
+                                    t!("mt5_connect.install_python")
                                 };
                                 v.child(action_when(
                                     label,
@@ -124,7 +122,7 @@ fn setup_view(mt5: Mt5) -> impl IntoElement {
                             })
                             .when(setup.needs_terminal(), |v| {
                                 v.child(action_when(
-                                    "Cài MetaTrader 5 tự động",
+                                    t!("mt5_connect.install_terminal"),
                                     Variant::Primary,
                                     move || idle,
                                     move || mt5.install_terminal(),
@@ -161,28 +159,55 @@ fn chosen_terminal(state: &State, form: Form) -> Option<PathBuf> {
         .map(|choice| PathBuf::from(choice.value.as_ref()))
 }
 
+/// Why the sign-in button is off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Blocked {
+    /// The demo is getting ready.
+    DemoBusy,
+    NotWindows,
+    /// Something installs or checks.
+    Busy,
+    /// The machine is not looked at yet.
+    Checking,
+    NeedPython,
+    NeedTerminal,
+}
+
+impl Blocked {
+    fn text(self) -> String {
+        match self {
+            Self::DemoBusy => t!("mt5_connect.blocked.demo_busy"),
+            Self::NotWindows => t!("mt5_connect.blocked.not_windows"),
+            Self::Busy => t!("mt5_connect.blocked.busy"),
+            Self::Checking => t!("mt5_connect.blocked.checking"),
+            Self::NeedPython => t!("mt5_connect.blocked.need_python"),
+            Self::NeedTerminal => t!("mt5_connect.blocked.need_terminal"),
+        }
+    }
+}
+
 /// Why the sign-in button is off, `None` when it is on: in the demo it always is; otherwise the
 /// machine must have been looked at, Python must have the `MetaTrader5` package (the card's
-/// "Cài Python tự động" installs both) and an MT5 terminal must be found or picked, and nothing
-/// may be installing.
-fn sign_in_blocked(state: &State, picked: Option<&PathBuf>) -> Option<&'static str> {
+/// "Install Python automatically" installs both) and an MT5 terminal must be found or picked, and
+/// nothing may be installing.
+fn sign_in_blocked(state: &State, picked: Option<&PathBuf>) -> Option<Blocked> {
     if state.setup.demo {
-        return state.busy.is_some().then_some("Đang chuẩn bị, chờ một chút…");
+        return state.busy.is_some().then_some(Blocked::DemoBusy);
     }
     if !cfg!(windows) {
-        return Some("Kết nối MT5 chỉ chạy trên Windows.");
+        return Some(Blocked::NotWindows);
     }
     if state.busy.is_some() {
-        return Some("Đang cài đặt hoặc kiểm tra máy, chờ xong rồi đăng nhập.");
+        return Some(Blocked::Busy);
     }
     if !state.setup.checked {
-        return Some("Đang kiểm tra Python và MetaTrader 5 trên máy…");
+        return Some(Blocked::Checking);
     }
     if state.setup.python.as_ref().is_none_or(|python| !python.has_package) {
-        return Some("Cần Python trước khi đăng nhập: bấm \"Cài Python tự động\" ở trên.");
+        return Some(Blocked::NeedPython);
     }
     if terminal_choices(state, picked).is_empty() {
-        return Some("Cần MetaTrader 5 trên máy: bấm \"Cài MetaTrader 5 tự động\" ở trên hoặc chọn terminal64.exe.");
+        return Some(Blocked::NeedTerminal);
     }
     None
 }
@@ -201,7 +226,7 @@ fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
         });
         let Some(terminal) = terminal else {
             mt5.state.update(|state| {
-                state.error = Some("Chưa có terminal MetaTrader 5 nào: cài MT5 hoặc chọn terminal64.exe.".to_owned());
+                state.error = Some(Notice::NoTerminal);
             });
             return;
         };
@@ -215,7 +240,7 @@ fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
         .rounded(move || theme().radius)
         .border_1()
         .border_color(move || theme().border)
-        .child(text("Đăng nhập tài khoản").text_sm().font_weight(FontWeight::MEDIUM))
+        .child(text(t!("mt5_connect.sign_in_title")).text_sm().font_weight(FontWeight::MEDIUM))
         .child(fields_row(form))
         .child(dynamic(move || (!demo.get()).then(|| untracked(|| terminal_row(mt5, form)))))
         .child(
@@ -223,20 +248,21 @@ fn sign_in_form(mt5: Mt5, form: Form) -> impl IntoElement {
                 .flex_row()
                 .gap_3()
                 .items_center()
-                .child(action_when("Đăng nhập", Variant::Primary, move || blocked.get().is_none(), sign_in))
+                .child(action_when(
+                    t!("mt5_connect.sign_in"),
+                    Variant::Primary,
+                    move || blocked.get().is_none(),
+                    sign_in,
+                ))
                 .child(
-                    text(move || {
-                        blocked.get().unwrap_or(
-                            "Lần đầu app chép terminal MT5 cho tài khoản này (vài trăm MB), mất khoảng một phút.",
-                        )
-                    })
-                    .text_xs()
-                    .text_color(move || theme().muted_foreground),
+                    text(move || blocked.get().map_or_else(|| t!("mt5_connect.first_time"), Blocked::text))
+                        .text_xs()
+                        .text_color(move || theme().muted_foreground),
                 ),
         )
         .child({
             let error = computed(move || mt5.state.with(|state| state.error.clone()));
-            dynamic(move || error.get().map(error_line))
+            dynamic(move || error.get().map(|notice| error_line(notice.text())))
         })
 }
 
@@ -247,9 +273,9 @@ fn fields_row(form: Form) -> impl IntoElement {
         .flex_wrap()
         .gap_3()
         .child(labelled(
-            "Số tài khoản",
+            t!("mt5_connect.login"),
             text_field(
-                "Số tài khoản",
+                t!("mt5_connect.login"),
                 None,
                 "52012345",
                 move || form.login.get(),
@@ -257,10 +283,10 @@ fn fields_row(form: Form) -> impl IntoElement {
             ),
         ))
         .child(labelled(
-            "Mật khẩu",
+            t!("mt5_connect.password"),
             secret_field(
-                "Mật khẩu",
-                "Mật khẩu giao dịch",
+                t!("mt5_connect.password"),
+                t!("mt5_connect.password_placeholder"),
                 move || form.password.get(),
                 move |t| {
                     form.password.set(t.to_owned());
@@ -268,9 +294,9 @@ fn fields_row(form: Form) -> impl IntoElement {
             ),
         ))
         .child(labelled(
-            "Server",
+            t!("mt5_connect.server"),
             text_field(
-                "Server",
+                t!("mt5_connect.server"),
                 None,
                 "ICMarketsSC-Demo",
                 move || form.server.get(),
@@ -295,7 +321,7 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
                             choose_terminal(form, &path.display().to_string());
                         }
                     }
-                    Err(error) => mt5.state.update(|state| state.error = Some(error)),
+                    Err(error) => mt5.state.update(|state| state.error = Some(Notice::Words(error))),
                 }
             });
         });
@@ -306,20 +332,20 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
         .items_end()
         .gap_3()
         .child(labelled(
-            "Terminal MT5",
+            t!("mt5_connect.terminal"),
             dynamic(move || {
                 // Through a memo compared with `==`: the state changes at every poll (balance,
                 // positions), and rebuilding the select then closed its open list.
                 let none = choices.with(Vec::is_empty);
                 untracked(|| {
                     if none {
-                        return text("Chưa thấy MetaTrader 5 trên máy: bấm \"Cài MetaTrader 5 tự động\" ở trên (bản của MetaQuotes, đăng nhập được mọi broker), hoặc chọn terminal64.exe nếu đã cài ở chỗ khác.")
+                        return text(t!("mt5_connect.no_terminal"))
                             .text_sm()
                             .text_color(tokens::warning)
                             .into_element();
                     }
                     select_value(
-                        "Terminal MT5",
+                        t!("mt5_connect.terminal"),
                         move || choices.get(),
                         move || SharedString::from(form.terminal.get()),
                         move |next| choose_terminal(form, &next),
@@ -328,7 +354,7 @@ fn terminal_row(mt5: Mt5, form: Form) -> impl IntoElement {
                 })
             }),
         ))
-        .child(action("Chọn terminal64.exe…", Variant::Ghost, pick))
+        .child(action(t!("mt5_connect.pick"), Variant::Ghost, pick))
 }
 
 /// Chooses the terminal at `terminal` and fills the login and the server with the account it
@@ -344,7 +370,7 @@ fn choose_terminal(form: Form, terminal: &str) {
 }
 
 /// A field with its label above it.
-fn labelled(label: &'static str, field: impl IntoElement) -> impl IntoElement {
+fn labelled(label: String, field: impl IntoElement) -> impl IntoElement {
     view()
         .gap_1()
         .min_w(px(180.0))
@@ -356,12 +382,12 @@ fn labelled(label: &'static str, field: impl IntoElement) -> impl IntoElement {
 /// What a status chip says.
 fn status_chip(status: &Status) -> (String, Tone) {
     match status {
-        Status::Preparing => ("Đang chuẩn bị terminal".to_owned(), Tone::Neutral),
-        Status::Connecting => ("Đang kết nối".to_owned(), Tone::Neutral),
-        Status::Connected => ("Đã kết nối".to_owned(), Tone::Profit),
-        Status::Retrying(_) => ("Đang thử lại".to_owned(), Tone::Loss),
-        Status::Refused(_) => ("Đăng nhập lỗi".to_owned(), Tone::Loss),
-        Status::Stopped => ("Đã ngắt".to_owned(), Tone::Neutral),
+        Status::Preparing => (t!("mt5_connect.status.preparing"), Tone::Neutral),
+        Status::Connecting => (t!("mt5_connect.status.connecting"), Tone::Neutral),
+        Status::Connected => (t!("mt5_connect.status.connected"), Tone::Profit),
+        Status::Retrying(_) => (t!("mt5_connect.status.retrying"), Tone::Loss),
+        Status::Refused(_) => (t!("mt5_connect.status.refused"), Tone::Loss),
+        Status::Stopped => (t!("mt5_connect.status.stopped"), Tone::Neutral),
     }
 }
 
@@ -377,7 +403,7 @@ fn account_line(live: &Live) -> String {
         }
     }
     if let Some(at) = live.polled_at.and_then(DateTime::from_timestamp_millis) {
-        parts.push(format!("cập nhật {}", at.with_timezone(&Local).format("%H:%M:%S")));
+        parts.push(t!("mt5_connect.updated", time = at.with_timezone(&Local).format("%H:%M:%S")));
     }
     parts.join(" · ")
 }
@@ -393,9 +419,8 @@ fn accounts_view(mt5: Mt5) -> impl IntoElement {
         let accounts = accounts.get();
         untracked(|| {
             if accounts.is_empty() {
-                return view().child(
-                    text("Chưa có tài khoản MT5 nào kết nối.").text_sm().text_color(move || theme().muted_foreground),
-                );
+                return view()
+                    .child(text(t!("mt5_connect.no_accounts")).text_sm().text_color(move || theme().muted_foreground));
             }
             view().gap_3().children(accounts.into_iter().map(move |account| account_row(mt5, account)))
         })
@@ -421,11 +446,9 @@ fn account_row(mt5: Mt5, account: AccountRef) -> impl IntoElement {
             let title = live.with_untracked(|live| live.as_ref().map_or_default(Live::title));
             confirm_then(
                 owner,
-                "Đăng xuất tài khoản MT5?",
-                format!(
-                    "Ngắt kết nối {title}, xoá mật khẩu đã lưu và bản terminal riêng của tài khoản. Lệnh đã vào nhật ký vẫn giữ nguyên."
-                ),
-                "Đăng xuất",
+                t!("mt5_connect.forget.title"),
+                t!("mt5_connect.forget.body", title = title),
+                t!("mt5_connect.forget.confirm"),
                 move || mt5.forget(&account),
             );
         }
@@ -472,7 +495,7 @@ fn account_row(mt5: Mt5, account: AccountRef) -> impl IntoElement {
         )
         .child(dynamic(move || {
             status.get().and_then(|status| match status {
-                Status::Retrying(why) | Status::Refused(why) => Some(error_line(why)),
+                Status::Retrying(why) | Status::Refused(why) => Some(error_line(why.text())),
                 _ => None,
             })
         }))
@@ -485,7 +508,7 @@ fn account_row(mt5: Mt5, account: AccountRef) -> impl IntoElement {
                         .gap_1()
                         .pt_1()
                         .child(
-                            text(format!("Lệnh đang mở ({})", tickets.len()))
+                            text(t!("mt5_connect.open_trades", n = tickets.len()))
                                 .text_xs()
                                 .font_weight(FontWeight::MEDIUM)
                                 .text_color(move || theme().muted_foreground),
@@ -497,7 +520,7 @@ fn account_row(mt5: Mt5, account: AccountRef) -> impl IntoElement {
         .child(account_buttons(status, reconnect, forget))
 }
 
-/// An account's buttons: "Kết nối lại" while its link is stuck (`offers_reconnect`), and "Đăng xuất".
+/// An account's buttons: "Reconnect" while its link is stuck (`offers_reconnect`), and "Sign out".
 fn account_buttons(
     status: Memo<Option<Status>>,
     reconnect: impl Fn() + Clone + 'static,
@@ -510,12 +533,12 @@ fn account_buttons(
         .child(dynamic(move || {
             let stuck = status.with(|status| status.as_ref().is_some_and(offers_reconnect));
             let reconnect = reconnect.clone();
-            stuck.then(|| untracked(|| action("Kết nối lại", Variant::Secondary, reconnect)))
+            stuck.then(|| untracked(|| action(t!("mt5_connect.reconnect"), Variant::Secondary, reconnect)))
         }))
-        .child(action("Đăng xuất", Variant::Destructive, forget))
+        .child(action(t!("mt5_connect.sign_out"), Variant::Destructive, forget))
 }
 
-/// Whether an account in `status` shows "Kết nối lại": only when its link gave up or keeps failing,
+/// Whether an account in `status` shows "Reconnect": only when its link gave up or keeps failing,
 /// never while it is connected or still on its way.
 fn offers_reconnect(status: &Status) -> bool {
     matches!(status, Status::Retrying(_) | Status::Refused(_) | Status::Stopped)
@@ -561,7 +584,7 @@ fn position_row(live: Memo<Option<Live>>, account: AccountRef, ticket: i64) -> i
             })
             .text_sm(),
         )
-        .child(action("Quản lý", Variant::Secondary, move || position::open(account.clone(), ticket)))
+        .child(action(t!("mt5_connect.manage"), Variant::Secondary, move || position::open(account.clone(), ticket)))
 }
 
 #[cfg(test)]
@@ -579,20 +602,20 @@ mod tests {
         assert!(sign_in_blocked(&state, None).is_some(), "before the machine is looked at");
         state.setup.checked = true;
         if !cfg!(windows) {
-            assert!(sign_in_blocked(&state, None).is_some_and(|why| why.contains("Windows")));
+            assert_eq!(sign_in_blocked(&state, None), Some(Blocked::NotWindows));
             return;
         }
-        assert!(sign_in_blocked(&state, None).is_some_and(|why| why.contains("Cài Python tự động")));
+        assert_eq!(sign_in_blocked(&state, None), Some(Blocked::NeedPython));
         let python = Python { program: "python".into(), args: Vec::new(), version: "3.14".into(), has_package: false };
         state.setup.python = Some(python);
-        assert!(sign_in_blocked(&state, None).is_some_and(|why| why.contains("Python")), "the package is missing");
+        assert_eq!(sign_in_blocked(&state, None), Some(Blocked::NeedPython), "the package is missing");
         state.setup.python.as_mut().expect("set above").has_package = true;
-        assert!(sign_in_blocked(&state, None).is_some_and(|why| why.contains("MetaTrader 5")), "no terminal");
+        assert_eq!(sign_in_blocked(&state, None), Some(Blocked::NeedTerminal), "no terminal");
         let picked = PathBuf::from("D:/MT5/terminal64.exe");
         assert_eq!(sign_in_blocked(&state, Some(&picked)), None, "a picked terminal is enough");
         state.setup.installs = vec![Install::at(PathBuf::from("C:/MT5/terminal64.exe"))];
         assert_eq!(sign_in_blocked(&state, None), None, "a terminal found is enough");
-        state.busy = Some("Đang cài".to_owned());
+        state.busy = Some(crate::mt5::Busy::InstallingPackage);
         assert!(sign_in_blocked(&state, None).is_some(), "not while installing");
     }
 }

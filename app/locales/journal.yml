@@ -1,0 +1,92 @@
+_version: 2
+
+# Nhật ký ngày (pages/journal.rs).
+
+journal.title:
+  vi: "Nhật ký ngày"
+  en: "Daily journal"
+journal.summary:
+  vi: "Kế hoạch trước phiên, tổng kết cuối ngày và lệnh của ngày đặt cạnh nhau"
+  en: "The plan before the session, the end-of-day review and the day's trades side by side"
+journal.previous:
+  vi: "Ngày trước"
+  en: "Previous day"
+journal.next:
+  vi: "Ngày sau"
+  en: "Next day"
+journal.pick:
+  vi: "Chọn ngày của nhật ký"
+  en: "Pick the journal's day"
+journal.save:
+  vi: "Lưu nhật ký"
+  en: "Save journal"
+journal.saved:
+  vi: "Đã lưu"
+  en: "Saved"
+journal.autosaved:
+  vi: "Tự động lưu · đã lưu lúc %{time}"
+  en: "Autosave · saved at %{time}"
+journal.written:
+  vi: "✓ đã ghi"
+  en: "✓ written"
+journal.not_written:
+  vi: "chưa ghi"
+  en: "not written"
+journal.day_card:
+  vi: "Ngày %{day}"
+  en: "Day %{day}"
+
+# The form of the day.
+journal.form:
+  vi: "Kế hoạch và tổng kết"
+  en: "Plan and review"
+journal.plan:
+  vi: "Kế hoạch ngày"
+  en: "Day plan"
+journal.plan_placeholder:
+  vi: "Xu hướng chính, vùng giá cần chú ý, tin trong ngày, cam kết hôm nay"
+  en: "Main trend, price zones to watch, the day's news, today's commitments"
+journal.review:
+  vi: "Tổng kết cuối ngày"
+  en: "End-of-day review"
+journal.review_placeholder:
+  vi: "Điều làm tốt, điều cần sửa, bài học cho ngày mai"
+  en: "What went well, what to fix, the lesson for tomorrow"
+journal.mood:
+  vi: "Tâm trạng"
+  en: "Mood"
+journal.not_chosen:
+  vi: "Chưa chọn"
+  en: "Not chosen"
+
+# The day's trades and checklist.
+journal.trades:
+  vi: "Lệnh trong ngày"
+  en: "Trades of the day"
+journal.trades_won.one:
+  vi: "%{n} lệnh · %{wins} thắng"
+  en: "%{n} trade · %{wins} won"
+journal.trades_won.other:
+  vi: "%{n} lệnh · %{wins} thắng"
+  en: "%{n} trades · %{wins} won"
+journal.no_trades:
+  vi: "Không có lệnh nào trong ngày"
+  en: "No trades on this day"
+journal.no_trades_hint:
+  vi: "Lệnh đóng hoặc mở trong ngày hiện ở đây."
+  en: "Trades closed or opened that day show here."
+journal.violation:
+  vi: "Vi phạm: %{line}"
+  en: "Violation: %{line}"
+journal.checklist:
+  vi: "Checklist trước lệnh"
+  en: "Pre-trade checklist"
+journal.checklist_empty:
+  vi: "Chưa có mục nào: thêm ở Tài khoản & kỷ luật."
+  en: "No items yet: add them in Accounts & discipline."
+journal.checklist_count.one:
+  vi: "%{confirmed} / %{total} lệnh"
+  en: "%{confirmed} / %{total} trade"
+journal.checklist_count.other:
+  vi: "%{confirmed} / %{total} lệnh"
+  en: "%{confirmed} / %{total} trades"

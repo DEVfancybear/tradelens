@@ -10,6 +10,7 @@
 
 use std::{collections::HashMap, rc::Rc};
 
+use crate::i18n::plural;
 use nsh_base::{PopoverEvent, popover, theme};
 use nsh_core::prelude::*;
 use tradelens_core::catalog::{CustomValues, FieldDef, FieldKind, FieldScope, FieldValue, Requirement};
@@ -43,32 +44,32 @@ pub const KINDS: [FieldKind; 9] = [
 ];
 
 /// The kind's name as the trader reads it.
-pub fn kind_name(kind: FieldKind) -> &'static str {
+pub fn kind_name(kind: FieldKind) -> String {
     match kind {
-        FieldKind::Text => "Văn bản",
-        FieldKind::LongText => "Văn bản dài",
-        FieldKind::Number => "Số",
-        FieldKind::Select => "Chọn một",
-        FieldKind::MultiSelect => "Chọn nhiều",
-        FieldKind::Checkbox => "Checkbox",
-        FieldKind::Scale => "Thang điểm",
-        FieldKind::Date => "Ngày",
-        FieldKind::Url => "Liên kết",
+        FieldKind::Text => t!("ui.properties.kind.text"),
+        FieldKind::LongText => t!("ui.properties.kind.long_text"),
+        FieldKind::Number => t!("ui.properties.kind.number"),
+        FieldKind::Select => t!("ui.properties.kind.select"),
+        FieldKind::MultiSelect => t!("ui.properties.kind.multi_select"),
+        FieldKind::Checkbox => t!("ui.properties.kind.checkbox"),
+        FieldKind::Scale => t!("ui.properties.kind.scale"),
+        FieldKind::Date => t!("ui.properties.kind.date"),
+        FieldKind::Url => t!("ui.properties.kind.url"),
     }
 }
 
 /// A few words under the kind's name when the trader picks one.
-pub fn kind_hint(kind: FieldKind) -> &'static str {
+pub fn kind_hint(kind: FieldKind) -> String {
     match kind {
-        FieldKind::Text => "một dòng",
-        FieldKind::LongText => "nhiều dòng",
-        FieldKind::Number => "giá, lot, %",
-        FieldKind::Select => "có màu",
-        FieldKind::MultiSelect => "như tag",
-        FieldKind::Checkbox => "có / không",
-        FieldKind::Scale => "1–5, 1–10",
-        FieldKind::Date => "YYYY-MM-DD",
-        FieldKind::Url => "mở bằng trình duyệt",
+        FieldKind::Text => t!("ui.properties.kind_hint.text"),
+        FieldKind::LongText => t!("ui.properties.kind_hint.long_text"),
+        FieldKind::Number => t!("ui.properties.kind_hint.number"),
+        FieldKind::Select => t!("ui.properties.kind_hint.select"),
+        FieldKind::MultiSelect => t!("ui.properties.kind_hint.multi_select"),
+        FieldKind::Checkbox => t!("ui.properties.kind_hint.checkbox"),
+        FieldKind::Scale => t!("ui.properties.kind_hint.scale"),
+        FieldKind::Date => t!("ui.properties.kind_hint.date"),
+        FieldKind::Url => t!("ui.properties.kind_hint.url"),
     }
 }
 
@@ -180,13 +181,13 @@ pub fn new_key(defs: &[FieldDef]) -> String {
         .unwrap_or_else(|| "field".to_owned())
 }
 
-/// A new property of `kind` for `scope`, named "Thuộc tính mới"; its id is 0 until it is saved.
+/// A new property of `kind` for `scope`, named "New property" (in the language chosen); its id is 0 until it is saved.
 pub fn new_def(scope: FieldScope, kind: FieldKind, defs: &[FieldDef]) -> FieldDef {
     FieldDef {
         id: 0,
         scope,
         key: new_key(defs),
-        label: "Thuộc tính mới".to_owned(),
+        label: t!("ui.properties.new_label"),
         kind,
         options: Vec::new(),
         max: (kind == FieldKind::Scale).then_some(DEFAULT_SCALE),
@@ -205,7 +206,7 @@ pub fn duplicate_def(def: &FieldDef, defs: &[FieldDef]) -> FieldDef {
     FieldDef {
         id: 0,
         key: new_key(defs),
-        label: format!("{} (bản sao)", def.label),
+        label: t!("ui.properties.copy_label", label = def.label),
         position: i32::try_from(defs.len()).unwrap_or(i32::MAX),
         archived: false,
         ..def.clone()
@@ -499,9 +500,9 @@ impl Handle {
         if change.lost {
             confirm_then(
                 self.owner(),
-                "Đổi kiểu sẽ mất giá trị đã ghi?",
-                format!("Giá trị đã ghi ở lệnh này không chuyển được sang kiểu “{}” và sẽ bị bỏ trống.", kind_name(to)),
-                "Đổi kiểu",
+                t!("ui.properties.change_kind_title"),
+                t!("ui.properties.change_kind_body", kind = kind_name(to)),
+                t!("ui.properties.change_kind_confirm"),
                 apply,
             );
         } else {
@@ -643,6 +644,8 @@ impl Slot {
 
 /// Width of the name column, in points.
 const NAME_WIDTH: f32 = 168.0;
+/// What the name itself may take of [`NAME_WIDTH`], beside the kind glyph (20 pt) and the gap (8 pt).
+const NAME_TEXT_WIDTH: f32 = NAME_WIDTH - 28.0;
 /// Height of a row before it has been laid out, in points.
 const ROW_HEIGHT: f32 = 40.0;
 
@@ -697,7 +700,7 @@ fn property_row(
             heights.with(|h| h.insert(measured.clone(), bounds.size.height.0));
         })
         .child(view().pt(px(4.0)).child(drag_handle(
-            move || format!("Kéo để đổi thứ tự {}", row.with(|p| p.label.clone())),
+            move || t!("ui.reorder.drag", name = row.with(|p| p.label.clone())),
             by_drag,
             by_key,
         )))
@@ -714,7 +717,7 @@ fn property_row(
                         .text_sm()
                         .text_color(move || theme().muted_foreground),
                 )
-                // The name may be longer than the column: it wraps there, and the "riêng" chip with it,
+                // The name may be longer than the column: it wraps there, and the "own" chip with it,
                 // instead of running into the editor beside.
                 .child(view().flex_1().min_w(px(0.0)).child(property_popover(list, row))),
         )
@@ -753,7 +756,7 @@ fn editor_of(list: Handle, property: &Property) -> AnyElement {
     }
 }
 
-/// The chips of a "Chọn nhiều" property, whose list is kept here too: a typed option is added to the
+/// The chips of a multi-select property, whose list is kept here too: a typed option is added to the
 /// property and picked (one already there in another case is picked instead), the ✕ after one removes
 /// it from the list after asking. A removed option the value still holds stays as a chip without ✕.
 fn multi_select_editor(slot: Slot, label: String) -> impl IntoElement {
@@ -778,9 +781,9 @@ fn multi_select_editor(slot: Slot, label: String) -> impl IntoElement {
         let handle = slot.list;
         confirm_then(
             asker,
-            format!("Xoá «{option}» khỏi danh sách {}?", list.get()),
-            "Không còn để chọn nữa; lệnh đã ghi vẫn giữ nó.",
-            "Xoá",
+            t!("ui.properties.remove_option_title", option = option, list = list.get()),
+            t!("ui.properties.remove_option_body"),
+            t!("common.delete"),
             move || handle.remove_option(&key, &option),
         );
     };
@@ -794,8 +797,8 @@ fn multi_select_editor(slot: Slot, label: String) -> impl IntoElement {
             .collect()
     };
     view().gap_2().child(removable_tags(label, chips, move || slot.choices(), toggle, remove)).child(add_field(
-        format!("Thêm {named}"),
-        "+ Thêm lựa chọn, rồi Enter",
+        t!("ui.properties.add_named", named = named),
+        t!("ui.properties.add_option_placeholder"),
         add,
     ))
 }
@@ -805,10 +808,11 @@ fn custom_editor(slot: Slot, property: &Property, scale_max: u8) -> AnyElement {
     let label = property.label.clone();
     match property.kind.unwrap_or(FieldKind::Text) {
         FieldKind::Text => {
-            text_field(label, None, "Trống", move || slot.text(), move |t| slot.set_text(t)).into_element()
+            text_field(label, None, t!("ui.properties.empty"), move || slot.text(), move |t| slot.set_text(t))
+                .into_element()
         }
         FieldKind::LongText => {
-            textarea(label, "Trống", 3, move || slot.text(), move |t| slot.set_text(t)).into_element()
+            textarea(label, t!("ui.properties.empty"), 3, move || slot.text(), move |t| slot.set_text(t)).into_element()
         }
         FieldKind::Number => number_field(
             label,
@@ -821,7 +825,7 @@ fn custom_editor(slot: Slot, property: &Property, scale_max: u8) -> AnyElement {
         FieldKind::Select => select_value(
             label,
             move || {
-                std::iter::once(Choice::new("", "Trống"))
+                std::iter::once(Choice::new("", t!("ui.properties.empty")))
                     .chain(slot.options().into_iter().map(|o| Choice::new(o.clone(), o)))
                     .collect()
             },
@@ -848,7 +852,7 @@ fn custom_editor(slot: Slot, property: &Property, scale_max: u8) -> AnyElement {
             .gap_2()
             .child(number_field(
                 label,
-                Some("điểm"),
+                Some(t!("ui.properties.points").into()),
                 NumberRange::between(1.0, f64::from(scale_max)),
                 move || Some(f64::from(slot.scale())).filter(|n| *n > 0.0),
                 move |n| slot.set(n.and_then(scale_point).map(FieldValue::Scale)),
@@ -869,7 +873,7 @@ fn custom_editor(slot: Slot, property: &Property, scale_max: u8) -> AnyElement {
             )))
             .child(dynamic(move || {
                 (!slot.text().trim().is_empty()).then(|| {
-                    icon_action(Icon::Share, "Mở liên kết", Variant::Ghost, move || {
+                    icon_action(Icon::Share, t!("ui.properties.open_link"), Variant::Ghost, move || {
                         // Whether a browser took it does not matter here.
                         drop(open_url(slot.text().trim().to_owned()));
                     })
@@ -914,11 +918,13 @@ fn date_editor(slot: Slot, label: String) -> impl IntoElement {
                 move |day| slot.set(Some(FieldValue::Date(day.format("%Y-%m-%d").to_string()))),
             ),
             date_trigger(move || {
-                chosen().map_or_else(|| "Chọn ngày".to_owned(), |day| day.format("%d/%m/%Y").to_string())
+                chosen().map_or_else(|| t!("ui.date.choose"), |day| day.format("%d/%m/%Y").to_string())
             }),
         ))
         .child(dynamic(move || {
-            chosen().map(|_| icon_action(Icon::Close, "Xoá ngày", Variant::Ghost, move || slot.set(None)))
+            chosen().map(|_| {
+                icon_action(Icon::Close, t!("ui.properties.clear_date"), Variant::Ghost, move || slot.set(None))
+            })
         }))
 }
 
@@ -949,11 +955,11 @@ fn property_popover(list: Handle, row: ReadSignal<Property>) -> impl IntoElement
         .child(popover_panel(list, row, open))
 }
 
-/// The name as the row shows it, with "riêng" after the name of a property of the trader's.
+/// The name as the row shows it, with "own" after the name of a property of the trader's.
 fn name_button(row: ReadSignal<Property>) -> impl IntoElement {
     view()
         .role(AccessibilityRole::Button)
-        .label(move || format!("Sửa thuộc tính {}", row.with(|p| p.label.clone())))
+        .label(move || t!("ui.properties.edit_property", label = row.with(|p| p.label.clone())))
         .focusable(true)
         .cursor_pointer()
         .on_press(|| {})
@@ -964,13 +970,16 @@ fn name_button(row: ReadSignal<Property>) -> impl IntoElement {
         .min_h(px(34.0))
         .py_2()
         .child(
+            // Bounded itself: the popover around the button sizes it by its content, so without a bound
+            // a long name (English "Emotion before the trade") runs under the editor instead of wrapping.
             text(move || row.with(|p| p.label.clone()))
                 .min_w(px(0.0))
+                .max_w(px(NAME_TEXT_WIDTH))
                 .text_sm()
                 .text_color(move || theme().muted_foreground),
         )
         .child(dynamic(move || {
-            row.with(|p| matches!(p.field, FieldRef::Custom(_))).then(|| chip("riêng", Tone::Primary))
+            row.with(|p| matches!(p.field, FieldRef::Custom(_))).then(|| chip(t!("ui.properties.own"), Tone::Primary))
         }))
 }
 
@@ -984,13 +993,13 @@ fn popover_panel(list: Handle, row: ReadSignal<Property>, open: Signal<bool>) ->
     };
     panel()
         .child(commit_field(
-            "Tên thuộc tính",
-            "Tên thuộc tính",
+            t!("ui.properties.name"),
+            t!("ui.properties.name"),
             move || row.with(|p| p.label.clone()),
             move |name| list.rename(&rename_field, &name),
         ))
         .child(body)
-        .child(action_icon(Icon::EyeOff, "Ẩn khỏi form", Variant::Ghost, move || {
+        .child(action_icon(Icon::EyeOff, t!("ui.properties.hide"), Variant::Ghost, move || {
             open.set(false);
             list.hide(&hide_field);
         }))
@@ -1028,10 +1037,15 @@ fn custom_panel(list: Handle, key: String, row: ReadSignal<Property>, open: Sign
                 .items_center()
                 .justify_between()
                 .gap_3()
-                .child(text("Kiểu").text_sm().text_color(move || theme().muted_foreground))
+                .child(text(t!("ui.properties.kind")).text_sm().text_color(move || theme().muted_foreground))
                 .child(select_value(
-                    "Kiểu",
-                    || KINDS.iter().map(|&k| Choice::new(kind_key(k), format!("{} {}", kind_glyph(k), kind_name(k)))).collect(),
+                    t!("ui.properties.kind"),
+                    || {
+                        KINDS
+                            .iter()
+                            .map(|&k| Choice::new(kind_key(k), format!("{} {}", kind_glyph(k), kind_name(k))))
+                            .collect()
+                    },
                     move || kind_key(kind_of()).into(),
                     move |chosen| {
                         if let Some(kind) = KINDS.iter().copied().find(|&k| kind_key(k) == &*chosen) {
@@ -1041,7 +1055,8 @@ fn custom_panel(list: Handle, key: String, row: ReadSignal<Property>, open: Sign
                 )),
         )
         .child(dynamic(move || {
-            matches!(kind.get(), FieldKind::Select | FieldKind::MultiSelect).then(|| untracked(|| options_editor(list, slot)))
+            matches!(kind.get(), FieldKind::Select | FieldKind::MultiSelect)
+                .then(|| untracked(|| options_editor(list, slot)))
         }))
         .child(dynamic(move || {
             (kind.get() == FieldKind::Scale).then(|| {
@@ -1051,9 +1066,11 @@ fn custom_panel(list: Handle, key: String, row: ReadSignal<Property>, open: Sign
                         .items_center()
                         .justify_between()
                         .gap_3()
-                        .child(text("Điểm tối đa").text_sm().text_color(move || theme().muted_foreground))
+                        .child(
+                            text(t!("ui.properties.scale_max")).text_sm().text_color(move || theme().muted_foreground),
+                        )
                         .child(number_field(
-                            "Điểm tối đa",
+                            t!("ui.properties.scale_max"),
                             None,
                             NumberRange::between(2.0, 10.0),
                             move || def().map(|d| f64::from(d.scale_max())),
@@ -1067,8 +1084,8 @@ fn custom_panel(list: Handle, key: String, row: ReadSignal<Property>, open: Sign
             })
         }))
         .child(switch_row(
-            "Nên điền khi lưu",
-            Some("Nhắc nếu để trống; không chặn việc lưu"),
+            t!("ui.properties.expected"),
+            Some(t!("ui.properties.expected_hint")),
             move || flag(|d| d.required == Requirement::Expected),
             move |on| {
                 list.edit_def(&slot.key(), |d| {
@@ -1077,23 +1094,23 @@ fn custom_panel(list: Handle, key: String, row: ReadSignal<Property>, open: Sign
             },
         ))
         .child(switch_row(
-            "Đưa vào Phân tích",
-            Some("Thành một cột trong bảng Lệnh và một nhóm trong Phân tích"),
+            t!("ui.properties.analysed"),
+            Some(t!("ui.properties.analysed_hint")),
             move || flag(|d| d.analysed),
             move |on| list.edit_def(&slot.key(), |d| d.analysed = on),
         ))
-        .child(action_icon(Icon::Document, "Nhân bản", Variant::Ghost, move || {
+        .child(action_icon(Icon::Document, t!("ui.properties.duplicate"), Variant::Ghost, move || {
             open.set(false);
             list.duplicate(&slot.key());
         }))
-        .child(action_icon(Icon::Trash, "Xoá thuộc tính", Variant::Ghost, move || {
+        .child(action_icon(Icon::Trash, t!("ui.properties.delete"), Variant::Ghost, move || {
             let field = delete_field.clone();
             let name = row.with_untracked(|p| p.label.clone());
             confirm_then(
                 list.owner(),
-                format!("Xoá thuộc tính “{name}”?"),
-                "Giá trị đã ghi ở các lệnh cũ được giữ lại; thuộc tính chỉ biến khỏi form và khôi phục được ở Tuỳ biến form.",
-                "Xoá thuộc tính",
+                t!("ui.properties.delete_title", name = name),
+                t!("ui.properties.delete_body"),
+                t!("ui.properties.delete"),
                 move || {
                     // The popover may have been built again while the question was open.
                     open.try_set(false);
@@ -1109,11 +1126,7 @@ fn options_editor(list: Handle, slot: Slot) -> impl IntoElement {
     let count = computed(move || options.with(Vec::len));
     view()
         .gap_1()
-        .child(
-            text("Lựa chọn (đổi tên ở đây thì mọi lệnh cũ đổi theo)")
-                .text_xs()
-                .text_color(move || theme().muted_foreground),
-        )
+        .child(text(t!("ui.properties.options_title")).text_xs().text_color(move || theme().muted_foreground))
         // A row is known by its option: renaming one makes that row again and leaves the others, so
         // the one the trader moves on to is still there when the rename of the one they leave is kept.
         .child(each(
@@ -1121,7 +1134,7 @@ fn options_editor(list: Handle, slot: Slot) -> impl IntoElement {
             |option: &String| option.clone(),
             move |row, index| option_row(list, slot, row.with_untracked(Clone::clone), index, count),
         ))
-        .child(add_field("Thêm lựa chọn", "+ Thêm lựa chọn", move |option| {
+        .child(add_field(t!("ui.properties.add_option"), t!("ui.properties.add_option_short"), move |option| {
             let _added = list.add_option(&slot.key(), &option);
         }))
 }
@@ -1154,19 +1167,19 @@ fn option_row(
         .flex_row()
         .items_center()
         .gap_2()
-        .child(drag_handle(format!("Kéo để đổi thứ tự lựa chọn {name}"), by_drag, by_key))
+        .child(drag_handle(t!("ui.properties.option_drag", name = name), by_drag, by_key))
         .child(view().flex_1().child(commit_field(
-            format!("Tên lựa chọn {name}"),
-            "Tên lựa chọn",
+            t!("ui.properties.option_name", name = name),
+            t!("ui.properties.option_name_short"),
             move || option.clone(),
             move |new| list.rename_option(&slot.key(), &renamed, &new),
         )))
-        .child(icon_action(Icon::Close, format!("Xoá lựa chọn {name}"), Variant::Ghost, move || {
+        .child(icon_action(Icon::Close, t!("ui.properties.option_remove", name = name), Variant::Ghost, move || {
             list.remove_option(&slot.key(), &removed);
         }))
 }
 
-/// "▸ 2 thuộc tính ẩn (Phiên giao dịch, Risk dự kiến)": press it to list them, each with a
+/// "▸ 2 hidden properties (Session, Planned risk)": press it to list them, each with a
 /// button to show it again.
 fn hidden_properties(list: Handle, hidden: Memo<Vec<Property>>) -> impl IntoElement {
     let open = signal(false);
@@ -1183,15 +1196,21 @@ fn hidden_properties(list: Handle, hidden: Memo<Vec<Property>>) -> impl IntoElem
                 .child(
                     view()
                         .role(AccessibilityRole::Button)
-                        .label(format!("{} thuộc tính ẩn", all.len()))
+                        .label(plural!(all.len(), "ui.properties.hidden_count", n = all.len()))
                         .focusable(true)
                         .cursor_pointer()
                         .on_press(move || open.update(|o| *o = !*o))
                         .py_2()
                         .child(
-                            text(format!("{} {} thuộc tính ẩn ({names})", if expanded { "▾" } else { "▸" }, all.len()))
-                                .text_xs()
-                                .text_color(move || theme().muted_foreground),
+                            text(plural!(
+                                all.len(),
+                                "ui.properties.hidden_list",
+                                arrow = if expanded { "▾" } else { "▸" },
+                                n = all.len(),
+                                names = names
+                            ))
+                            .text_xs()
+                            .text_color(move || theme().muted_foreground),
                         ),
                 )
                 .when(expanded, |v| v.children(all.iter().map(|p| hidden_row(list, p))))
@@ -1209,11 +1228,13 @@ fn hidden_row(list: Handle, property: &Property) -> impl IntoElement {
         .child(
             text(property.label.clone()).flex_1().min_w(px(0.0)).text_sm().text_color(move || theme().muted_foreground),
         )
-        .child(icon_action(Icon::Eye, format!("Hiện {}", property.label), Variant::Ghost, move || list.show(&field)))
+        .child(icon_action(Icon::Eye, t!("ui.properties.show", label = property.label), Variant::Ghost, move || {
+            list.show(&field);
+        }))
 }
 
-/// "+ Thêm thuộc tính": a popover that asks for the kind, then adds the property at the end of
-/// the form under the name "Thuộc tính mới", ready to be renamed.
+/// "+ Add a property": a popover that asks for the kind, then adds the property at the end of
+/// the form under the name "New property", ready to be renamed.
 fn add_property(list: Handle) -> impl IntoElement {
     let open = signal(false);
     popover()
@@ -1225,15 +1246,17 @@ fn add_property(list: Handle) -> impl IntoElement {
         })
         .offset(px(6.0))
         .margin(px(8.0))
-        .trigger(action_icon(Icon::Plus, "Thêm thuộc tính", Variant::Ghost, || {}))
+        .trigger(action_icon(Icon::Plus, t!("ui.properties.add_property"), Variant::Ghost, || {}))
         .child(
             panel()
                 .gap_1()
-                .child(text("Thêm thuộc tính — chọn kiểu").text_xs().text_color(move || theme().muted_foreground))
+                .child(
+                    text(t!("ui.properties.add_property_pick")).text_xs().text_color(move || theme().muted_foreground),
+                )
                 .children(KINDS.iter().map(move |&kind| {
                     view()
                         .role(AccessibilityRole::Button)
-                        .label(format!("Thêm thuộc tính kiểu {}", kind_name(kind)))
+                        .label(t!("ui.properties.add_property_kind", kind = kind_name(kind)))
                         .focusable(true)
                         .cursor_pointer()
                         .on_press(move || {
@@ -1319,15 +1342,17 @@ mod tests {
 
     #[test]
     fn new_properties_never_reuse_a_key_not_even_an_archived_one() {
-        let mut gone = def("field_1", "Đã xoá", FieldKind::Text, &[]);
-        gone.archived = true;
-        let defs = [gone, def("field_2", "Còn", FieldKind::Text, &[])];
-        assert_eq!(new_key(&defs), "field_3");
-        assert_eq!(new_key(&[]), "field_1");
-        let made = new_def(FieldScope::Day, FieldKind::Scale, &defs);
-        assert_eq!((made.id, made.key.as_str(), made.max, made.position), (0, "field_3", Some(5), 2));
-        let copy = duplicate_def(&defs[1], &defs);
-        assert_eq!((copy.id, copy.key.as_str(), copy.label.as_str()), (0, "field_3", "Còn (bản sao)"));
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let mut gone = def("field_1", "Đã xoá", FieldKind::Text, &[]);
+            gone.archived = true;
+            let defs = [gone, def("field_2", "Còn", FieldKind::Text, &[])];
+            assert_eq!(new_key(&defs), "field_3");
+            assert_eq!(new_key(&[]), "field_1");
+            let made = new_def(FieldScope::Day, FieldKind::Scale, &defs);
+            assert_eq!((made.id, made.key.as_str(), made.max, made.position), (0, "field_3", Some(5), 2));
+            let copy = duplicate_def(&defs[1], &defs);
+            assert_eq!((copy.id, copy.key.as_str(), copy.label.as_str()), (0, "field_3", "Còn (bản sao)"));
+        });
     }
 
     #[test]
@@ -1368,54 +1393,59 @@ mod tests {
 
     #[test]
     fn every_kind_has_a_name_a_glyph_and_a_hint() {
-        for kind in KINDS {
-            assert!(!kind_name(kind).is_empty() && !kind_glyph(kind).is_empty() && !kind_hint(kind).is_empty());
-        }
-        let keys: std::collections::HashSet<_> = KINDS.iter().map(|&k| kind_key(k)).collect();
-        assert_eq!(keys.len(), KINDS.len(), "kind keys are distinct");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            for kind in KINDS {
+                assert!(!kind_name(kind).is_empty() && !kind_glyph(kind).is_empty() && !kind_hint(kind).is_empty());
+            }
+            let keys: std::collections::HashSet<_> = KINDS.iter().map(|&k| kind_key(k)).collect();
+            assert_eq!(keys.len(), KINDS.len(), "kind keys are distinct");
+        });
     }
 
     #[component]
     fn Harness() -> impl IntoElement {
         super::super::theme::install();
+        crate::i18n::install();
         let layout = signal(day());
         let defs = signal(vec![
             def("tf", "Khung vào lệnh", FieldKind::Select, &["M5", "M15", "H1"]),
             def("note", "Ghi chú riêng", FieldKind::Text, &[]),
         ]);
         let values = signal(CustomValues::from([("tf".to_owned(), FieldValue::Choice("M5".into()))]));
-        let edits = PropertyEdits::new(
-            move |next| layout.set(next),
-            move |key, value| {
-                values.update(|all| match value {
-                    Some(value) => {
-                        all.insert(key.to_owned(), value);
-                    }
-                    None => {
-                        all.remove(key);
-                    }
-                });
-            },
-            move |next| {
-                defs.update(|all| match all.iter_mut().find(|d| d.key == next.key) {
-                    Some(old) => *old = next,
-                    None => all.push(next),
-                });
-            },
-        );
-        let list = PropertyList::new(move || layout.get(), move || defs.get(), move || values.get(), edits)
-            .builtin(|field| (field == BuiltinField::DayPlan).then(|| text("plan editor")));
-        view()
-            .p_4()
-            .gap_3()
-            .child(property_list(list))
-            .child(text(move || format!("order {}", labels(&layout.get(), &defs.get()).join("|"))))
-            .child(text(move || {
-                format!(
-                    "values {}",
-                    values.with(|all| all.iter().map(|(k, v)| format!("{k}={v:?}")).collect::<Vec<_>>().join(";"))
-                )
-            }))
+        crate::i18n::translated(move || {
+            let edits = PropertyEdits::new(
+                move |next| layout.set(next),
+                move |key, value| {
+                    values.update(|all| match value {
+                        Some(value) => {
+                            all.insert(key.to_owned(), value);
+                        }
+                        None => {
+                            all.remove(key);
+                        }
+                    });
+                },
+                move |next| {
+                    defs.update(|all| match all.iter_mut().find(|d| d.key == next.key) {
+                        Some(old) => *old = next,
+                        None => all.push(next),
+                    });
+                },
+            );
+            let list = PropertyList::new(move || layout.get(), move || defs.get(), move || values.get(), edits)
+                .builtin(|field| (field == BuiltinField::DayPlan).then(|| text("plan editor")));
+            view()
+                .p_4()
+                .gap_3()
+                .child(property_list(list))
+                .child(text(move || format!("order {}", labels(&layout.get(), &defs.get()).join("|"))))
+                .child(text(move || {
+                    format!(
+                        "values {}",
+                        values.with(|all| all.iter().map(|(k, v)| format!("{k}={v:?}")).collect::<Vec<_>>().join(";"))
+                    )
+                }))
+        })
     }
 
     const ORDER: &str = "order Kế hoạch ngày|Tổng kết|Tâm trạng|Khung vào lệnh|Ghi chú riêng";

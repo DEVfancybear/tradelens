@@ -373,7 +373,7 @@ fn the_settings_columns_are_balanced_and_fit_a_maximised_window_without_scrollin
             );
             (x, cards.iter().map(|c| c.origin.y.0 + c.size.height.0).fold(0.0_f32, f32::max))
         };
-        let (left_x, left_end) = column(&["Giao diện", "Thời gian", "Phím tắt"]);
+        let (left_x, left_end) = column(&["Giao diện", "Thời gian & ngôn ngữ", "Phím tắt"]);
         let (right_x, right_end) = column(&["Dữ liệu", "Về TradeLens"]);
         assert!(right_x > left_x + 400.0, "{width}x{height}: two columns side by side");
         assert!(

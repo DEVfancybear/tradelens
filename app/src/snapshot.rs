@@ -6,6 +6,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use chrono::{Datelike, NaiveDate, NaiveDateTime};
+use nsh_core::t;
 use tradelens_core::{
     Account, Db, DbError, Deal, JournalEntry, Origin, Trade, TradeKey,
     catalog::{CatalogItem, CatalogKind},
@@ -33,24 +34,24 @@ pub(crate) enum Range {
 impl Range {
     pub(crate) const ALL: [Self; 5] = [Self::Days7, Self::Days30, Self::Days90, Self::YearToDate, Self::All];
 
-    pub(crate) fn label(self) -> &'static str {
+    pub(crate) fn label(self) -> String {
         match self {
-            Self::Days7 => "7N",
-            Self::Days30 => "30N",
-            Self::Days90 => "90N",
-            Self::YearToDate => "YTD",
-            Self::All => "Tất cả",
+            Self::Days7 => t!("snapshot.range.days7"),
+            Self::Days30 => t!("snapshot.range.days30"),
+            Self::Days90 => t!("snapshot.range.days90"),
+            Self::YearToDate => "YTD".to_owned(),
+            Self::All => t!("common.all"),
         }
     }
 
     /// The summary line under the overview's title.
-    pub(crate) fn describe(self) -> &'static str {
+    pub(crate) fn describe(self) -> String {
         match self {
-            Self::Days7 => "7 ngày gần nhất",
-            Self::Days30 => "30 ngày gần nhất",
-            Self::Days90 => "90 ngày gần nhất",
-            Self::YearToDate => "Từ đầu năm",
-            Self::All => "Toàn bộ lịch sử",
+            Self::Days7 => t!("snapshot.range.describe.days7"),
+            Self::Days30 => t!("snapshot.range.describe.days30"),
+            Self::Days90 => t!("snapshot.range.describe.days90"),
+            Self::YearToDate => t!("snapshot.range.describe.ytd"),
+            Self::All => t!("snapshot.range.describe.all"),
         }
     }
 
@@ -253,7 +254,9 @@ pub(crate) fn load(db: &Db, query: &Query) -> Result<Snapshot, DbError> {
         let account = accounts.iter().find(|a| a.id == account_id);
         let server_offset_min = account.and_then(|a| a.server_offset_min);
         let clock = display.clock(server_offset_min, query.local_offset_min);
-        let title = account.map_or_else(|| format!("Tài khoản {account_id}"), Account::title);
+        // Every deal has its account, so the fallback is only the safe answer. It is made on a blocking
+        // thread, which cannot read the app's text: the core words it.
+        let title = account.map_or_else(|| Account::unknown_title(account_id), Account::title);
         let currency = account.map_or_default(|a| a.currency.clone());
         let account_cash = cash_flows(deals);
         let account_rows: Vec<TradeRow> = trades

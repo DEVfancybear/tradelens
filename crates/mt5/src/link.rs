@@ -197,9 +197,7 @@ impl Link {
             Err(RecvTimeoutError::Timeout) => {}
         }
         if claim.drop_unsent() {
-            return Err(Mt5Error::Unreachable(
-                "MT5 đang bận (đăng nhập lại hoặc đọc dữ liệu): lệnh chưa được gửi, hãy thử lại".to_owned(),
-            ));
+            return Err(Mt5Error::Unreachable(crate::tr!("mt5.link.busy")));
         }
         // The thread took it: the terminal is on it, and its answer comes within the worker's limit.
         let rest = self.settings.order_timeout.saturating_sub(self.settings.order_queue);
@@ -238,15 +236,15 @@ impl Drop for Link {
 }
 
 fn unreachable_link() -> Mt5Error {
-    Mt5Error::Unreachable("tài khoản chưa kết nối".to_owned())
+    Mt5Error::Unreachable(crate::tr!("mt5.link.not_connected"))
 }
 
 fn not_connected() -> Mt5Error {
-    Mt5Error::Unreachable("tài khoản đang kết nối lại, lệnh chưa được gửi; hãy thử lại sau ít giây".to_owned())
+    Mt5Error::Unreachable(crate::tr!("mt5.link.reconnecting"))
 }
 
 fn uncertain() -> Mt5Error {
-    Mt5Error::Uncertain("lệnh đã gửi tới MT5 nhưng chưa có trả lời; hãy xem lại lệnh trước khi gửi lần nữa".to_owned())
+    Mt5Error::Uncertain(crate::tr!("mt5.link.no_answer"))
 }
 
 /// Whether the thread goes on after a wait.

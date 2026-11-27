@@ -1,0 +1,133 @@
+_version: 2
+
+# Lệnh bỏ lỡ (pages/missed.rs).
+
+missed.title:
+  vi: "Lệnh bỏ lỡ"
+  en: "Missed trades"
+missed.summary:
+  vi: "Setup đúng nhưng không vào — ghi lại để biết do dự tốn bao nhiêu."
+  en: "The setup was right but you did not enter — record it to see what hesitation costs."
+missed.record:
+  vi: "Ghi lệnh bỏ lỡ"
+  en: "Record a missed trade"
+missed.edit:
+  vi: "Sửa lệnh bỏ lỡ"
+  en: "Edit missed trade"
+missed.no_reason:
+  vi: "Chưa ghi lý do"
+  en: "No reason recorded"
+missed.no_playbook:
+  vi: "Không playbook"
+  en: "No playbook"
+
+# The tiles.
+missed.tile.all_time:
+  vi: "tất cả thời gian"
+  en: "all time"
+missed.tile.r_missed:
+  vi: "R bỏ lỡ"
+  en: "R missed"
+missed.tile.avoided:
+  vi: "tránh được %{r}R nhờ không vào lệnh thua"
+  en: "avoided %{r}R by not entering losing trades"
+missed.tile.correct:
+  vi: "Bỏ lỡ đúng"
+  en: "Correct misses"
+missed.tile.blocked:
+  vi: "bị chặn bởi quy tắc"
+  en: "blocked by the rules"
+missed.tile.top_reason:
+  vi: "Lý do nhiều nhất"
+  en: "Top reason"
+missed.tile.times.one:
+  vi: "%{n} / %{all} lần"
+  en: "%{n} / %{all} time"
+missed.tile.times.other:
+  vi: "%{n} / %{all} lần"
+  en: "%{n} / %{all} times"
+
+# The latest missed trades.
+missed.latest:
+  vi: "Lệnh bỏ lỡ · %{shown} gần nhất / %{total}"
+  en: "Missed trades · latest %{shown} of %{total}"
+missed.empty:
+  vi: "Chưa có lệnh bỏ lỡ nào"
+  en: "No missed trades yet"
+missed.empty_hint:
+  vi: "Ghi lại setup đúng mà bạn không vào ở form bên cạnh."
+  en: "Use the form alongside to record a setup that was right but you did not enter."
+missed.column.time:
+  vi: "Thời điểm"
+  en: "Time"
+missed.column.side:
+  vi: "Chiều"
+  en: "Side"
+missed.column.reason:
+  vi: "Lý do không vào"
+  en: "Reason"
+missed.column.if_entered:
+  vi: "Nếu đã vào"
+  en: "If entered"
+missed.column.images:
+  vi: "Ảnh"
+  en: "Images"
+missed.column.times:
+  vi: "Lần"
+  en: "Times"
+missed.images_one:
+  vi: "1 ảnh"
+  en: "1 image"
+missed.images_many:
+  vi: "%{n} ảnh"
+  en: "%{n} images"
+missed.note:
+  vi: "“Nếu đã vào” tính theo entry, SL và giá sau đó bạn ghi. Lệnh bị chặn bởi giới hạn lệnh/ngày là bỏ lỡ đúng, không tính là mất cơ hội."
+  en: "“If entered” is worked out from the entry, the SL and the later price you record. A trade blocked by the trades-per-day limit is a correct miss and does not count as a lost chance."
+missed.by_reason:
+  vi: "Theo lý do"
+  en: "By reason"
+missed.no_data:
+  vi: "Chưa có dữ liệu."
+  en: "No data yet."
+missed.reason:
+  vi: "Lý do"
+  en: "Reason"
+
+# The form.
+missed.fresh:
+  vi: "Form mới · nhập Symbol"
+  en: "New form · type the symbol"
+missed.notes:
+  vi: "Ghi chú"
+  en: "Notes"
+missed.notes_placeholder:
+  vi: "Điều gì khiến bạn không vào?"
+  en: "What kept you from entering?"
+missed.shots:
+  vi: "Ảnh chart"
+  en: "Chart images"
+missed.pick_time:
+  vi: "Chọn ngày giờ"
+  en: "Pick a date and time"
+missed.later_price:
+  vi: "Giá sau đó"
+  en: "Later price"
+missed.reason_placeholder:
+  vi: "+ Thêm lý do mới, rồi Enter"
+  en: "+ Add a new reason, then Enter"
+missed.error.symbol:
+  vi: "Symbol không được để trống."
+  en: "The symbol cannot be empty."
+missed.error.time:
+  vi: "Thời điểm phải có dạng ngày/tháng/năm giờ:phút, ví dụ 21/11/2026 09:42."
+  en: "The time must look like day/month/year hour:minute, for example 21/11/2026 09:42."
+missed.delete.title:
+  vi: "Xoá lệnh bỏ lỡ?"
+  en: "Delete this missed trade?"
+missed.delete.said:
+  vi: "Không hoàn tác được."
+  en: "This cannot be undone."
+missed.delete.confirm:
+  vi: "Xoá hẳn"
+  en: "Delete for good"

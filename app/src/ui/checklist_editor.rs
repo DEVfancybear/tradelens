@@ -44,12 +44,13 @@ pub fn appended(items: &[ChecklistItem], text: &str) -> Option<Vec<ChecklistItem
 
 /// A checklist to edit. `items` reads the saved items; `on_change` hears the whole list after
 /// each edit and saves it. `group` names the list for screen readers: its rows read
-/// "group: mục N" and its buttons "Xoá mục …".
+/// "group: item N" and its buttons "Remove item …" (in the language chosen).
 pub fn checklist_editor(
-    group: &'static str,
+    group: impl Into<SharedString>,
     items: impl Fn() -> Vec<ChecklistItem> + 'static,
     on_change: impl Fn(Vec<ChecklistItem>) + Copy + 'static,
 ) -> impl IntoElement {
+    let group: SharedString = group.into();
     // What is on screen: edits show at once, and what is saved replaces it when it differs.
     let list = signal(Vec::<ChecklistItem>::new());
     // A memo, so that only a change of the saved items replaces what is on screen: a read that
@@ -67,25 +68,27 @@ pub fn checklist_editor(
     // the rename of the one they leave has come back.
     let rows = computed(move || list.with(|items| items.iter().cloned().enumerate().collect::<Vec<_>>()));
     let none = computed(move || list.with(Vec::is_empty));
+    let new_row = t!("ui.checklist.new_row", group = group);
     view()
         .gap_2()
         .child(dynamic(move || {
-            none.get()
-                .then(|| untracked(|| text("Chưa có mục nào.").text_sm().text_color(move || theme().muted_foreground)))
+            none.get().then(|| {
+                untracked(|| text(t!("ui.checklist.empty")).text_sm().text_color(move || theme().muted_foreground))
+            })
         }))
         .child(each(
             rows,
             |(at, item): &(usize, ChecklistItem)| (item.id, *at),
             move |row, _| {
                 let (index, item) = row.with_untracked(Clone::clone);
-                let removal = format!("Xoá mục {}", item.text);
+                let removal = t!("ui.checklist.remove", text = item.text);
                 view()
                     .flex_row()
                     .items_center()
                     .gap_2()
                     .child(view().flex_1().min_w(px(0.0)).child(commit_field(
-                        format!("{group}: mục {}", index + 1),
-                        "Nội dung mục",
+                        t!("ui.checklist.row", group = group, n = index + 1),
+                        t!("ui.checklist.item_text"),
                         move || row.with(|(_, item)| item.text.clone()),
                         move |typed| apply(renamed(&list.get_untracked(), index, &typed)),
                     )))
@@ -96,7 +99,7 @@ pub fn checklist_editor(
         ))
         // Enter (or leaving the field) adds the item and empties the field, which keeps the focus so
         // that the next item can be typed straight away.
-        .child(add_field(format!("{group}: mục mới"), "+ Thêm mục, rồi Enter", move |typed| {
+        .child(add_field(new_row, t!("ui.checklist.add_placeholder"), move |typed| {
             apply(appended(&list.get_untracked(), &typed));
         }))
 }
@@ -135,13 +138,19 @@ mod tests {
     #[component]
     fn Harness() -> impl IntoElement {
         super::super::theme::install();
+        crate::i18n::install();
         let saved = signal(vec![item(4, "Cùng chiều trend H4"), item(9, "Có vùng cản rõ")]);
-        view().gap_2().child(checklist_editor("Checklist", move || saved.get(), move |next| saved.set(next))).child(
-            text(move || {
-                let all = saved.get();
-                format!("saved {}", all.iter().map(|i| format!("{}={}", i.id, i.text)).collect::<Vec<_>>().join("|"))
-            }),
-        )
+        crate::i18n::translated(move || {
+            view().gap_2().child(checklist_editor("Checklist", move || saved.get(), move |next| saved.set(next))).child(
+                text(move || {
+                    let all = saved.get();
+                    format!(
+                        "saved {}",
+                        all.iter().map(|i| format!("{}={}", i.id, i.text)).collect::<Vec<_>>().join("|")
+                    )
+                }),
+            )
+        })
     }
 
     fn start() -> Headless {

@@ -83,7 +83,7 @@ fn column(items: &[BarItem], tone: Tone) -> Vec<f64> {
         .collect()
 }
 
-fn bars_plot(items: &[BarItem], height: f32, label: &'static str) -> impl IntoElement + use<> {
+fn bars_plot(items: &[BarItem], height: f32, label: SharedString) -> impl IntoElement + use<> {
     let rows = Rows::from_columns(
         items.len(),
         [
@@ -121,14 +121,15 @@ fn bars_plot(items: &[BarItem], height: f32, label: &'static str) -> impl IntoEl
 /// of the chart and `height` the bars' area.
 pub(crate) fn bar_chart(
     items: impl Fn() -> Vec<BarItem> + 'static,
-    label: &'static str,
+    label: impl Into<SharedString>,
     height: f32,
 ) -> impl IntoElement {
+    let label: SharedString = label.into();
     dynamic(move || {
         let items = items();
         untracked(|| {
             if items.is_empty() {
-                return empty_state("Chưa có dữ liệu", "Chọn khoảng thời gian dài hơn.").into_element();
+                return empty_state(t!("ui.charts.no_data"), t!("ui.charts.longer_range")).into_element();
             }
             let values = view().flex_row().children(items.iter().map(|item| {
                 let tone = item.tone;
@@ -156,7 +157,7 @@ pub(crate) fn bar_chart(
                             .text_color(move || theme().muted_foreground),
                     )
             }));
-            view().gap_2().child(values).child(bars_plot(&items, height, label)).child(names).into_element()
+            view().gap_2().child(values).child(bars_plot(&items, height, label.clone())).child(names).into_element()
         })
     })
 }
@@ -165,7 +166,7 @@ pub(crate) fn bar_chart(
 /// `buckets` is `(name, count, below_zero)` in order.
 pub(crate) fn histogram(
     buckets: impl Fn() -> Vec<(String, usize, bool)> + 'static,
-    label: &'static str,
+    label: impl Into<SharedString>,
     height: f32,
 ) -> impl IntoElement {
     bar_chart(
@@ -205,7 +206,7 @@ pub(crate) struct HeatGrid {
 }
 
 const HEAT_CELL_HEIGHT: f32 = 24.0;
-const HEAT_LABEL_WIDTH: f32 = 28.0;
+const HEAT_LABEL_WIDTH: f32 = 32.0;
 /// The weakest and the strongest opacity of a heat cell, so a small value still shows.
 const HEAT_FLOOR: f32 = 0.18;
 const HEAT_CEILING: f32 = 0.85;
@@ -230,7 +231,7 @@ pub(crate) fn heatmap(grid: impl Fn() -> HeatGrid + 'static) -> impl IntoElement
         let grid = grid();
         untracked(|| {
             if grid.cells.iter().flatten().all(Option::is_none) {
-                return empty_state("Chưa có dữ liệu", "Chọn khoảng thời gian dài hơn.").into_element();
+                return empty_state(t!("ui.charts.no_data"), t!("ui.charts.longer_range")).into_element();
             }
             let peak = grid.cells.iter().flatten().flatten().map(|c| c.value.abs()).fold(0.0, f64::max);
             let header = view().flex_row().gap_1().child(view().w(px(HEAT_LABEL_WIDTH))).children(
@@ -309,7 +310,7 @@ pub(crate) fn diverging_bars(
         let items = items();
         untracked(|| {
             if items.is_empty() {
-                return empty_state("Chưa có lệnh nào", "Kết quả theo symbol sẽ hiện ở đây.").into_element();
+                return empty_state(t!("ui.charts.no_trades"), t!("ui.charts.by_symbol_hint")).into_element();
             }
             let peak = items.iter().map(|i| i.value.abs()).fold(0.0, f64::max);
             view()
@@ -348,7 +349,7 @@ pub(crate) fn diverging_bars(
                     button()
                         .cursor_pointer()
                         .on_press(move || on_pick(&picked))
-                        .accessibility_label(format!("Xem lệnh {} {}", item.label, item.shown))
+                        .accessibility_label(t!("ui.charts.open_trades", label = item.label, shown = item.shown))
                         .flex_row()
                         .items_center()
                         .gap_3()
@@ -389,7 +390,7 @@ pub(crate) fn diverging_bars(
     })
 }
 
-const COST_COUNT_WIDTH: f32 = 64.0;
+const COST_COUNT_WIDTH: f32 = 80.0;
 const COST_VALUE_WIDTH: f32 = 96.0;
 
 /// One mistake's cost: its name over a bar filled by its share of the money lost (0 to 1),
@@ -422,15 +423,16 @@ pub(crate) fn mistake_cost_bar(name: &str, trades: usize, net: String, r: String
             view().flex_1().min_w(px(0.0)).gap_2().child(text(name.to_owned()).text_sm().number_of_lines(1)).child(
                 progress()
                     .value(move || percent)
-                    .accessibility_label(format!("Chi phí lỗi {name}"))
+                    .accessibility_label(t!("ui.charts.mistake_cost", name = name))
                     .track_style(|s| s.h(px(6.0)).rounded_full().overflow_hidden().bg(move || theme().secondary))
                     .indicator_style(|s| s.h_full().rounded_full().bg(loss)),
             ),
         )
         .child(
-            text(format!("{trades} lệnh"))
+            text(crate::format::trade_count(trades))
                 .w(px(COST_COUNT_WIDTH))
                 .text_xs()
+                .number_of_lines(1)
                 .text_right()
                 .font_family(tokens::mono)
                 .tabular_nums()
