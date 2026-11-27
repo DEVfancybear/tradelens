@@ -1,0 +1,87 @@
+_version: 2
+
+# Lịch P/L (pages/calendar.rs).
+
+calendar.title:
+  vi: "Lịch P/L"
+  en: "P/L calendar"
+calendar.summary:
+  vi: "Lãi lỗ theo ngày đóng lệnh · bấm một ngày để xem lệnh và nhật ký"
+  en: "Profit and loss by closing day · press a day to see its trades and journal"
+# The month as the grid names it: the Vietnamese text reads the number, the English the name.
+calendar.month_title:
+  vi: "Tháng %{month}, %{year}"
+  en: "%{name} %{year}"
+calendar.pick:
+  vi: "Chọn ngày"
+  en: "Pick a day"
+calendar.previous:
+  vi: "Tháng trước"
+  en: "Previous month"
+calendar.next:
+  vi: "Tháng sau"
+  en: "Next month"
+calendar.show:
+  vi: "Hiển thị"
+  en: "Show"
+calendar.profit_day:
+  vi: "Ngày lãi"
+  en: "Profit day"
+calendar.loss_day:
+  vi: "Ngày lỗ"
+  en: "Loss day"
+calendar.legend:
+  vi: "Viền teal: ngày đang xem · chấm teal: hôm nay"
+  en: "Teal outline: day in view · teal dot: today"
+
+# The day in view.
+calendar.no_closed:
+  vi: "Không có lệnh đóng"
+  en: "No closed trades"
+calendar.no_day:
+  vi: "Chưa chọn ngày"
+  en: "No day chosen"
+calendar.no_day_hint:
+  vi: "Bấm một ngày trong lịch để xem lệnh của ngày đó."
+  en: "Press a day in the calendar to see that day's trades."
+calendar.open_trade:
+  vi: "Mở nhật ký lệnh %{symbol}"
+  en: "Open the journal of the %{symbol} trade"
+calendar.open_journal:
+  vi: "Mở nhật ký ngày"
+  en: "Open the daily journal"
+calendar.note_plan:
+  vi: "Kế hoạch ngày"
+  en: "Day plan"
+calendar.note_review:
+  vi: "Tổng kết"
+  en: "Review"
+
+# What the month adds up to.
+calendar.totals.result:
+  vi: "Kết quả tháng"
+  en: "Month result"
+calendar.totals.days:
+  vi: "Ngày lãi / lỗ"
+  en: "Profit / loss days"
+calendar.totals.best:
+  vi: "Ngày tốt nhất"
+  en: "Best day"
+calendar.totals.worst:
+  vi: "Ngày tệ nhất"
+  en: "Worst day"
+calendar.totals.trades:
+  vi: "Lệnh trong tháng"
+  en: "Trades in the month"
+calendar.totals.violations:
+  vi: "Vi phạm quy tắc"
+  en: "Rule violations"
+calendar.totals.none:
+  vi: "Không có"
+  en: "None"
+calendar.totals.one_day:
+  vi: "1 ngày"
+  en: "1 day"
+calendar.totals.days_many:
+  vi: "%{n} ngày"
+  en: "%{n} days"

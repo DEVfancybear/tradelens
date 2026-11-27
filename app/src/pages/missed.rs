@@ -1,4 +1,4 @@
-//! Lệnh bỏ lỡ: setup đúng nhưng không vào, và R đã bỏ lỡ.
+//! Lệnh bỏ lỡ (missed trades): the setup was right but the trader did not enter, and the R missed.
 //! Design: `docs/design/screens/missed-trades.html`: figures, the latest missed trades, the
 //! totals by reason, and the form that records one (or edits the one picked in the list).
 
@@ -77,9 +77,9 @@ pub(crate) fn missed() -> impl IntoElement {
         untracked(|| picked.set(Picked(None)));
     });
     page_with(
-        "Lệnh bỏ lỡ",
-        "Setup đúng nhưng không vào — ghi lại để biết do dự tốn bao nhiêu.",
-        action_icon(Icon::Plus, "Ghi lệnh bỏ lỡ", Variant::Primary, move || {
+        t!("missed.title"),
+        t!("missed.summary"),
+        action_icon(Icon::Plus, t!("missed.record"), Variant::Primary, move || {
             editing.set(None);
             fresh.set(true);
             // The blank form is drawn in the next frame: its field takes the focus then, so the trader
@@ -135,7 +135,7 @@ fn split_blocked(list: &[MissedTrade]) -> (Vec<MissedTrade>, usize) {
 /// The label of a reason key; a key the catalog lost reads as itself, none as "Chưa ghi lý do".
 fn reason_label(catalog: &[CatalogItem], key: &str) -> String {
     if key.is_empty() {
-        return "Chưa ghi lý do".to_owned();
+        return t!("missed.no_reason");
     }
     catalog.iter().find(|item| item.key == key).map_or_else(|| key.to_owned(), |item| item.label.clone())
 }
@@ -166,34 +166,38 @@ fn stats_row(list: Reading<Vec<MissedTrade>>, reasons: Reading<Vec<CatalogItem>>
         .flex_wrap()
         .gap_3()
         .child(stat_tile(
-            "Lệnh bỏ lỡ",
+            t!("missed.title"),
             move || (summary().2.to_string(), Tone::Neutral),
-            || "tất cả thời gian".to_owned(),
+            || t!("missed.tile.all_time"),
         ))
         .child(stat_tile(
-            "R bỏ lỡ",
+            t!("missed.tile.r_missed"),
             move || {
                 let r = summary().0.r_missed;
                 (format::r_text(Some(r)), if r > 0.0 { Tone::Profit } else { Tone::Neutral })
             },
             move || {
                 let (s, ..) = summary();
-                format!("tránh được {:.1}R nhờ không vào lệnh thua", s.r_avoided)
+                t!("missed.tile.avoided", r = format!("{:.1}", s.r_avoided))
             },
         ))
         .child(stat_tile(
-            "Bỏ lỡ đúng",
+            t!("missed.tile.correct"),
             move || (summary().1.to_string(), Tone::Neutral),
-            || "bị chặn bởi quy tắc".to_owned(),
+            || t!("missed.tile.blocked"),
         ))
         .child(stat_tile(
-            "Lý do nhiều nhất",
+            t!("missed.tile.top_reason"),
             move || {
                 (top_reason(&summary().0, reasons.value().as_deref().map_or(&[][..], Vec::as_slice)).0, Tone::Neutral)
             },
             move || {
                 let (s, _, all) = summary();
-                format!("{} / {all} lần", top_reason(&s, reasons.value().as_deref().map_or(&[][..], Vec::as_slice)).1)
+                t!(
+                    "missed.tile.times",
+                    n = top_reason(&s, reasons.value().as_deref().map_or(&[][..], Vec::as_slice)).1,
+                    all = all
+                )
             },
         ))
 }
@@ -216,28 +220,31 @@ fn latest_card(
         .border_1()
         .border_color(move || theme().border)
         .bg(move || theme().card)
-        .child(text(move || {
-            let total = list.value().map_or(0, |l| l.len());
-            format!("Lệnh bỏ lỡ · {} gần nhất / {total}", total.min(LISTED))
-        }).text_sm().font_weight(FontWeight::SEMIBOLD))
+        .child(
+            text(move || {
+                let total = list.value().map_or(0, |l| l.len());
+                t!("missed.latest", shown = total.min(LISTED), total = total)
+            })
+            .text_sm()
+            .font_weight(FontWeight::SEMIBOLD),
+        )
         .child(dynamic(move || {
             let all = list.value().map_or_else(Vec::new, |l| l.to_vec());
             let catalog = reasons.value().map_or_else(Vec::new, |c| c.to_vec());
             let snapshot = store.snapshot();
             untracked(|| {
                 if all.is_empty() {
-                    return empty_state("Chưa có lệnh bỏ lỡ nào", "Ghi lại setup đúng mà bạn không vào ở form bên cạnh.")
-                        .into_element();
+                    return empty_state(t!("missed.empty"), t!("missed.empty_hint")).into_element();
                 }
                 mini_table(
                     vec![
-                        Column::start("Thời điểm"),
+                        Column::start(t!("missed.column.time")),
                         Column::start("Symbol"),
-                        Column::start("Chiều"),
+                        Column::start(t!("missed.column.side")),
                         Column::start("Setup"),
-                        Column::start("Lý do không vào"),
-                        Column::end("Nếu đã vào"),
-                        Column::end("Ảnh"),
+                        Column::start(t!("missed.column.reason")),
+                        Column::end(t!("missed.column.if_entered")),
+                        Column::end(t!("missed.column.images")),
                     ],
                     all.iter()
                         .take(LISTED)
@@ -245,7 +252,7 @@ fn latest_card(
                             let setup = m
                                 .playbook_id
                                 .and_then(|id| snapshot.playbooks.iter().find(|p| p.id == id))
-                                .map_or_else(|| "Không playbook".to_owned(), |p| p.name.clone());
+                                .map_or_else(|| t!("missed.no_playbook"), |p| p.name.clone());
                             let reason = m.reason.as_deref().map(|key| reason_label(&catalog, key));
                             let r = format::r_text(m.would_be_r());
                             let blocked = m.reason.as_deref() == Some(BLOCKED_REASON);
@@ -257,15 +264,17 @@ fn latest_card(
                                 chip(m.side.label(), if m.side == Side::Long { Tone::Profit } else { Tone::Loss })
                                     .into_element(),
                                 text(setup).text_sm().number_of_lines(1).into_element(),
-                                reason
-                                    .map_or_else(
-                                        || text("—").text_sm().into_element(),
-                                        |label| chip(label, if blocked { Tone::Primary } else { Tone::Neutral }).into_element(),
-                                    ),
+                                reason.map_or_else(
+                                    || text("—").text_sm().into_element(),
+                                    |label| {
+                                        chip(label, if blocked { Tone::Primary } else { Tone::Neutral }).into_element()
+                                    },
+                                ),
                                 pnl_text(move || r.clone()).into_element(),
                                 text(match m.screenshots.len() {
                                     0 => "—".to_owned(),
-                                    n => format!("{n} ảnh"),
+                                    1 => t!("missed.images_one"),
+                                    n => t!("missed.images_many", n = n),
                                 })
                                 .text_sm()
                                 .into_element(),
@@ -276,30 +285,30 @@ fn latest_card(
                 .into_element()
             })
         }))
-        .child(
-            text("“Nếu đã vào” tính theo entry, SL và giá sau đó bạn ghi. Lệnh bị chặn bởi giới hạn lệnh/ngày là bỏ lỡ đúng, không tính là mất cơ hội.")
-                .text_xs()
-                .text_color(move || theme().muted_foreground),
-        )
+        .child(text(t!("missed.note")).text_xs().text_color(move || theme().muted_foreground))
 }
 
 /// "Theo lý do": how often each reason came up and the R it left on the table.
 fn reasons_card(list: Reading<Vec<MissedTrade>>, reasons: Reading<Vec<CatalogItem>>) -> impl IntoElement {
     card(
-        "Theo lý do",
+        t!("missed.by_reason"),
         dynamic(move || {
             let all = list.value().map_or_else(Vec::new, |l| l.to_vec());
             let catalog = reasons.value().map_or_else(Vec::new, |c| c.to_vec());
             untracked(|| {
                 let summary = missed::summarise(&all);
                 if summary.by_reason.is_empty() {
-                    return text("Chưa có dữ liệu.")
+                    return text(t!("missed.no_data"))
                         .text_sm()
                         .text_color(move || theme().muted_foreground)
                         .into_element();
                 }
                 mini_table(
-                    vec![Column::start("Lý do"), Column::end("Lần"), Column::end("R bỏ lỡ")],
+                    vec![
+                        Column::start(t!("missed.reason")),
+                        Column::end(t!("missed.column.times")),
+                        Column::end(t!("missed.tile.r_missed")),
+                    ],
                     summary
                         .by_reason
                         .iter()
@@ -322,8 +331,8 @@ fn reasons_card(list: Reading<Vec<MissedTrade>>, reasons: Reading<Vec<CatalogIte
 // --- the form -------------------------------------------------------------------------------
 
 /// A label over a control.
-fn labelled(label: &'static str, control: impl IntoElement) -> impl IntoElement {
-    view().gap_1().child(text(label).text_xs().text_color(move || theme().muted_foreground)).child(control)
+fn labelled(label: impl Into<SharedString>, control: impl IntoElement) -> impl IntoElement {
+    view().gap_1().child(text(label.into()).text_xs().text_color(move || theme().muted_foreground)).child(control)
 }
 
 /// A missed trade with nothing filled in, seen now.
@@ -381,14 +390,14 @@ impl Fields {
     }
 
     /// The fields laid over `base`, kept for `account` when the trade has none; why not (in
-    /// Vietnamese) when the symbol is empty or the time is not one.
+    /// the app's language) when the symbol is empty or the time is not one.
     fn collect(&self, base: &MissedTrade, account: Option<i64>) -> Result<MissedTrade, String> {
         let symbol = self.symbol.get_untracked();
         if symbol.trim().is_empty() {
-            return Err("Symbol không được để trống.".to_owned());
+            return Err(t!("missed.error.symbol"));
         }
         let Some(seen_at) = parse_seen(&self.seen.get_untracked()) else {
-            return Err("Thời điểm phải có dạng ngày/tháng/năm giờ:phút, ví dụ 21/11/2026 09:42.".to_owned());
+            return Err(t!("missed.error.time"));
         };
         Ok(MissedTrade {
             symbol: symbol.trim().to_uppercase(),
@@ -445,15 +454,21 @@ fn form(
     // The question is the root's task: this form is built again when the data is read again.
     let asker = root_owner();
     let remove = move || {
-        confirm_then(asker, "Xoá lệnh bỏ lỡ?", "Không hoàn tác được.", "Xoá hẳn", move || {
-            write.run(
-                move |db| db.delete_missed_trade(id),
-                move |result| match result {
-                    Ok(()) => editing.set(None),
-                    Err(message) => error.set(Some(message)),
-                },
-            );
-        });
+        confirm_then(
+            asker,
+            t!("missed.delete.title"),
+            t!("missed.delete.said"),
+            t!("missed.delete.confirm"),
+            move || {
+                write.run(
+                    move |db| db.delete_missed_trade(id),
+                    move |result| match result {
+                        Ok(()) => editing.set(None),
+                        Err(message) => error.set(Some(message)),
+                    },
+                );
+            },
+        );
     };
     view()
         .p_5()
@@ -462,30 +477,14 @@ fn form(
         .border_1()
         .border_color(move || if fresh.get() { theme().primary } else { theme().border })
         .bg(move || theme().card)
-        .child(
-            view()
-                .flex_row()
-                .items_center()
-                .justify_between()
-                .gap_2()
-                .child(
-                    text(if id == 0 { "Ghi lệnh bỏ lỡ" } else { "Sửa lệnh bỏ lỡ" })
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD),
-                )
-                .child(
-                    text(move || if fresh.get() { "Form mới · nhập Symbol" } else { "" })
-                        .text_xs()
-                        .text_color(move || theme().primary),
-                ),
-        )
+        .child(form_title(id, fresh))
         .child(trade_fields(fields, symbol_field))
         .child(reason_field(fields.reason, reasons))
         .child(labelled(
-            "Ghi chú",
+            t!("missed.notes"),
             textarea(
-                "Ghi chú",
-                "Điều gì khiến bạn không vào?",
+                t!("missed.notes"),
+                t!("missed.notes_placeholder"),
                 3,
                 move || fields.notes.get(),
                 move |typed| {
@@ -493,7 +492,11 @@ fn form(
                 },
             ),
         ))
-        .child(gallery("Ảnh chart", move || fields.shots.get(), move |list: Vec<Attachment>| fields.shots.set(list)))
+        .child(gallery(
+            t!("missed.shots"),
+            move || fields.shots.get(),
+            move |list: Vec<Attachment>| fields.shots.set(list),
+        ))
         .child(dynamic(move || error.get().map(error_line)))
         .child(
             view()
@@ -501,14 +504,41 @@ fn form(
                 .items_center()
                 .justify_between()
                 .gap_3()
-                .child(view().flex_row().when(id != 0, |v| v.child(action("Xoá", Variant::Ghost, remove))))
+                .child(
+                    view().flex_row().when(id != 0, |v| v.child(action(t!("common.delete"), Variant::Ghost, remove))),
+                )
                 .child(
                     view()
                         .flex_row()
                         .gap_2()
-                        .child(action("Huỷ", Variant::Ghost, move || editing.set(None)))
-                        .child(action_icon_when(Icon::Check, "Lưu", Variant::Primary, move || !busy.get(), save)),
+                        .child(action(t!("common.cancel"), Variant::Ghost, move || editing.set(None)))
+                        .child(action_icon_when(
+                            Icon::Check,
+                            t!("common.save"),
+                            Variant::Primary,
+                            move || !busy.get(),
+                            save,
+                        )),
                 ),
+        )
+}
+
+/// The form's title, and the mark that says it was just made blank.
+fn form_title(id: i64, fresh: Signal<bool>) -> impl IntoElement {
+    view()
+        .flex_row()
+        .items_center()
+        .justify_between()
+        .gap_2()
+        .child(
+            text(if id == 0 { t!("missed.record") } else { t!("missed.edit") })
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD),
+        )
+        .child(
+            text(move || if fresh.get() { t!("missed.fresh") } else { String::new() })
+                .text_xs()
+                .text_color(move || theme().primary),
         )
 }
 
@@ -532,15 +562,21 @@ fn trade_fields(fields: Fields, symbol_field: ElementRef) -> impl IntoElement {
                 .gap_3()
                 .child(view().flex_1().min_w(px(140.0)).child(labelled("Symbol", symbol_input)))
                 .child(labelled(
-                    "Chiều",
-                    segmented("Chiều", &SIDES, Side::label, move || side.get(), move |next| side.set(next)),
+                    t!("missed.column.side"),
+                    segmented(
+                        t!("missed.column.side"),
+                        &SIDES,
+                        Side::label,
+                        move || side.get(),
+                        move |next| side.set(next),
+                    ),
                 )),
         )
-        .child(labelled("Thời điểm", {
+        .child(labelled(t!("missed.column.time"), {
             let chosen = move || parse_seen(&seen.get()).map(tradelens_core::time::naive);
             date_pick(
                 DatePick::moment(
-                    "Thời điểm",
+                    t!("missed.column.time"),
                     chosen,
                     || chrono::Local::now().date_naive(),
                     move |at| {
@@ -548,7 +584,7 @@ fn trade_fields(fields: Fields, symbol_field: ElementRef) -> impl IntoElement {
                     },
                 ),
                 date_trigger(move || {
-                    chosen().map_or_else(|| "Chọn ngày giờ".to_owned(), |at| at.format("%d/%m/%Y %H:%M").to_string())
+                    chosen().map_or_else(|| t!("missed.pick_time"), |at| at.format("%d/%m/%Y %H:%M").to_string())
                 }),
             )
         }))
@@ -560,14 +596,14 @@ fn trade_fields(fields: Fields, symbol_field: ElementRef) -> impl IntoElement {
                 .child(labelled("Entry", price_field("Entry", entry)))
                 .child(labelled("SL", price_field("SL", stop)))
                 .child(labelled("TP", price_field("TP", target)))
-                .child(labelled("Giá sau đó", price_field("Giá sau đó", outcome))),
+                .child(labelled(t!("missed.later_price"), price_field(t!("missed.later_price"), outcome))),
         )
         .child(labelled(
             "Playbook",
             select_field(
                 "Playbook",
                 move || {
-                    let mut choices = vec![Choice::new("", "Không playbook")];
+                    let mut choices = vec![Choice::new("", t!("missed.no_playbook"))];
                     choices.extend(
                         store
                             .snapshot()
@@ -587,11 +623,11 @@ fn trade_fields(fields: Fields, symbol_field: ElementRef) -> impl IntoElement {
 /// The reason for not entering: one of the trader's reasons, or a new one typed here.
 fn reason_field(reason: Signal<Option<String>>, reasons: Reading<Vec<CatalogItem>>) -> impl IntoElement {
     labelled(
-        "Lý do không vào",
+        t!("missed.column.reason"),
         catalog_tags(
             CatalogKind::MissedReason,
-            "Lý do",
-            "+ Thêm lý do mới, rồi Enter",
+            t!("missed.reason"),
+            t!("missed.reason_placeholder"),
             move || reasons.value().map_or_default(|all| all.to_vec()),
             move || reason.get().into_iter().collect(),
             move |key, on| reason.set(on.then(|| key.to_owned())),
@@ -600,7 +636,7 @@ fn reason_field(reason: Signal<Option<String>>, reasons: Reading<Vec<CatalogItem
 }
 
 /// A price: a number field with no unit.
-fn price_field(label: &'static str, value: Signal<Option<f64>>) -> impl IntoElement {
+fn price_field(label: impl Into<SharedString>, value: Signal<Option<f64>>) -> impl IntoElement {
     number_field(label, None, NumberRange::any().stepping(0.01), move || value.get(), move |next| value.set(next))
 }
 
@@ -658,6 +694,11 @@ mod tests {
 
     #[test]
     fn reasons_read_by_label_and_the_most_frequent_comes_first() {
+        crate::i18n::with_text(crate::i18n::Lang::Vi, reasons_read_by_label);
+        crate::i18n::with_text(crate::i18n::Lang::En, || assert_eq!(reason_label(&[], ""), "No reason recorded"));
+    }
+
+    fn reasons_read_by_label() {
         let catalog = [CatalogItem {
             id: 1,
             kind: CatalogKind::MissedReason,

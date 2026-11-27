@@ -1,10 +1,10 @@
-//! Lịch P/L: Lãi lỗ theo từng ngày, tô màu theo kết quả.
+//! Lịch P/L (P/L calendar): profit and loss day by day, coloured by result.
 //! Design: `docs/design/screens/calendar.html`.
 
 use chrono::{Datelike, NaiveDate};
 use nsh_base::theme;
 use nsh_core::prelude::*;
-use tradelens_core::{DayNote, DbError, Rules, metrics, time::weekday_vi};
+use tradelens_core::{DayNote, DbError, Rules, metrics};
 
 use super::account_picker::account_picker;
 use crate::{
@@ -38,9 +38,9 @@ fn next(month: Month) -> Month {
     if month.1 == 12 { (month.0 + 1, 1) } else { (month.0, month.1 + 1) }
 }
 
-/// The month as the calendar names it: `Tháng 6, 2026`.
+/// The month as the calendar names it: `Tháng 6, 2026` (`June 2026`).
 fn month_name((year, month): Month) -> String {
-    format!("Tháng {month}, {year}")
+    t!("calendar.month_title", month = month, name = format::month_name(month), year = year)
 }
 
 /// The day the calendar opens on next instead of today (a day pressed on the overview's month).
@@ -85,8 +85,8 @@ pub(crate) fn calendar() -> impl IntoElement {
     });
 
     page_with(
-        "Lịch P/L",
-        "Lãi lỗ theo ngày đóng lệnh · bấm một ngày để xem lệnh và nhật ký",
+        t!("calendar.title"),
+        t!("calendar.summary"),
         account_picker(),
         columns(
             month_card(month, selected, figure, days, today),
@@ -104,7 +104,7 @@ fn month_pick(
     today: Memo<NaiveDate>,
 ) -> impl IntoElement {
     let pick = DatePick::day(
-        "Chọn ngày",
+        t!("calendar.pick"),
         move || selected.get(),
         move || today.get_untracked(),
         move |day| {
@@ -137,14 +137,14 @@ fn month_card(
                 .flex_row()
                 .items_center()
                 .gap_2()
-                .child(icon_action(Icon::ChevronLeft, "Tháng trước", Variant::Ghost, move || {
+                .child(icon_action(Icon::ChevronLeft, t!("calendar.previous"), Variant::Ghost, move || {
                     month.update(|m| *m = previous(*m));
                 }))
                 .child(month_pick(month, selected, days, today))
-                .child(icon_action(Icon::ChevronRight, "Tháng sau", Variant::Ghost, move || {
+                .child(icon_action(Icon::ChevronRight, t!("calendar.next"), Variant::Ghost, move || {
                     month.update(|m| *m = next(*m));
                 }))
-                .child(action_icon(Icon::Calendar, "Hôm nay", Variant::Secondary, move || {
+                .child(action_icon(Icon::Calendar, t!("common.today"), Variant::Secondary, move || {
                     let now = today.get_untracked();
                     batch(|| {
                         month.set(month_of(now));
@@ -152,7 +152,13 @@ fn month_card(
                     });
                 })),
         )
-        .child(segmented("Hiển thị", &Figure::ALL, Figure::label, move || figure.get(), move |next| figure.set(next)));
+        .child(segmented(
+            t!("calendar.show"),
+            &Figure::ALL,
+            Figure::label,
+            move || figure.get(),
+            move |next| figure.set(next),
+        ));
 
     let weeks = move || {
         let (year, month) = month.get();
@@ -163,13 +169,9 @@ fn month_card(
         .flex_wrap()
         .items_center()
         .gap_4()
-        .child(legend_mark("Ngày lãi", Tone::Profit))
-        .child(legend_mark("Ngày lỗ", Tone::Loss))
-        .child(
-            text("Viền teal: ngày đang xem · chấm teal: hôm nay")
-                .text_xs()
-                .text_color(move || theme().muted_foreground),
-        );
+        .child(legend_mark(t!("calendar.profit_day"), Tone::Profit))
+        .child(legend_mark(t!("calendar.loss_day"), Tone::Loss))
+        .child(text(t!("calendar.legend")).text_xs().text_color(move || theme().muted_foreground));
     view()
         .p_5()
         .gap_4()
@@ -197,7 +199,7 @@ fn month_card(
         .child(legend)
 }
 
-fn legend_mark(label: &'static str, tone: Tone) -> impl IntoElement {
+fn legend_mark(label: String, tone: Tone) -> impl IntoElement {
     view()
         .flex_row()
         .items_center()
@@ -242,11 +244,11 @@ fn day_summary(stat: &metrics::DayStat, currency: &str) -> (String, String) {
         format::money(stat.net, Sign::Always, currency)
     };
     let detail = if stat.trades == 0 {
-        "Không có lệnh đóng".to_owned()
+        t!("calendar.no_closed")
     } else if stat.unit() == metrics::Unit::R || stat.r_trades == 0 {
-        format!("{} lệnh", stat.trades)
+        format::trade_count(stat.trades)
     } else {
-        format!("{} lệnh · {}", stat.trades, format::r_text(Some(stat.r)))
+        format!("{} · {}", format::trade_count(stat.trades), format::r_text(Some(stat.r)))
     };
     (figure, detail)
 }
@@ -263,8 +265,7 @@ fn day_card(selected: Signal<Option<NaiveDate>>) -> impl IntoElement {
         .bg(move || theme().card)
         .child(dynamic(move || {
             let Some(day) = selected.get() else {
-                return empty_state("Chưa chọn ngày", "Bấm một ngày trong lịch để xem lệnh của ngày đó.")
-                    .into_element();
+                return empty_state(t!("calendar.no_day"), t!("calendar.no_day_hint")).into_element();
             };
             untracked(|| {
                 let snapshot = store.snapshot();
@@ -275,7 +276,7 @@ fn day_card(selected: Signal<Option<NaiveDate>>) -> impl IntoElement {
                     insight::summary_clock(&snapshot),
                 );
                 let stat = stats.get(&day).copied().unwrap_or_default();
-                let title = format!("{}, {}", weekday_vi(day.weekday()), day.format("%d/%m"));
+                let title = format!("{}, {}", format::weekday_name(day.weekday()), day.format("%d/%m"));
                 let (figure, detail) = day_summary(&stat, &currency);
                 // A money column only when some trade of the day has money; the R is its own column.
                 let column = MoneyColumn::from(trades.iter().any(|row| row.trade.money_known()));
@@ -294,7 +295,7 @@ fn day_card(selected: Signal<Option<NaiveDate>>) -> impl IntoElement {
                     nsh_base::button()
                         .cursor_pointer()
                         .on_press(move || nav::show_trade(key.clone()))
-                        .accessibility_label(format!("Mở nhật ký lệnh {symbol}"))
+                        .accessibility_label(t!("calendar.open_trade", symbol = symbol))
                         .flex_row()
                         .items_center()
                         .gap_3()
@@ -346,7 +347,7 @@ fn day_card(selected: Signal<Option<NaiveDate>>) -> impl IntoElement {
                     )
                     .children(rows)
                     .child(note_block(note))
-                    .child(action_icon(Icon::Journal, "Mở nhật ký ngày", Variant::Secondary, move || {
+                    .child(action_icon(Icon::Journal, t!("calendar.open_journal"), Variant::Secondary, move || {
                         nav::show_journal_day(day, store.accounts.get_untracked().id());
                     }))
                     .into_element()
@@ -361,12 +362,12 @@ fn note_block(note: crate::store::Reading<DayNote>) -> impl IntoElement {
         let (plan, review) = written.unwrap_or_default();
         view()
             .gap_3()
-            .children((!plan.is_empty()).then(|| note_text("Kế hoạch ngày", plan)))
-            .children((!review.is_empty()).then(|| note_text("Tổng kết", review)))
+            .children((!plan.is_empty()).then(|| note_text(t!("calendar.note_plan"), plan)))
+            .children((!review.is_empty()).then(|| note_text(t!("calendar.note_review"), review)))
     })
 }
 
-fn note_text(caption: &'static str, body: String) -> impl IntoElement {
+fn note_text(caption: String, body: String) -> impl IntoElement {
     view()
         .gap_1()
         .child(text(caption).text_xs().text_color(move || theme().muted_foreground))
@@ -414,9 +415,9 @@ fn month_totals(
         view(),
         view()
             .gap_2()
-            .child(property_row("Kết quả tháng", pnl_text(move || shown(summary().result))))
+            .child(property_row(t!("calendar.totals.result"), pnl_text(move || shown(summary().result))))
             .child(property_row(
-                "Ngày lãi / lỗ",
+                t!("calendar.totals.days"),
                 text(move || {
                     let s = summary();
                     format!("{} / {}", s.green_days, s.red_days)
@@ -426,17 +427,18 @@ fn month_totals(
                 .pt_2()
                 .text_sm(),
             ))
-            .child(property_row("Ngày tốt nhất", pnl_text(move || day_of(summary().best_day))))
-            .child(property_row("Ngày tệ nhất", pnl_text(move || day_of(summary().worst_day))))
+            .child(property_row(t!("calendar.totals.best"), pnl_text(move || day_of(summary().best_day))))
+            .child(property_row(t!("calendar.totals.worst"), pnl_text(move || day_of(summary().worst_day))))
             .child(property_row(
-                "Lệnh trong tháng",
+                t!("calendar.totals.trades"),
                 text(move || summary().trades.to_string()).font_family(tokens::mono).tabular_nums().pt_2().text_sm(),
             ))
             .child(property_row(
-                "Vi phạm quy tắc",
+                t!("calendar.totals.violations"),
                 text(move || match violation_days() {
-                    0 => "Không có".to_owned(),
-                    n => format!("{n} ngày"),
+                    0 => t!("calendar.totals.none"),
+                    1 => t!("calendar.totals.one_day"),
+                    n => t!("calendar.totals.days_many", n = n),
                 })
                 .font_family(tokens::mono)
                 .tabular_nums()
@@ -459,5 +461,20 @@ mod tests {
         assert_eq!(next((2026, 11)), (2026, 12));
         let day = NaiveDate::from_ymd_opt(2026, 11, 18).expect("a real date");
         assert_eq!(month_of(day), (2026, 11));
+    }
+
+    #[test]
+    fn a_month_and_a_day_without_trades_are_named_in_the_chosen_language() {
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            assert_eq!(month_name((2026, 6)), "Tháng 6, 2026");
+            assert_eq!(
+                day_summary(&metrics::DayStat::default(), "USD"),
+                ("—".to_owned(), "Không có lệnh đóng".to_owned())
+            );
+        });
+        crate::i18n::with_text(crate::i18n::Lang::En, || {
+            assert_eq!(month_name((2026, 6)), "June 2026");
+            assert_eq!(day_summary(&metrics::DayStat::default(), "USD").1, "No closed trades");
+        });
     }
 }
