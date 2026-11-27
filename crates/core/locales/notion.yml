@@ -1,0 +1,183 @@
+_version: 2
+
+core.notion.field.open_time:
+  vi: "Thời gian vào"
+  en: "Entry time"
+core.notion.field.close_time:
+  vi: "Thời gian ra"
+  en: "Exit time"
+core.notion.field.symbol:
+  vi: "Symbol"
+  en: "Symbol"
+core.notion.field.side:
+  vi: "Buy/Sell"
+  en: "Buy/Sell"
+core.notion.field.volume:
+  vi: "Khối lượng"
+  en: "Volume"
+core.notion.field.open_price:
+  vi: "Giá vào"
+  en: "Entry price"
+core.notion.field.close_price:
+  vi: "Giá ra"
+  en: "Exit price"
+core.notion.field.stop_loss:
+  vi: "Stop loss"
+  en: "Stop loss"
+core.notion.field.take_profit:
+  vi: "Take profit"
+  en: "Take profit"
+core.notion.field.profit:
+  vi: "Lãi/lỗ"
+  en: "Profit/loss"
+core.notion.field.result_r:
+  vi: "Kết quả (R)"
+  en: "Result (R)"
+core.notion.field.commission:
+  vi: "Phí"
+  en: "Fee"
+core.notion.field.swap:
+  vi: "Swap"
+  en: "Swap"
+core.notion.field.setup:
+  vi: "Setup"
+  en: "Setup"
+core.notion.field.setup_grade:
+  vi: "Hạng setup"
+  en: "Setup grade"
+core.notion.field.tags:
+  vi: "Tag"
+  en: "Tag"
+core.notion.field.mistakes:
+  vi: "Lỗi"
+  en: "Mistakes"
+core.notion.field.emotion:
+  vi: "Cảm xúc"
+  en: "Emotion"
+core.notion.field.emotion_after:
+  vi: "Cảm xúc sau lệnh"
+  en: "Emotion after the trade"
+core.notion.field.exit_reason:
+  vi: "Lý do thoát lệnh"
+  en: "Exit reason"
+core.notion.field.market:
+  vi: "Trạng thái thị trường"
+  en: "Market condition"
+core.notion.field.rating:
+  vi: "Đánh giá"
+  en: "Rating"
+core.notion.field.followed_plan:
+  vi: "Đúng kế hoạch"
+  en: "Followed the plan"
+core.notion.field.review_later:
+  vi: "Xem lại sau"
+  en: "Review later"
+core.notion.field.notes:
+  vi: "Ghi chú"
+  en: "Notes"
+core.notion.field.screenshot:
+  vi: "Ảnh"
+  en: "Image"
+
+core.notion.verdict.win:
+  vi: "thắng"
+  en: "win"
+core.notion.verdict.loss:
+  vi: "thua"
+  en: "loss"
+core.notion.verdict.break_even:
+  vi: "hòa vốn"
+  en: "breakeven"
+
+core.notion.row_issue:
+  vi: "dòng %{line}: %{reason}"
+  en: "line %{line}: %{reason}"
+
+core.notion.zip_unreadable:
+  vi: "file zip không đọc được: %{error}"
+  en: "cannot read the zip file: %{error}"
+core.notion.zip_no_csv:
+  vi: "file zip không có file .csv nào của Notion"
+  en: "the zip file has no Notion .csv file"
+core.notion.zip_many_csv:
+  vi: "file zip có %{n} file .csv mà không có file «…_all.csv»: giải nén và chọn đúng file"
+  en: "the zip file has %{n} .csv files but no «…_all.csv» file: extract it and pick the right file"
+core.notion.zip_csv_too_large:
+  vi: "file CSV trong zip quá lớn"
+  en: "the CSV file in the zip is too large"
+
+core.notion.no_such_column:
+  vi: "không có cột «%{name}» trong file"
+  en: "there is no column «%{name}» in the file"
+core.notion.columns_not_found:
+  vi: "không nhận ra cột %{missing} trong file (các cột có: %{columns})"
+  en: "could not find the column(s) %{missing} in the file (the columns are: %{columns})"
+
+core.notion.no_rows:
+  vi: "không đọc được dòng nào trong file (%{why})"
+  en: "no row of the file could be read (%{why})"
+core.notion.warn.r_only:
+  vi: "File ghi kết quả theo R, không có tiền: số tiền của các lệnh này hiện «—» và thống kê tính theo R."
+  en: "The file records results in R, with no money: the amounts of these trades show «—» and the statistics are in R."
+core.notion.missing.volume:
+  vi: "khối lượng"
+  en: "volume"
+core.notion.missing.open_price:
+  vi: "giá vào"
+  en: "entry price"
+core.notion.missing.close_price:
+  vi: "giá ra"
+  en: "exit price"
+core.notion.warn.missing_columns:
+  vi: "File không có %{names}: các ô này hiện «—»."
+  en: "The file has no %{names}: these cells show «—»."
+core.notion.warn.no_profit:
+  vi: "File không có cột %{column}: lãi/lỗ để 0."
+  en: "The file has no %{column} column: profit/loss is set to 0."
+
+core.notion.row.missing_field:
+  vi: "thiếu %{field}"
+  en: "%{field} is missing"
+core.notion.row.not_a_number:
+  vi: "%{field} «%{cell}» không phải là số"
+  en: "%{field} «%{cell}» is not a number"
+core.notion.row.not_positive:
+  vi: "%{field} phải là số dương, không phải «%{value}»"
+  en: "%{field} must be a positive number, not «%{value}»"
+core.notion.row.no_open_time:
+  vi: "thiếu thời gian vào"
+  en: "the entry time is missing"
+core.notion.row.bad_open_time:
+  vi: "không đọc được thời gian vào «%{cell}»"
+  en: "cannot read the entry time «%{cell}»"
+core.notion.row.bad_close_time:
+  vi: "không đọc được thời gian ra «%{cell}»"
+  en: "cannot read the exit time «%{cell}»"
+core.notion.row.close_before_open:
+  vi: "thời gian ra sớm hơn thời gian vào"
+  en: "the exit time is earlier than the entry time"
+core.notion.row.no_symbol:
+  vi: "thiếu symbol"
+  en: "the symbol is missing"
+core.notion.row.no_side:
+  vi: "thiếu chiều lệnh (Buy/Sell)"
+  en: "the direction (Buy/Sell) is missing"
+core.notion.row.bad_side:
+  vi: "chiều lệnh «%{cell}» không phải Buy/Sell hoặc Long/Short"
+  en: "the direction «%{cell}» is not Buy/Sell or Long/Short"
+
+core.notion.csv_error:
+  vi: "file CSV bị lỗi: %{error}"
+  en: "the CSV file is broken: %{error}"
+core.notion.csv_empty:
+  vi: "file CSV trống"
+  en: "the CSV file is empty"
+core.notion.csv_only_header:
+  vi: "file CSV chỉ có dòng tiêu đề, chưa có lệnh nào"
+  en: "the CSV file has only a header row and no trades yet"
+core.notion.table_no_columns:
+  vi: "bảng Notion không có cột nào"
+  en: "the Notion table has no columns"
+core.notion.table_no_rows:
+  vi: "bảng Notion chưa có lệnh nào"
+  en: "the Notion table has no trades yet"

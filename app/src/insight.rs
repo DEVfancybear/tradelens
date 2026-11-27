@@ -202,7 +202,7 @@ pub(crate) fn analyse(snapshot: &Snapshot, range: Range, today: NaiveDate) -> An
                 .into_iter()
                 .collect()
         },
-        |s: &Session| s.label().to_owned(),
+        |s: &Session| s.label(),
     );
     let by_setup = metrics::breakdown(
         &samples,

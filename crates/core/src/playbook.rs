@@ -47,8 +47,14 @@ pub struct Playbook {
     pub custom: CustomValues,
 }
 
+/// The name of the group of trades with no setup, in the language of the process.
+#[must_use]
+pub fn no_setup_label() -> String {
+    crate::tr!("core.playbook.none")
+}
+
 /// The statistics of each setup, in the order of `playbooks`; trades with no setup
-/// come last as "Chưa gắn setup".
+/// come last as [`no_setup_label`].
 pub fn by_playbook(
     samples: &[Sample<'_>],
     playbook_of: impl Fn(&Sample<'_>) -> Option<i64>,
@@ -66,8 +72,8 @@ pub fn by_playbook(
         samples,
         |x| vec![rank(x)],
         |&rank| match rank {
-            NONE => "Chưa gắn setup".to_owned(),
-            DELETED => "Setup đã xoá".to_owned(),
+            NONE => no_setup_label(),
+            DELETED => crate::tr!("core.playbook.deleted"),
             index => playbooks.get(index).map_or_else(String::new, |p| p.name.clone()),
         },
     )

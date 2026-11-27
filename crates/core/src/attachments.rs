@@ -60,11 +60,11 @@ impl Attachment {
 /// Why one file of a batch was not added; the others still are.
 #[derive(Debug, thiserror::Error)]
 pub enum AttachError {
-    #[error("{name}: không phải ảnh (nhận PNG, JPG, WEBP, GIF)")]
+    #[error("{}", crate::tr!("core.attach.not_image", name = .name))]
     NotAnImage { name: String },
-    #[error("{name}: ảnh lớn hơn 20 MB")]
+    #[error("{}", crate::tr!("core.attach.too_large", name = .name))]
     TooLarge { name: String },
-    #[error("{name}: không đọc/ghi được ({source})")]
+    #[error("{}", crate::tr!("core.attach.io", name = .name, source = .source))]
     Io { name: String, source: std::io::Error },
 }
 

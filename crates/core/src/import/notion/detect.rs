@@ -116,7 +116,7 @@ pub(super) fn detect(sheet: &Sheet, overrides: &NotionMapping) -> Result<Layout,
             .iter()
             .position(|h| h.trim().to_lowercase() == wanted)
             .or_else(|| profiles.iter().position(|p| p.key == header_key(name)))
-            .ok_or_else(|| ImportError::Invalid(format!("không có cột «{name}» trong file")))?;
+            .ok_or_else(|| ImportError::Invalid(crate::tr!("core.notion.no_such_column", name = name)))?;
         fields.retain(|(f, c)| f != field && *c != column);
         fields.push((*field, column));
     }
@@ -155,13 +155,13 @@ pub(super) fn detect(sheet: &Sheet, overrides: &NotionMapping) -> Result<Layout,
         }
     }
 
-    let missing: Vec<&str> =
+    let missing: Vec<String> =
         REQUIRED.iter().filter(|field| fields.iter().all(|(f, _)| f != *field)).map(|field| field.label()).collect();
     if !missing.is_empty() {
-        return Err(ImportError::Invalid(format!(
-            "không nhận ra cột {} trong file (các cột có: {})",
-            missing.join(", "),
-            sheet.headers.join(", ")
+        return Err(ImportError::Invalid(crate::tr!(
+            "core.notion.columns_not_found",
+            missing = missing.join(", "),
+            columns = sheet.headers.join(", ")
         )));
     }
 

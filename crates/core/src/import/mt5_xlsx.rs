@@ -25,11 +25,12 @@ pub fn read(path: &Path) -> Result<DealBatch, ImportError> {
 ///
 /// [`ImportError`] when the content is not a readable report.
 fn rows(path: &Path) -> Result<table::Rows, ImportError> {
-    let unreadable = |e: &dyn std::fmt::Display| ImportError::Invalid(format!("không đọc được file Excel: {e}"));
+    let unreadable =
+        |e: &dyn std::fmt::Display| ImportError::Invalid(crate::tr!("core.import.excel_unreadable", error = e));
     let mut workbook = open_workbook_auto(path).map_err(|e| unreadable(&e))?;
     let range = workbook
         .worksheet_range_at(0)
-        .ok_or_else(|| ImportError::Invalid("file Excel không có trang tính nào".to_owned()))?
+        .ok_or_else(|| ImportError::Invalid(crate::tr!("core.import.excel_no_sheet")))?
         .map_err(|e| unreadable(&e))?;
     Ok(range.rows().map(|row| row.iter().map(cell_text).collect()).collect())
 }

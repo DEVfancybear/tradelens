@@ -1,0 +1,226 @@
+_version: 2
+
+core.report.outcome.win:
+  vi: "Thắng"
+  en: "Win"
+core.report.outcome.loss:
+  vi: "Thua"
+  en: "Loss"
+core.report.outcome.flat:
+  vi: "Hòa vốn"
+  en: "Breakeven"
+core.report.stat.side:
+  vi: "Chiều"
+  en: "Direction"
+core.report.stat.held:
+  vi: "Thời gian giữ"
+  en: "Held for"
+core.report.stat.setup:
+  vi: "Setup"
+  en: "Setup"
+core.report.stat.trades:
+  vi: "Lệnh"
+  en: "Trades"
+core.report.stat.wins:
+  vi: "Thắng"
+  en: "Wins"
+core.report.stat.top_setup:
+  vi: "Setup chính"
+  en: "Main setup"
+core.report.caption.money_and_r:
+  vi: "kết quả theo tiền và R"
+  en: "result in money and R"
+core.report.caption.no_figures:
+  vi: "không hiện số liệu"
+  en: "figures hidden"
+core.report.caption.r_only:
+  vi: "kết quả theo R, không hiện số tiền"
+  en: "result in R, money hidden"
+core.report.caption.no_r:
+  vi: "chưa đo được R, không hiện số tiền"
+  en: "R not measured, money hidden"
+core.report.no_reason:
+  vi: "Không ghi lý do"
+  en: "No reason recorded"
+core.report.io:
+  vi: "không ghi được file: %{error}"
+  en: "cannot write the file: %{error}"
+core.report.render:
+  vi: "không dựng được báo cáo: %{error}"
+  en: "cannot build the report: %{error}"
+core.report.bad_image_size:
+  vi: "kích thước ảnh không hợp lệ"
+  en: "invalid image size"
+
+core.report.pdf.title:
+  vi: "Báo cáo tháng %{month}"
+  en: "Monthly report %{month}"
+core.report.pdf.document_title:
+  vi: "Báo cáo tháng %{month} — %{account}"
+  en: "Monthly report %{month} — %{account}"
+core.report.pdf.running_header:
+  vi: "TradeLens · Báo cáo tháng %{month}"
+  en: "TradeLens · Monthly report %{month}"
+core.report.pdf.page:
+  vi: "Trang %{n} / %{total}"
+  en: "Page %{n} / %{total}"
+core.report.pdf.all_accounts:
+  vi: "Tất cả tài khoản"
+  en: "All accounts"
+core.report.pdf.font_load:
+  vi: "không nạp được font %{face}"
+  en: "cannot load the font %{face}"
+core.report.pdf.font_missing:
+  vi: "thiếu font %{face}"
+  en: "the font %{face} is missing"
+core.report.pdf.bad_page:
+  vi: "khổ giấy không hợp lệ"
+  en: "invalid page size"
+
+core.report.pdf.kpi.r_trades:
+  vi: "%{r} trên %{n} lệnh có R"
+  en: "%{r} over %{n} trades with R"
+core.report.pdf.kpi.expectancy:
+  vi: "kỳ vọng %{r}/lệnh"
+  en: "expectancy %{r}/trade"
+core.report.pdf.kpi.hidden:
+  vi: "đã ẩn số liệu"
+  en: "figures hidden"
+core.report.pdf.kpi.result:
+  vi: "Kết quả"
+  en: "Result"
+core.report.pdf.kpi.win_rate:
+  vi: "Tỷ lệ thắng"
+  en: "Win rate"
+core.report.pdf.kpi.wins_losses:
+  vi: "%{wins} thắng · %{losses} thua · %{even} hòa"
+  en: "%{wins} wins · %{losses} losses · %{even} breakeven"
+core.report.pdf.kpi.payoff:
+  vi: "thắng/thua trung bình %{payoff}"
+  en: "average win/loss %{payoff}"
+core.report.pdf.kpi.trades:
+  vi: "Số lệnh"
+  en: "Trades"
+core.report.pdf.kpi.drawdown:
+  vi: "Drawdown tối đa"
+  en: "Max drawdown"
+core.report.pdf.kpi.green_days:
+  vi: "Ngày xanh"
+  en: "Green days"
+core.report.pdf.kpi.streaks:
+  vi: "chuỗi thắng %{wins} · chuỗi thua %{losses}"
+  en: "win streak %{wins} · loss streak %{losses}"
+
+core.report.pdf.curve.balance:
+  vi: "Đường balance"
+  en: "Balance curve"
+core.report.pdf.curve.r:
+  vi: "Đường R tích luỹ"
+  en: "Cumulative R curve"
+core.report.pdf.curve.too_few:
+  vi: "Chưa đủ lệnh đóng trong tháng để vẽ đường."
+  en: "Not enough closed trades this month to draw the curve."
+core.report.pdf.curve.shape_only:
+  vi: "chỉ hình dạng, đã ẩn số liệu"
+  en: "shape only, figures hidden"
+
+core.report.pdf.calendar.title:
+  vi: "Lịch tháng"
+  en: "Month calendar"
+core.report.pdf.calendar.empty:
+  vi: "Chưa có dữ liệu ngày."
+  en: "No day data yet."
+core.report.pdf.calendar.trades:
+  vi: "%{n} lệnh"
+  en: "%{n} trades"
+core.report.pdf.weekday.mon:
+  vi: "T2"
+  en: "Mon"
+core.report.pdf.weekday.tue:
+  vi: "T3"
+  en: "Tue"
+core.report.pdf.weekday.wed:
+  vi: "T4"
+  en: "Wed"
+core.report.pdf.weekday.thu:
+  vi: "T5"
+  en: "Thu"
+core.report.pdf.weekday.fri:
+  vi: "T6"
+  en: "Fri"
+core.report.pdf.weekday.sat:
+  vi: "T7"
+  en: "Sat"
+core.report.pdf.weekday.sun:
+  vi: "CN"
+  en: "Sun"
+
+core.report.pdf.playbooks.title:
+  vi: "Theo playbook"
+  en: "By playbook"
+core.report.pdf.playbooks.empty:
+  vi: "Chưa có lệnh nào trong tháng."
+  en: "No trades this month."
+core.report.pdf.col.setup:
+  vi: "Setup"
+  en: "Setup"
+core.report.pdf.col.trades:
+  vi: "Lệnh"
+  en: "Trades"
+core.report.pdf.col.wins:
+  vi: "Thắng"
+  en: "Wins"
+core.report.pdf.col.total_r:
+  vi: "Tổng R"
+  en: "Total R"
+core.report.pdf.col.mistake:
+  vi: "Lỗi"
+  en: "Mistake"
+core.report.pdf.col.count:
+  vi: "Số lệnh"
+  en: "Trades"
+core.report.pdf.col.cost:
+  vi: "Chi phí"
+  en: "Cost"
+core.report.pdf.col.share:
+  vi: "% tổng lỗ"
+  en: "% of losses"
+core.report.pdf.col.reason:
+  vi: "Lý do"
+  en: "Reason"
+core.report.pdf.col.r_if_taken:
+  vi: "R nếu đã vào"
+  en: "R if taken"
+
+core.report.pdf.mistakes.title:
+  vi: "Lỗi tốn kém nhất"
+  en: "Costliest mistakes"
+core.report.pdf.mistakes.empty:
+  vi: "Tháng này chưa gắn lỗi nào cho lệnh thua."
+  en: "No mistake was attached to a losing trade this month."
+
+core.report.pdf.missed.title:
+  vi: "Lệnh bỏ lỡ"
+  en: "Missed trades"
+core.report.pdf.missed.empty:
+  vi: "Tháng này không có lệnh bỏ lỡ nào được ghi."
+  en: "No missed trade was recorded this month."
+core.report.pdf.missed.summary_r:
+  vi: "%{count} lệnh bỏ lỡ · còn nằm lại trên bàn %{left} · tránh được %{avoided}R lỗ"
+  en: "%{count} missed trades · %{left} left on the table · %{avoided}R of losses avoided"
+core.report.pdf.missed.summary:
+  vi: "%{count} lệnh bỏ lỡ"
+  en: "%{count} missed trades"
+
+core.report.pdf.review.title:
+  vi: "Tổng kết tháng"
+  en: "Month review"
+core.report.pdf.review.empty:
+  vi: "Chưa viết tổng kết cho tháng này."
+  en: "No review has been written for this month."
+core.report.pdf.review.rating:
+  vi: "Điểm kỷ luật của tháng: %{rating} / 5"
+  en: "Discipline score of the month: %{rating} / 5"
+core.report.pdf.review.unanswered:
+  vi: "(chưa trả lời)"
+  en: "(unanswered)"

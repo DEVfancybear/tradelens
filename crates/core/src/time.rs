@@ -115,15 +115,16 @@ pub fn format_day(d: NaiveDate) -> String {
     d.format("%d/%m/%Y").to_string()
 }
 
-pub fn weekday_vi(d: Weekday) -> &'static str {
+/// The name of the weekday in the language of the process.
+pub fn weekday_vi(d: Weekday) -> String {
     match d {
-        Weekday::Mon => "Thứ 2",
-        Weekday::Tue => "Thứ 3",
-        Weekday::Wed => "Thứ 4",
-        Weekday::Thu => "Thứ 5",
-        Weekday::Fri => "Thứ 6",
-        Weekday::Sat => "Thứ 7",
-        Weekday::Sun => "Chủ nhật",
+        Weekday::Mon => crate::tr!("core.time.weekday.mon"),
+        Weekday::Tue => crate::tr!("core.time.weekday.tue"),
+        Weekday::Wed => crate::tr!("core.time.weekday.wed"),
+        Weekday::Thu => crate::tr!("core.time.weekday.thu"),
+        Weekday::Fri => crate::tr!("core.time.weekday.fri"),
+        Weekday::Sat => crate::tr!("core.time.weekday.sat"),
+        Weekday::Sun => crate::tr!("core.time.weekday.sun"),
     }
 }
 
@@ -148,13 +149,13 @@ impl Session {
         }
     }
 
-    pub fn label(self) -> &'static str {
+    pub fn label(self) -> String {
         match self {
-            Self::Asia => "Phiên Á (00–07 UTC)",
-            Self::London => "Phiên Âu (07–12 UTC)",
-            Self::Overlap => "Âu–Mỹ giao thoa (12–16 UTC)",
-            Self::NewYork => "Phiên Mỹ (16–21 UTC)",
-            Self::Late => "Cuối ngày (21–24 UTC)",
+            Self::Asia => crate::tr!("core.time.session.asia"),
+            Self::London => crate::tr!("core.time.session.london"),
+            Self::Overlap => crate::tr!("core.time.session.overlap"),
+            Self::NewYork => crate::tr!("core.time.session.new_york"),
+            Self::Late => crate::tr!("core.time.session.late"),
         }
     }
 
@@ -173,13 +174,13 @@ pub fn format_duration(secs: i64) -> String {
     let secs = secs.max(0);
     let (d, h, m) = (secs / 86_400, secs % 86_400 / 3600, secs % 3600 / 60);
     if d > 0 {
-        format!("{d}n {h}g")
+        crate::tr!("core.time.duration.days_hours", d = d, h = h)
     } else if h > 0 {
-        format!("{h}g {m}p")
+        crate::tr!("core.time.duration.hours_minutes", h = h, m = m)
     } else if m > 0 {
-        format!("{m}p")
+        crate::tr!("core.time.duration.minutes", m = m)
     } else {
-        format!("{secs}s")
+        crate::tr!("core.time.duration.seconds", secs = secs)
     }
 }
 

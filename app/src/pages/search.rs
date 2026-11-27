@@ -204,7 +204,7 @@ fn layer() -> impl IntoElement {
                 };
                 PaletteRow {
                     id: row_id(hit),
-                    group: hit.kind.label().to_owned(),
+                    group: hit.kind.label(),
                     title: hit.title.clone(),
                     snippet: hit.snippet.clone(),
                     meta: meta_of(hit, result),

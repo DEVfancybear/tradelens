@@ -53,9 +53,8 @@ pub(crate) fn batch_from_rows(rows: &Rows) -> Result<DealBatch, ImportError> {
     if deal_rows.is_empty() {
         return Err(ImportError::NoDeals);
     }
-    let Header { mut info, accounting } = header(&rows).ok_or_else(|| {
-        ImportError::Invalid("không thấy dòng Account (số tài khoản, tiền tệ, server) trong báo cáo".to_owned())
-    })?;
+    let Header { mut info, accounting } =
+        header(&rows).ok_or_else(|| ImportError::Invalid(crate::tr!("core.import.no_account_row")))?;
 
     let layout = Layout::of(&deal_rows);
     let mut deals = deal_rows.iter().map(|row| deal(row, layout)).collect::<Result<Vec<_>, _>>()?;
@@ -207,13 +206,19 @@ fn deal(row: &DealRow<'_>, layout: Layout) -> Result<Deal, ImportError> {
     let amount = |at: usize, column: &str| -> Result<f64, ImportError> {
         match cell(at) {
             "" | "-" => Ok(0.0),
-            text => number(text)
-                .ok_or_else(|| ImportError::Invalid(format!("deal {ticket}: cột {column} không phải số: \"{text}\""))),
+            text => number(text).ok_or_else(|| {
+                ImportError::Invalid(crate::tr!(
+                    "core.import.deal_not_number",
+                    ticket = ticket,
+                    column = column,
+                    text = text
+                ))
+            }),
         }
     };
     let time = cell(columns.time());
     let time_msc = parse_mt5_time(time)
-        .ok_or_else(|| ImportError::Invalid(format!("deal {ticket}: không đọc được thời gian \"{time}\"")))?;
+        .ok_or_else(|| ImportError::Invalid(crate::tr!("core.import.deal_bad_time", ticket = ticket, time = time)))?;
     let kind = DealKind::parse(cell(columns.at(0)));
     let entry = if kind.is_trade() { DealEntry::parse(cell(columns.at(1))) } else { DealEntry::None };
     let comment = cell(columns.comment()).to_owned();

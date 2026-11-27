@@ -33,16 +33,17 @@ impl CatalogKind {
         Self::MissedReason,
     ];
 
-    pub fn label(self) -> &'static str {
+    /// The name of the kind, in the language of the process.
+    pub fn label(self) -> String {
         match self {
-            Self::Tag => "Tag",
-            Self::Mistake => "Lỗi",
-            Self::Emotion => "Cảm xúc",
-            Self::ExitReason => "Lý do thoát lệnh",
-            Self::SetupGrade => "Hạng setup",
-            Self::MarketCondition => "Trạng thái thị trường",
-            Self::Timeframe => "Khung thời gian",
-            Self::MissedReason => "Lý do không vào lệnh",
+            Self::Tag => crate::tr!("core.catalog.kind.tag"),
+            Self::Mistake => crate::tr!("core.catalog.kind.mistake"),
+            Self::Emotion => crate::tr!("core.catalog.kind.emotion"),
+            Self::ExitReason => crate::tr!("core.catalog.kind.exit_reason"),
+            Self::SetupGrade => crate::tr!("core.catalog.kind.setup_grade"),
+            Self::MarketCondition => crate::tr!("core.catalog.kind.market_condition"),
+            Self::Timeframe => crate::tr!("core.catalog.kind.timeframe"),
+            Self::MissedReason => crate::tr!("core.catalog.kind.missed_reason"),
         }
     }
 
@@ -193,13 +194,13 @@ pub type CustomValues = BTreeMap<String, FieldValue>;
 /// Why a value does not fit its field.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FieldError {
-    #[error("trường \"{0}\" cần kiểu giá trị khác")]
+    #[error("{}", crate::tr!("core.field.wrong_kind", field = .0))]
     WrongKind(String),
-    #[error("\"{value}\" không có trong lựa chọn của trường \"{field}\"")]
+    #[error("{}", crate::tr!("core.field.unknown_option", value = .value, field = .field))]
     UnknownOption { field: String, value: String },
-    #[error("trường \"{field}\" chỉ nhận 1 – {max}")]
+    #[error("{}", crate::tr!("core.field.out_of_scale", field = .field, max = .max))]
     OutOfScale { field: String, max: u8 },
-    #[error("ngày không hợp lệ ở trường \"{0}\"")]
+    #[error("{}", crate::tr!("core.field.bad_date", field = .0))]
     BadDate(String),
 }
 
