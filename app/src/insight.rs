@@ -307,9 +307,27 @@ pub(crate) fn hour_extremes(analysis: &Analysis) -> Option<((u32, f64), (u32, f6
     Some((best, worst))
 }
 
-/// The rules of the first account (among `rules`, in the order given) that sets any limit.
-pub(crate) fn rules_in_force(rules: &[(i64, Rules)]) -> Option<&(i64, Rules)> {
-    rules.iter().find(|(_, r)| *r != Rules::default())
+/// Among the accounts of `rules` that set any limit, the one whose day `today` has gone furthest
+/// toward a limit, with what it used of each: the card for all accounts shows the account at risk,
+/// not merely the first one with rules (which may have no trades today). Ties go to the first.
+pub(crate) fn closest_to_limits(
+    snapshot: &Snapshot,
+    rules: &[(i64, Rules)],
+    today: NaiveDate,
+) -> Option<(i64, Vec<RuleUsage>)> {
+    let peak = |usage: &[RuleUsage]| usage.iter().map(RuleUsage::ratio).fold(0.0_f64, f64::max);
+    rules
+        .iter()
+        .filter(|(_, set)| *set != Rules::default())
+        .map(|(account, set)| (*account, discipline_today(snapshot, *account, set, today)))
+        .reduce(|best, next| if peak(&next.1) > peak(&best.1) { next } else { best })
+}
+
+/// What the trader calls the account `id` of the snapshot: its name, else its login.
+pub(crate) fn account_title(snapshot: &Snapshot, id: i64) -> Option<String> {
+    let account = snapshot.accounts.iter().find(|a| a.id == id)?;
+    let name = account.name.trim();
+    Some(if name.is_empty() { account.login.clone() } else { format!("{name} ({})", account.login) })
 }
 
 /// The balance the account has now, as far as the snapshot knows it.
@@ -554,11 +572,19 @@ mod tests {
     }
 
     #[test]
-    fn rules_in_force_skips_accounts_without_limits() {
-        let set = Rules { max_daily_trades: Some(3), ..Rules::default() };
-        let rules = [(1, Rules::default()), (2, set)];
-        assert_eq!(rules_in_force(&rules).map(|(id, _)| *id), Some(2));
-        assert!(rules_in_force(&[(1, Rules::default())]).is_none());
+    fn all_accounts_show_the_one_nearest_its_limits_not_the_first_with_rules() {
+        let (_db, snapshot) = seeded();
+        let trading = snapshot.accounts[0].id;
+        let monday = NaiveDate::from_ymd_opt(2026, 11, 16).expect("a real date");
+        let rules = Rules { max_daily_trades: Some(2), max_daily_loss: Some(300.0), ..Rules::default() };
+        // An account listed first with rules but no trades, as the Notion journal was.
+        let all = [(trading - 1, rules.clone()), (trading, rules), (trading + 1, Rules::default())];
+        let (account, usage) = closest_to_limits(&snapshot, &all, monday).expect("accounts with rules");
+        assert_eq!(account, trading, "the account that traded today is shown");
+        let trades = usage.iter().find(|u| u.kind == metrics::RuleKind::DailyTrades).expect("a limit on trades");
+        assert!((trades.ratio() - 1.0).abs() < 1e-9, "2 of 2 trades: {trades:?}");
+        assert!(closest_to_limits(&snapshot, &[(trading, Rules::default())], monday).is_none());
+        assert_eq!(account_title(&snapshot, trading).as_deref(), Some("1"), "no name: the login");
     }
 
     #[test]

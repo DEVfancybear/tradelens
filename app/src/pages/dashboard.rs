@@ -5,6 +5,7 @@
 use std::sync::Arc;
 
 use chrono::Datelike;
+use nsh_base::theme;
 use nsh_core::prelude::*;
 use tradelens_core::{
     DbError, Rules,
@@ -410,8 +411,8 @@ fn discipline_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
             let snapshot = store.snapshot();
             let day = today.get();
             untracked(|| {
-                let in_force = read.as_deref().and_then(|r| insight::rules_in_force(r));
-                let Some((account, set)) = in_force else {
+                let closest = read.as_deref().and_then(|r| insight::closest_to_limits(&snapshot, r, day));
+                let Some((account, usage)) = closest else {
                     return view()
                         .gap_3()
                         .child(empty_state(
@@ -421,10 +422,14 @@ fn discipline_card(today: Memo<chrono::NaiveDate>) -> impl IntoElement {
                         .child(action("Đặt quy tắc", Variant::Secondary, || nav::go(Route::Accounts)))
                         .into_element();
                 };
-                let usage = insight::discipline_today(&snapshot, *account, set, day);
                 let warn = warning_of(&usage, &snapshot);
+                // With several accounts under rules, say whose day the bars measure.
+                let several =
+                    read.as_deref().is_some_and(|r| r.iter().filter(|(_, s)| *s != Rules::default()).count() > 1);
+                let whose = several.then(|| insight::account_title(&snapshot, account)).flatten();
                 view()
                     .gap_3()
+                    .child(whose.map(|name| text(name).text_xs().text_color(move || theme().muted_foreground)))
                     .children(usage.into_iter().map(|u| {
                         let (name, summary) = usage_line(&u, &snapshot);
                         progress_rule(name, move || summary.clone(), move || u.ratio())
