@@ -1,4 +1,4 @@
-//! Nhật ký ngày: the plan before the session and the review after it, with the day's trades and
+//! Nhật ký ngày (daily journal): the plan before the session and the review after it, with the day's trades and
 //! the rules they broke beside them. Design: `docs/design/screens/daily-journal.html`.
 
 use std::{collections::HashMap, time::Duration};
@@ -12,7 +12,7 @@ use tradelens_core::{
     form::{BuiltinField, FormLayout},
     metrics::{self, Sample, Unit},
     rules::{self, Violation},
-    time::{format_day, weekday_vi},
+    time::format_day,
 };
 
 use super::{
@@ -120,22 +120,9 @@ fn week_of(day: NaiveDate) -> Vec<NaiveDate> {
     (0..7).filter_map(|n| monday.checked_add_days(Days::new(n))).collect()
 }
 
-/// The short name of a weekday on the strip: `T2`…`T7`, `CN`.
-fn weekday_short(day: NaiveDate) -> &'static str {
-    match day.weekday() {
-        Weekday::Mon => "T2",
-        Weekday::Tue => "T3",
-        Weekday::Wed => "T4",
-        Weekday::Thu => "T5",
-        Weekday::Fri => "T6",
-        Weekday::Sat => "T7",
-        Weekday::Sun => "CN",
-    }
-}
-
-/// The day as the header says it: `Thứ 6, 20/11/2026`.
+/// The day as the header says it: `Thứ 6, 20/11/2026` (`Friday, 20/11/2026`).
 fn day_title(day: NaiveDate) -> String {
-    format!("{}, {}", weekday_vi(day.weekday()), format_day(day))
+    format!("{}, {}", format::weekday_name(day.weekday()), format_day(day))
 }
 
 /// Adds the trades of `own` that fall on `day` to `sink` (with their opening time, to order by), each
@@ -379,7 +366,7 @@ impl Session {
                         if self.context.get_untracked() == Some(at) {
                             self.saved.set(written);
                         }
-                        self.status.set(format!("Tự động lưu · đã lưu lúc {}", chrono::Local::now().format("%H:%M")));
+                        self.status.set(t!("journal.autosaved", time = chrono::Local::now().format("%H:%M")));
                     }
                     Err(error) => self.status.set(error),
                 }
@@ -494,29 +481,29 @@ pub(crate) fn journal() -> impl IntoElement {
         .flex_wrap()
         .items_center()
         .gap_3()
-        .child(icon_action(Icon::ChevronLeft, "Ngày trước", Variant::Secondary, move || step(-1)))
+        .child(icon_action(Icon::ChevronLeft, t!("journal.previous"), Variant::Secondary, move || step(-1)))
         .child(date_pick(
-            DatePick::day("Chọn ngày của nhật ký", move || Some(day.get()), today, go).marking(move |date| {
+            DatePick::day(t!("journal.pick"), move || Some(day.get()), today, go).marking(move |date| {
                 // A day is marked when it has trades or a note.
                 trade_days.with(|days| days.contains(&date)) || noted_days.value().is_some_and(|d| d.contains(&date))
             }),
             date_trigger(move || day_title(day.get())),
         ))
-        .child(icon_action(Icon::ChevronRight, "Ngày sau", Variant::Secondary, move || step(1)))
-        .child(action("Hôm nay", Variant::Secondary, move || go(today())))
+        .child(icon_action(Icon::ChevronRight, t!("journal.next"), Variant::Secondary, move || step(1)))
+        .child(action(t!("common.today"), Variant::Secondary, move || go(today())))
         .child(account_picker())
         .child(save_status(move || status.get()).text_xs())
         .child(action_when(
             // Typing saves by itself: the button only saves at once, and says so when nothing waits.
-            move || SharedString::from(if dirty.get() { "Lưu nhật ký" } else { "Đã lưu" }),
+            move || SharedString::from(if dirty.get() { t!("journal.save") } else { t!("journal.saved") }),
             Variant::Primary,
             move || dirty.get() && !busy.get(),
             save_now,
         ));
 
     page_with(
-        "Nhật ký ngày",
-        "Kế hoạch trước phiên, tổng kết cuối ngày và lệnh của ngày đặt cạnh nhau",
+        t!("journal.title"),
+        t!("journal.summary"),
         actions,
         view().gap_6().child(dynamic(move || data.error().map(error_line))).child(week_strip(data, day, go)).child(
             view()
@@ -568,16 +555,26 @@ fn week_strip(
                     let body = view()
                         .items_center()
                         .gap_1()
-                        .child(text(weekday_short(date)).text_xs().text_color(move || theme().muted_foreground))
+                        .child(
+                            text(format::weekday_short(date.weekday()))
+                                .text_xs()
+                                .text_color(move || theme().muted_foreground),
+                        )
                         .child(text(date.day().to_string()).text_xl().font_weight(FontWeight::SEMIBOLD))
                         .child(pnl_text(net).text_xs())
                         .child(
-                            text(move || if figure().is_some_and(|w| w.written) { "✓ đã ghi" } else { "chưa ghi" })
-                                .text_xs()
-                                .text_color(move || theme().muted_foreground),
+                            text(move || {
+                                if figure().is_some_and(|w| w.written) {
+                                    t!("journal.written")
+                                } else {
+                                    t!("journal.not_written")
+                                }
+                            })
+                            .text_xs()
+                            .text_color(move || theme().muted_foreground),
                         );
                     view().flex_1().min_w(px(0.0)).child(selectable_card(
-                        format!("Ngày {}", format_day(date)),
+                        t!("journal.day_card", day = format_day(date)),
                         move || day.get() == date,
                         move || go(date),
                         body,
@@ -643,8 +640,8 @@ fn form_card(data: Reading<DayData>, write: Writer, fields: Fields, loaded: Memo
         .builtin(move |field| match field {
             BuiltinField::DayPlan => Some(
                 textarea(
-                    "Kế hoạch ngày",
-                    "Xu hướng chính, vùng giá cần chú ý, tin trong ngày, cam kết hôm nay",
+                    t!("journal.plan"),
+                    t!("journal.plan_placeholder"),
                     6,
                     move || fields.plan.get(),
                     move |t| fields.plan.set(t.to_owned()),
@@ -653,45 +650,49 @@ fn form_card(data: Reading<DayData>, write: Writer, fields: Fields, loaded: Memo
             ),
             BuiltinField::DayReview => Some(
                 textarea(
-                    "Tổng kết cuối ngày",
-                    "Điều làm tốt, điều cần sửa, bài học cho ngày mai",
+                    t!("journal.review"),
+                    t!("journal.review_placeholder"),
                     6,
                     move || fields.review.get(),
                     move |t| fields.review.set(t.to_owned()),
                 )
                 .into_element(),
             ),
-            BuiltinField::DayMood => Some(
-                select_value(
-                    "Tâm trạng",
-                    move || {
-                        let mut choices = vec![Choice::new("", "Chưa chọn")];
-                        let known = moods();
-                        let current = fields.mood.get_untracked();
-                        // A mood whose option was removed since stays readable.
-                        if !current.is_empty() && known.iter().all(|(key, _)| *key != current) {
-                            choices.push(Choice::new(current.clone(), current));
-                        }
-                        choices.extend(known.into_iter().map(|(key, label)| Choice::new(key, label)));
-                        choices
-                    },
-                    move || SharedString::from(fields.mood.get()),
-                    move |v| fields.mood.set(v.to_string()),
-                )
-                .into_element(),
-            ),
+            BuiltinField::DayMood => Some(mood_select(fields.mood, moods).into_element()),
             _ => None,
         })
     };
     card(
-        "Kế hoạch và tổng kết",
+        t!("journal.form"),
         dynamic(move || {
             if loaded.get() {
                 untracked(|| property_list(list()).into_element())
             } else {
-                untracked(|| text("Đang tải…").text_sm().text_color(move || theme().muted_foreground).into_element())
+                untracked(|| {
+                    text(t!("common.loading")).text_sm().text_color(move || theme().muted_foreground).into_element()
+                })
             }
         }),
+    )
+}
+
+/// The mood of the day: none, or one of the emotion options.
+fn mood_select(mood: Signal<String>, moods: impl Fn() -> Vec<(String, String)> + 'static) -> impl IntoElement {
+    select_value(
+        t!("journal.mood"),
+        move || {
+            let mut choices = vec![Choice::new("", t!("journal.not_chosen"))];
+            let known = moods();
+            let current = mood.get_untracked();
+            // A mood whose option was removed since stays readable.
+            if !current.is_empty() && known.iter().all(|(key, _)| *key != current) {
+                choices.push(Choice::new(current.clone(), current));
+            }
+            choices.extend(known.into_iter().map(|(key, label)| Choice::new(key, label)));
+            choices
+        },
+        move || SharedString::from(mood.get()),
+        move |v| mood.set(v.to_string()),
     )
 }
 
@@ -701,7 +702,7 @@ fn trades_card(data: Reading<DayData>) -> impl IntoElement {
     let net = move || data.value().and_then(|d| d.closed_result());
     let count = move || data.value().map_or(0, |d| d.trades.len());
     card(
-        "Lệnh trong ngày",
+        t!("journal.trades"),
         view()
             .gap_3()
             .child(
@@ -722,7 +723,7 @@ fn trades_card(data: Reading<DayData>) -> impl IntoElement {
                     .child(
                         text(move || {
                             let wins = data.value().map_or(0, |d| d.trades.iter().filter(|t| t.won()).count());
-                            format!("{} lệnh · {wins} thắng", count())
+                            t!("journal.trades_won", n = count(), wins = wins)
                         })
                         .text_sm()
                         .text_color(move || theme().muted_foreground),
@@ -730,20 +731,22 @@ fn trades_card(data: Reading<DayData>) -> impl IntoElement {
             )
             .child(dynamic(move || {
                 let Some(read) = data.value() else {
-                    return text("Đang tải…").text_sm().text_color(move || theme().muted_foreground).into_element();
+                    return text(t!("common.loading"))
+                        .text_sm()
+                        .text_color(move || theme().muted_foreground)
+                        .into_element();
                 };
                 untracked(|| {
                     if read.trades.is_empty() {
-                        return empty_state("Không có lệnh nào trong ngày", "Lệnh đóng hoặc mở trong ngày hiện ở đây.")
-                            .into_element();
+                        return empty_state(t!("journal.no_trades"), t!("journal.no_trades_hint")).into_element();
                     }
                     let column = MoneyColumn::from(read.has_money_column());
                     view()
                         .children(read.trades.iter().map(move |trade| trade_row(trade, column)))
                         .children(
-                            read.day_violations
-                                .iter()
-                                .map(|line| text(format!("Vi phạm: {line}")).pt_2().text_xs().text_color(loss)),
+                            read.day_violations.iter().map(|line| {
+                                text(t!("journal.violation", line = line)).pt_2().text_xs().text_color(loss)
+                            }),
                         )
                         .into_element()
                 })
@@ -787,20 +790,25 @@ fn trade_row(trade: &DayTrade, column: MoneyColumn) -> impl IntoElement + use<> 
                     money.map(|money| pnl_text(move || money.clone()).text_sm().font_weight(FontWeight::SEMIBOLD)),
                 ),
         )
-        .child(trade.violation.clone().map(|line| text(format!("Vi phạm: {line}")).text_xs().text_color(loss)))
+        .child(
+            trade.violation.clone().map(|line| text(t!("journal.violation", line = line)).text_xs().text_color(loss)),
+        )
 }
 
 /// The checklist before an entry, with how many of the day's trades confirmed each item.
 fn checklist_card(data: Reading<DayData>) -> impl IntoElement {
     card(
-        "Checklist trước lệnh",
+        t!("journal.checklist"),
         view().gap_2().child(dynamic(move || {
             let Some(read) = data.value() else {
-                return text("Đang tải…").text_sm().text_color(move || theme().muted_foreground).into_element();
+                return text(t!("common.loading"))
+                    .text_sm()
+                    .text_color(move || theme().muted_foreground)
+                    .into_element();
             };
             untracked(|| {
                 if read.checklist.is_empty() {
-                    return text("Chưa có mục nào: thêm ở Tài khoản & kỷ luật.")
+                    return text(t!("journal.checklist_empty"))
                         .text_sm()
                         .text_color(move || theme().muted_foreground)
                         .into_element();
@@ -820,7 +828,7 @@ fn checklist_card(data: Reading<DayData>) -> impl IntoElement {
                                     let line = if total == 0 {
                                         "—".to_owned()
                                     } else {
-                                        format!("{confirmed} / {total} lệnh")
+                                        t!("journal.checklist_count", confirmed = confirmed, total = total)
                                     };
                                     move || line.clone()
                                 })
@@ -850,9 +858,14 @@ mod tests {
         assert_eq!(week.first().copied(), Some(date("2026-11-16")));
         assert_eq!(week.last().copied(), Some(date("2026-11-22")));
         assert_eq!(week.len(), 7);
-        assert_eq!(weekday_short(date("2026-11-20")), "T6");
-        assert_eq!(weekday_short(date("2026-11-22")), "CN");
-        assert_eq!(day_title(date("2026-11-20")), "Thứ 6, 20/11/2026");
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            assert_eq!(format::weekday_short(date("2026-11-20").weekday()), "T6");
+            assert_eq!(format::weekday_short(date("2026-11-22").weekday()), "CN");
+            assert_eq!(day_title(date("2026-11-20")), "Thứ 6, 20/11/2026");
+        });
+        crate::i18n::with_text(crate::i18n::Lang::En, || {
+            assert_eq!(day_title(date("2026-11-20")), "Friday, 20/11/2026");
+        });
     }
 
     fn deal(

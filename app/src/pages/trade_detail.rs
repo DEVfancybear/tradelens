@@ -1,4 +1,4 @@
-//! Chi tiết lệnh: facts of one trade, the plan set against what happened, the chart images and
+//! Chi tiết lệnh (Trade details): facts of one trade, the plan set against what happened, the chart images and
 //! the journal entry the trader keeps on it, drawn from the trade form the trader shaped.
 //! Design: `docs/design/screens/trade-detail.html`.
 
@@ -53,10 +53,10 @@ pub(crate) fn trade_detail(key: TradeKey) -> impl IntoElement {
     };
     when(move || row.with(Option::is_some), move || untracked(|| found_page(key.clone(), row))).otherwise(|| {
         page_with(
-            "Chi tiết lệnh",
-            "Không tìm thấy lệnh này",
-            action("‹ Lệnh", Variant::Secondary, nav::close_trade),
-            empty_state("Lệnh không còn trong dữ liệu", "Quay lại danh sách để chọn lệnh khác."),
+            t!("trade_detail.title"),
+            t!("trade_detail.not_found"),
+            action(t!("trade_detail.back"), Variant::Secondary, nav::close_trade),
+            empty_state(t!("trade_detail.gone"), t!("trade_detail.gone_hint")),
         )
     })
 }
@@ -236,13 +236,13 @@ impl Editor {
         let (busy, failure, dirty) = (self.busy, self.failure, self.dirty);
         move || {
             if busy.get() {
-                "Đang lưu…".to_owned()
+                t!("common.saving")
             } else if let Some(error) = failure.get() {
                 error
             } else if dirty.get() {
-                "Có thay đổi chưa lưu".to_owned()
+                t!("trade_detail.status.unsaved")
             } else {
-                "Đã lưu".to_owned()
+                t!("trade_detail.status.saved")
             }
         }
     }
@@ -258,7 +258,7 @@ impl Editor {
     }
 
     /// The button that goes `step` trades away in the list (which runs newest first).
-    fn step_button(&self, key: &Rc<TradeKey>, label: &'static str, step: isize) -> impl IntoElement + use<> {
+    fn step_button(&self, key: &Rc<TradeKey>, label: String, step: isize) -> impl IntoElement + use<> {
         let (leave, key) = (Rc::clone(&self.leave), Rc::clone(key));
         action(label, Variant::Secondary, move || {
             let snapshot = store().snapshot_now();
@@ -278,7 +278,7 @@ impl Editor {
     /// The link to the form editor: saves first, so no edit is lost to the page it replaces.
     fn form_editor_link(&self) -> impl IntoElement + use<> {
         let leave = Rc::clone(&self.leave);
-        action("Tuỳ biến form", Variant::Ghost, move || {
+        action(t!("trade_detail.customize_form"), Variant::Ghost, move || {
             leave(Box::new(|| nav::open_form_editor(FieldScope::Trade)));
         })
     }
@@ -289,7 +289,7 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
     let editor = Editor::new(&key);
     let (dirty, busy) = (editor.dirty, editor.busy);
     page_with(
-        "Chi tiết lệnh",
+        t!("trade_detail.title"),
         move || {
             // The terminal's ticket for its trades; for the others, where they came from.
             from_row(row, |r| {
@@ -309,7 +309,7 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
             .child(delete_button(&key, row, editor.failure))
             .child(manage_button(&key))
             .child(share_button(&key, row))
-            .child(action_when("Lưu", Variant::Primary, move || dirty.get() && !busy.get(), editor.save())),
+            .child(action_when(t!("common.save"), Variant::Primary, move || dirty.get() && !busy.get(), editor.save())),
         view().gap_4().child(breadcrumb(row, editor.back())).child(
             view()
                 .flex_row()
@@ -332,17 +332,14 @@ fn found_page(key: TradeKey, row: Memo<Option<TradeRow>>) -> impl IntoElement {
                 .child(view().w(px(520.0)).child(journal_card(
                     &editor,
                     row,
-                    editor.step_button(&key, "‹ Lệnh trước", 1),
-                    editor.step_button(&key, "Lệnh sau ›", -1),
+                    editor.step_button(&key, t!("trade_detail.previous"), 1),
+                    editor.step_button(&key, t!("trade_detail.next"), -1),
                 ))),
         ),
     )
 }
 
-/// What the trader may do with the facts of a trade, as the button and the shortcut name it.
-const EDIT: &str = "Sửa lệnh";
-
-/// "Sửa lệnh" (and Ctrl+E): the form of the trade's facts, for a trade the trader typed or imported
+/// "Sửa lệnh" (Edit trade, and Ctrl+E): the form of the trade's facts, for a trade the trader typed or imported
 /// from their journal. A trade of the terminal has no such button: its facts are the terminal's.
 /// The journal is saved first, so that no edit is lost to the form that replaces the page.
 fn edit_button(key: &Rc<TradeKey>, row: Memo<Option<TradeRow>>, editor: &Editor) -> impl IntoElement {
@@ -360,21 +357,24 @@ fn edit_button(key: &Rc<TradeKey>, row: Memo<Option<TradeRow>>, editor: &Editor)
     dynamic(move || {
         let open = Rc::clone(&open);
         from_row(row, |r| r.origin.is_editable())
-            .then(|| action_icon(Icon::Edit, EDIT, Variant::Secondary, move || open()))
+            .then(|| action_icon(Icon::Edit, t!("trade_detail.edit"), Variant::Secondary, move || open()))
     })
 }
 
 /// The question before a trade or several are deleted: its title and what it says.
 pub(crate) fn delete_question(count: usize, symbol: &str, origin: Origin) -> (String, String) {
-    let what = if count == 1 { format!("lệnh {symbol}") } else { format!("{count} lệnh") };
-    let mut said = format!(
-        "Xoá {what} cùng nhật ký và ảnh chart của {}. Không hoàn tác được.",
-        if count == 1 { "nó" } else { "chúng" }
-    );
+    let mut said = if count == 1 {
+        t!("trade_detail.delete.said_one", symbol = symbol)
+    } else {
+        t!("trade_detail.delete.said_many", n = count)
+    };
     if origin == Origin::Mt5 {
-        said.push_str(" Lệnh từ MT5: import lại cùng báo cáo sẽ đưa lệnh trở lại.");
+        said.push(' ');
+        said.push_str(&t!("trade_detail.delete.from_mt5"));
     }
-    (if count == 1 { "Xoá lệnh?".to_owned() } else { format!("Xoá {count} lệnh?") }, said)
+    let title =
+        if count == 1 { t!("trade_detail.delete.title_one") } else { t!("trade_detail.delete.title_many", n = count) };
+    (title, said)
 }
 
 /// Deletes the trades, and the images of their journals that nothing else uses, then runs `done`.
@@ -386,13 +386,13 @@ pub(crate) fn delete_trades(write: Writer, keys: Vec<TradeKey>, done: impl FnOnc
 fn delete_button(key: &Rc<TradeKey>, row: Memo<Option<TradeRow>>, failure: Signal<Option<String>>) -> impl IntoElement {
     let key = Rc::clone(key);
     let (asker, write) = (root_owner(), writer());
-    action_icon(Icon::Trash, "Xoá lệnh", Variant::Destructive, move || {
+    action_icon(Icon::Trash, t!("trade_detail.delete"), Variant::Destructive, move || {
         let (symbol, origin) = row
             .with_untracked(|r| r.as_ref().map(|r| (r.trade.symbol.clone(), r.origin)))
             .unwrap_or((String::new(), Origin::Manual));
         let (title, said) = delete_question(1, &symbol, origin);
         let key = (*key).clone();
-        confirm_then(asker, title, said, "Xoá lệnh", move || {
+        confirm_then(asker, title, said, t!("trade_detail.delete"), move || {
             delete_trades(write, vec![key], move |result| match result {
                 Ok(()) => nav::close_trade(),
                 Err(error) => {
@@ -414,7 +414,9 @@ fn manage_button(key: &Rc<TradeKey>) -> impl IntoElement {
     dynamic(move || {
         live.get().map(|account| {
             untracked(|| {
-                action("Quản lý lệnh", Variant::Primary, move || super::position::open(account.clone(), ticket))
+                action(t!("trade_detail.manage"), Variant::Primary, move || {
+                    super::position::open(account.clone(), ticket);
+                })
             })
         })
     })
@@ -425,7 +427,7 @@ fn share_button(key: &Rc<TradeKey>, row: Memo<Option<TradeRow>>) -> impl IntoEle
     let key = Rc::clone(key);
     action_icon_when(
         Icon::Share,
-        "Chia sẻ",
+        t!("trade_detail.share"),
         Variant::Secondary,
         move || row.with(|r| r.as_ref().is_some_and(|r| r.trade.is_closed())),
         move || share::open(ShareTarget::Trade((*key).clone())),
@@ -434,7 +436,7 @@ fn share_button(key: &Rc<TradeKey>, row: Memo<Option<TradeRow>>) -> impl IntoEle
 
 /// The way back to the list, with where the trade belongs.
 fn breadcrumb(row: Memo<Option<TradeRow>>, back: impl Fn() + 'static) -> impl IntoElement {
-    view().flex_row().items_center().gap_2().child(action("‹ Lệnh", Variant::Ghost, back)).child(
+    view().flex_row().items_center().gap_2().child(action(t!("trade_detail.back"), Variant::Ghost, back)).child(
         text(move || from_row(row, |r| format!("{} · {}", r.account, r.trade.symbol)))
             .text_sm()
             .text_color(move || theme().muted_foreground),
@@ -442,11 +444,11 @@ fn breadcrumb(row: Memo<Option<TradeRow>>, back: impl Fn() + 'static) -> impl In
 }
 
 /// A label over a value, in the facts grid.
-fn fact(label: &'static str, value: impl Fn() -> String + 'static) -> impl IntoElement {
+fn fact(label: impl Into<SharedString>, value: impl Fn() -> String + 'static) -> impl IntoElement {
     view()
         .gap_1()
         .w(px(168.0))
-        .child(text(label).text_xs().text_color(move || theme().muted_foreground))
+        .child(text(label.into()).text_xs().text_color(move || theme().muted_foreground))
         .child(figure_text(value).text_sm())
 }
 
@@ -466,9 +468,9 @@ fn facts_card(row: Memo<Option<TradeRow>>) -> impl IntoElement {
                     let origin = r.origin;
                     // Only a trade of the terminal is made of real deals; the others hold the two the app wrote.
                     if origin == Origin::Mt5 {
-                        format!("{} · nguồn: {} · gộp {} deal", r.account, origin.label(), r.deals.len())
+                        t!("trade_detail.source_mt5", account = r.account, origin = origin.label(), n = r.deals.len())
                     } else {
-                        format!("{} · nguồn: {}", r.account, origin.label())
+                        t!("trade_detail.source", account = r.account, origin = origin.label())
                     }
                 })
             })
@@ -477,11 +479,8 @@ fn facts_card(row: Memo<Option<TradeRow>>) -> impl IntoElement {
         )
         .child(dynamic(move || {
             // What the trader cannot change here, and what they still can.
-            from_row(row, |r| r.origin == Origin::Mt5).then(|| {
-                text("Số liệu của lệnh lấy từ MT5 nên không sửa được; nhật ký và ảnh chart vẫn sửa được.")
-                    .text_xs()
-                    .text_color(move || theme().muted_foreground)
-            })
+            from_row(row, |r| r.origin == Origin::Mt5)
+                .then(|| text(t!("trade_detail.mt5_facts_note")).text_xs().text_color(move || theme().muted_foreground))
         }))
         .child(facts_grid(row))
 }
@@ -506,11 +505,10 @@ fn title_row(row: Memo<Option<TradeRow>>) -> impl IntoElement {
                     let (side, closed) = from_row(row, |r| (Some(r.trade.side), r.trade.is_closed()));
                     let side = side.unwrap_or(Side::Long);
                     let tone = if side == Side::Long { Tone::Profit } else { Tone::Loss };
-                    view()
-                        .flex_row()
-                        .gap_2()
-                        .child(chip(side.label(), tone))
-                        .child(chip(if closed { "Đã đóng" } else { "Đang mở" }, Tone::Neutral))
+                    view().flex_row().gap_2().child(chip(side.label(), tone)).child(chip(
+                        if closed { t!("trade_detail.state.closed") } else { t!("trade_detail.state.open") },
+                        Tone::Neutral,
+                    ))
                 })),
         )
         .child(
@@ -566,9 +564,9 @@ fn facts_of(row: &TradeRow) -> Facts {
     let prices = trade.prices_known();
     Facts {
         opened: moment(row, row.opened()),
-        closed: row.closed().map_or_else(|| "Đang mở".to_owned(), |at| moment(row, at)),
+        closed: row.closed().map_or_else(|| t!("trade_detail.state.open"), |at| moment(row, at)),
         hold: trade.hold_secs().map_or_else(|| UNKNOWN.to_owned(), format_duration),
-        volume: known(format!("{} lot", format::lots(trade.volume)), trade.volume_known()),
+        volume: known(t!("trade_detail.volume_lots", lots = format::lots(trade.volume)), trade.volume_known()),
         open_price: known(format::price_to(trade.open_price, row.digits), prices),
         close_price: known(
             trade.close_price.map_or_else(|| UNKNOWN.to_owned(), |p| format::price_to(p, row.digits)),
@@ -595,21 +593,21 @@ fn facts_grid(row: Memo<Option<TradeRow>>) -> impl IntoElement {
         .flex_row()
         .flex_wrap()
         .gap_4()
-        .child(fact("Vào lệnh", pick(|f| &f.opened)))
-        .child(fact("Đóng lệnh", pick(|f| &f.closed)))
-        .child(fact("Thời gian giữ", pick(|f| &f.hold)))
-        .child(fact("Khối lượng", pick(|f| &f.volume)))
-        .child(fact("Giá vào", pick(|f| &f.open_price)))
-        .child(fact("Giá ra TB", pick(|f| &f.close_price)))
+        .child(fact(t!("trade_detail.fact.opened"), pick(|f| &f.opened)))
+        .child(fact(t!("trade_detail.fact.closed"), pick(|f| &f.closed)))
+        .child(fact(t!("trade_detail.fact.hold"), pick(|f| &f.hold)))
+        .child(fact(t!("trade_detail.fact.volume"), pick(|f| &f.volume)))
+        .child(fact(t!("trade_detail.fact.open_price"), pick(|f| &f.open_price)))
+        .child(fact(t!("trade_detail.fact.close_price"), pick(|f| &f.close_price)))
         .child(fact("Stop loss", pick(|f| &f.stop_loss)))
         .child(fact("Take profit", pick(|f| &f.take_profit)))
-        .child(fact("Risk tại SL", pick(|f| &f.risk)))
+        .child(fact(t!("trade_detail.fact.risk"), pick(|f| &f.risk)))
         .child(fact("Commission", pick(|f| &f.commission)))
         .child(fact("Swap", pick(|f| &f.swap)))
         .child(dynamic(move || {
             let ticket = facts.with(|f| f.ticket.clone());
             // A ticket is the terminal's: hand-typed and imported trades have none to show.
-            ticket.map(|ticket| fact("Ticket position", move || ticket.clone()))
+            ticket.map(|ticket| fact(t!("trade_detail.fact.ticket"), move || ticket.clone()))
         }))
 }
 
@@ -648,19 +646,19 @@ fn screenshots_card(key: &Rc<TradeKey>, failure: Signal<Option<String>>) -> impl
         }
     });
     card(
-        "Ảnh chart",
+        t!("trade_detail.shots"),
         view()
             .gap_2()
             .child(
                 text(move || {
                     let all = shots.with(Vec::len);
-                    if all == 0 { String::new() } else { format!("{all} ảnh") }
+                    if all == 0 { String::new() } else { shots_count(all) }
                 })
                 .text_xs()
                 .text_color(move || theme().muted_foreground),
             )
             .child(gallery(
-                "Ảnh chart",
+                t!("trade_detail.shots"),
                 move || shots.get(),
                 move |list| {
                     shots.set(list.clone());
@@ -676,6 +674,11 @@ fn screenshots_card(key: &Rc<TradeKey>, failure: Signal<Option<String>>) -> impl
                 },
             )),
     )
+}
+
+/// How many chart images there are: "3 ảnh" ("3 images").
+fn shots_count(count: usize) -> String {
+    if count == 1 { t!("trade_detail.shots_one") } else { t!("trade_detail.shots_many", n = count) }
 }
 
 /// Writes the gallery's list over the entry stored now, so the rest of the entry (and what the
@@ -698,7 +701,7 @@ fn entry_label(entry: DealEntry) -> &'static str {
 
 fn deals_card(row: Memo<Option<TradeRow>>) -> impl IntoElement {
     card(
-        "Deal của lệnh",
+        t!("trade_detail.deals"),
         view().gap_2().child(dynamic(move || {
             let lines = from_row(row, |r| {
                 r.deals
@@ -765,7 +768,7 @@ impl Context {
 /// The choices of a single-value property: nothing chosen first, then the catalog's options
 /// that are still in use.
 fn choices_of(items: &[CatalogItem]) -> Vec<Choice> {
-    let mut choices = vec![Choice::new("", "Chưa chọn")];
+    let mut choices = vec![Choice::new("", t!("trade_detail.not_chosen"))];
     choices.extend(items.iter().filter(|i| !i.archived).map(|i| Choice::new(i.key.clone(), i.label.clone())));
     choices
 }
@@ -777,7 +780,7 @@ fn label_of(items: &[CatalogItem], key: &str) -> Option<String> {
 
 /// A drop-down over an optional catalog key.
 fn catalog_select(
-    label: &'static str,
+    label: impl Into<SharedString>,
     ctx: &Context,
     pick: fn(&TradeForm) -> &Vec<CatalogItem>,
     value: Signal<Option<String>>,
@@ -792,7 +795,7 @@ fn catalog_select(
 }
 
 /// A drop-down over an emotion, kept as its key (empty for none).
-fn emotion_select(label: &'static str, ctx: &Context, value: Signal<String>) -> impl IntoElement {
+fn emotion_select(label: impl Into<SharedString>, ctx: &Context, value: Signal<String>) -> impl IntoElement {
     let ctx = *ctx;
     select_value(
         label,
@@ -809,19 +812,23 @@ fn builtin_editor(ctx: &Context, field: BuiltinField) -> Option<AnyElement> {
     let fields = ctx.fields;
     Some(match field {
         B::Playbook => playbook_editor(fields).into_element(),
-        B::SetupGrade => catalog_select("Hạng setup", &ctx, |f| &f.grades, fields.grade).into_element(),
+        B::SetupGrade => {
+            catalog_select(t!("trade_detail.field.setup_grade"), &ctx, |f| &f.grades, fields.grade).into_element()
+        }
         B::ExecutionRating => {
             let stars = fields.stars;
-            rating("Điểm thực thi", move || stars.get(), move |n| stars.set(n)).into_element()
+            rating(t!("trade_detail.field.execution"), move || stars.get(), move |n| stars.set(n)).into_element()
         }
         B::ExitReason => exit_editor(&ctx).into_element(),
-        B::Market => catalog_select("Trạng thái thị trường", &ctx, |f| &f.markets, fields.market).into_element(),
+        B::Market => {
+            catalog_select(t!("trade_detail.field.market"), &ctx, |f| &f.markets, fields.market).into_element()
+        }
         B::Tags => {
             let tags = fields.tags;
             catalog_tags(
                 CatalogKind::Tag,
-                "Tag",
-                "+ Thêm tag, rồi Enter",
+                t!("trade_detail.field.tag"),
+                t!("trade_detail.field.tag_placeholder"),
                 move || ctx.store.snapshot().catalogs.tags.clone(),
                 move || tags.get(),
                 move |key, on| tags.update(|t| *t = if on { added(t, key) } else { removed(t, key) }),
@@ -832,21 +839,21 @@ fn builtin_editor(ctx: &Context, field: BuiltinField) -> Option<AnyElement> {
             let mistakes = fields.mistakes;
             catalog_tags(
                 CatalogKind::Mistake,
-                "Lỗi",
-                "+ Thêm lỗi, rồi Enter",
+                t!("trade_detail.field.mistake"),
+                t!("trade_detail.field.mistake_placeholder"),
                 move || ctx.store.snapshot().catalogs.mistakes.clone(),
                 move || mistakes.get(),
                 move |key, on| mistakes.update(|m| *m = if on { added(m, key) } else { removed(m, key) }),
             )
             .into_element()
         }
-        B::EmotionBefore => emotion_select("Cảm xúc trước lệnh", &ctx, fields.before).into_element(),
-        B::EmotionAfter => emotion_select("Cảm xúc sau lệnh", &ctx, fields.after).into_element(),
+        B::EmotionBefore => emotion_select(t!("trade_detail.field.emotion_before"), &ctx, fields.before).into_element(),
+        B::EmotionAfter => emotion_select(t!("trade_detail.field.emotion_after"), &ctx, fields.after).into_element(),
         B::FollowedPlan => followed_editor(fields.followed).into_element(),
         B::Checklist => {
             let checked = fields.checked;
             checklist(
-                "Checklist trước lệnh",
+                t!("trade_detail.field.checklist"),
                 move || ctx.data().checklist.clone(),
                 move || checked.get(),
                 move |id, on| checked.update(|c| *c = if on { ticked(c, id) } else { unticked(c, id) }),
@@ -856,8 +863,8 @@ fn builtin_editor(ctx: &Context, field: BuiltinField) -> Option<AnyElement> {
         B::Notes => {
             let notes = fields.notes;
             textarea(
-                "Ghi chú",
-                "Vì sao vào, quản lý lệnh ra sao, rút ra điều gì…",
+                t!("trade_detail.field.notes"),
+                t!("trade_detail.field.notes_placeholder"),
                 6,
                 move || notes.get(),
                 move |text| notes.set(text.to_owned()),
@@ -867,8 +874,9 @@ fn builtin_editor(ctx: &Context, field: BuiltinField) -> Option<AnyElement> {
         B::Screenshots => {
             let shots = ctx.shots;
             text(move || match shots.get() {
-                0 => "Chưa có ảnh · thêm ở khối Ảnh chart".to_owned(),
-                n => format!("{n} ảnh · xem ở khối Ảnh chart"),
+                0 => t!("trade_detail.field.shots_none"),
+                1 => t!("trade_detail.field.shots_one"),
+                n => t!("trade_detail.field.shots_many", n = n),
             })
             .text_sm()
             .pt_2()
@@ -878,7 +886,7 @@ fn builtin_editor(ctx: &Context, field: BuiltinField) -> Option<AnyElement> {
         B::PlannedRisk => {
             let risk = fields.risk;
             number_field(
-                "Risk dự kiến",
+                t!("trade_detail.field.planned_risk"),
                 None,
                 NumberRange::any().stepping(1.0),
                 move || risk.get(),
@@ -890,7 +898,8 @@ fn builtin_editor(ctx: &Context, field: BuiltinField) -> Option<AnyElement> {
         }
         B::ReviewLater => {
             let later = fields.later;
-            check_box("Xem lại sau", move || later.get(), move |on| later.set(on)).into_element()
+            check_box(t!("trade_detail.field.review_later"), move || later.get(), move |on| later.set(on))
+                .into_element()
         }
         _ => return None,
     })
@@ -911,7 +920,7 @@ fn playbook_editor(fields: JournalFields) -> impl IntoElement {
         if named.is_empty() {
             return named;
         }
-        let mut all = vec![Choice::new("", "Chưa gắn")];
+        let mut all = vec![Choice::new("", t!("trade_detail.unlinked"))];
         all.extend(named);
         all
     });
@@ -939,7 +948,7 @@ fn playbook_editor(fields: JournalFields) -> impl IntoElement {
                     text_field(
                         "Setup",
                         None,
-                        "Tên setup, ví dụ Breakout phiên Á",
+                        t!("trade_detail.field.setup_placeholder"),
                         move || setup.get(),
                         move |text| setup.set(text.to_owned()),
                     )
@@ -958,18 +967,24 @@ fn exit_editor(ctx: &Context) -> impl IntoElement {
         .flex_wrap()
         .items_center()
         .gap_2()
-        .child(catalog_select("Lý do thoát lệnh", &ctx, |f| &f.exits, exit))
+        .child(catalog_select(t!("trade_detail.field.exit_reason"), &ctx, |f| &f.exits, exit))
         .child(dynamic(move || {
             let hint = suggestion.and_then(|key| label_of(&ctx.data().exits, key))?;
-            Some(text(format!("Gợi ý từ deal đóng: {hint}")).text_xs().text_color(move || theme().muted_foreground))
+            Some(text(t!("trade_detail.exit_hint", hint = hint)).text_xs().text_color(move || theme().muted_foreground))
         }))
 }
 
 /// Whether the trade followed its plan: not judged, yes, or no.
 fn followed_editor(followed: Signal<Option<bool>>) -> impl IntoElement {
     select_value(
-        "Đúng kế hoạch",
-        || vec![Choice::new("", "Chưa đánh giá"), Choice::new("yes", "Có"), Choice::new("no", "Không")],
+        t!("trade_detail.field.followed_plan"),
+        || {
+            vec![
+                Choice::new("", t!("trade_detail.followed.unrated")),
+                Choice::new("yes", t!("trade_detail.followed.yes")),
+                Choice::new("no", t!("trade_detail.followed.no")),
+            ]
+        },
         move || {
             SharedString::from(match followed.get() {
                 None => "",
@@ -991,7 +1006,7 @@ fn followed_editor(followed: Signal<Option<bool>>) -> impl IntoElement {
 fn expected_note(defs: Signal<Vec<FieldDef>>, custom: Signal<CustomValues>) -> impl IntoElement {
     text(move || {
         let missing = defs.with(|d| custom.with(|c| missing_expected(d, FieldScope::Trade, c).join(", ")));
-        if missing.is_empty() { String::new() } else { format!("Nên điền: {missing}") }
+        if missing.is_empty() { String::new() } else { t!("trade_detail.expected", fields = missing) }
     })
     .text_xs()
     .text_color(tokens::warning)
@@ -1063,7 +1078,7 @@ fn journal_card(
         row.with_untracked(|r| r.as_ref().and_then(|r| suggested_exit(&snapshot.row(r.key())?.deals)))
     };
     card(
-        "Nhật ký lệnh",
+        t!("trade_detail.journal"),
         view().gap_3().child(journal_form(editor.fields, shots, suggestion, editor.failure)).child(
             view()
                 .flex_row()

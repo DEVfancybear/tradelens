@@ -20,14 +20,15 @@ use crate::{
 /// names the list ("Tag", "Lỗi", "Khung thời gian") and `placeholder` fills the add field.
 pub(super) fn catalog_tags(
     kind: CatalogKind,
-    group: &'static str,
-    placeholder: &'static str,
+    group: impl Into<SharedString>,
+    placeholder: impl Into<SharedString>,
     items: impl Fn() -> Vec<CatalogItem> + 'static,
     selected: impl Fn() -> Vec<String> + Copy + 'static,
     on_toggle: impl Fn(&str, bool) + Copy + 'static,
 ) -> impl IntoElement {
     let write = writer();
     let error = signal(None::<String>);
+    let group: SharedString = group.into();
     let named = group.to_lowercase();
     let add = move |typed: String| {
         let label = label_of(kind, &typed);
@@ -51,9 +52,9 @@ pub(super) fn catalog_tags(
         let key = key.to_owned();
         confirm_then(
             asker,
-            format!("Xoá «{label}» khỏi danh sách {}?", list.get()),
-            "Không còn để chọn nữa; những gì đã ghi vẫn giữ nó.",
-            "Xoá",
+            t!("catalog_tags.remove_title", label = label, list = list.get()),
+            t!("catalog_tags.remove_said"),
+            t!("common.delete"),
             move || {
                 write.run(
                     move |db| db.archive_catalog_item(kind, &key),
@@ -69,7 +70,7 @@ pub(super) fn catalog_tags(
     view()
         .gap_2()
         .child(removable_tags(group, move || chips(&items(), &selected()), selected, on_toggle, remove))
-        .child(add_field(format!("Thêm {named}"), placeholder, add))
+        .child(add_field(t!("catalog_tags.add", name = named), placeholder, add))
         .child(dynamic(move || error.get().map(error_line)))
 }
 

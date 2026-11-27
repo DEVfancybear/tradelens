@@ -1,4 +1,4 @@
-//! Popup ghi kế hoạch: a modal over any screen that writes the plan of a trade (the reason,
+//! Popup ghi kế hoạch (the plan dialog): a modal over any screen that writes the plan of a trade (the reason,
 //! entry, stop, target, risk, chart, setup). Only the trader opens it, from a trade's page
 //! ("Viết kế hoạch" / "Sửa kế hoạch"); closing it (✕, Escape) writes nothing. Several plans
 //! wait their turn, one modal at a time.
@@ -63,7 +63,9 @@ impl PlanRequest {
             side: trade.side,
             volume: trade.volume_known().then_some(trade.volume),
             origin: match row.origin {
-                tradelens_core::Origin::Mt5 => format!("{} · lệnh {}", row.account, trade.key.position_id),
+                tradelens_core::Origin::Mt5 => {
+                    t!("entry_plan.origin_mt5", account = row.account, ticket = trade.key.position_id)
+                }
                 other => format!("{} · {}", row.account, other.label()),
             },
             seed: plan.unwrap_or_else(|| EntryPlan {
@@ -110,7 +112,7 @@ fn modal_of(request: PlanRequest) -> Modal {
     let target = request.target.clone();
     Modal::new(
         modal_id(&request.target),
-        "Kế hoạch vào lệnh",
+        t!("entry_plan.title"),
         move || panel(&request).into_element(),
         move || {
             finish(&target);
@@ -128,7 +130,7 @@ pub(crate) fn reward_risk_text(entry: Option<f64>, stop_loss: Option<f64>, take_
 
 /// The rules of the account that the plan, as it stands, would break by taking the trade:
 /// the risk per trade (the planned `risk` in money over the account's balance), the trades of
-/// the day, the day's loss and the losing streak. One line each, in Vietnamese; empty when
+/// the day, the day's loss and the losing streak. One line each, in the app's language; empty when
 /// the account is unknown, has no rules on, or the plan is within them.
 ///
 /// The trade is judged as the one just opened: the stored one when its deal is already in
@@ -141,7 +143,7 @@ fn plan_warnings(
     planned_risk: Option<f64>,
     now_utc_ms: i64,
     local_offset_min: i32,
-) -> Result<Vec<String>, DbError> {
+) -> Result<Vec<PlanWarning>, DbError> {
     let key = request.target.clone();
     let rules = db.rules(key.account_id)?;
     let Some(own) = account_trades::load(db, Some(key.account_id))?.into_iter().next() else {
@@ -193,24 +195,46 @@ fn plan_warnings(
     Ok(rules::evaluate(&rules, &samples, balance_at, own.clock)
         .into_iter()
         .filter(|v| v.trade.as_ref() == Some(&key) || (v.trade.is_none() && v.day == day))
-        .map(|v| warning_line(&v.kind, &title))
+        .map(|v| PlanWarning { kind: v.kind, account: title.clone() })
         .collect())
+}
+
+/// A rule the plan would break. It is words only where it is shown: the read that finds it runs on a
+/// thread that has no language.
+#[derive(Debug, Clone, PartialEq)]
+struct PlanWarning {
+    kind: ViolationKind,
+    /// The account's name, for the line.
+    account: String,
+}
+
+impl PlanWarning {
+    /// What the dialog says of it.
+    fn text(&self) -> String {
+        warning_line(&self.kind, &self.account)
+    }
 }
 
 /// What a broken rule says in the dialog: `Risk 1.9% vượt quy tắc 1.5% của tài khoản …`.
 fn warning_line(kind: &ViolationKind, account: &str) -> String {
     match kind {
-        ViolationKind::RiskPerTrade(percent, limit) => {
-            format!("Risk {percent:.1}% vượt quy tắc {limit:.1}% của tài khoản {account}.")
-        }
+        ViolationKind::RiskPerTrade(percent, limit) => t!(
+            "entry_plan.warn.risk",
+            percent = format!("{percent:.1}"),
+            limit = format!("{limit:.1}"),
+            account = account
+        ),
         ViolationKind::DailyTrades(count, limit) => {
-            format!("Lệnh thứ {count} trong ngày vượt quy tắc {limit} lệnh/ngày của tài khoản {account}.")
+            t!("entry_plan.warn.daily_trades", count = count, limit = limit, account = account)
         }
-        ViolationKind::DailyLoss(loss, limit) => {
-            format!("Lỗ trong ngày {loss:.2} đã vượt quy tắc {limit:.2} của tài khoản {account}.")
-        }
+        ViolationKind::DailyLoss(loss, limit) => t!(
+            "entry_plan.warn.daily_loss",
+            loss = format!("{loss:.2}"),
+            limit = format!("{limit:.2}"),
+            account = account
+        ),
         ViolationKind::AfterLosingStreak(streak, limit) => {
-            format!("Vào lệnh sau {streak} lệnh thua liên tiếp, vượt quy tắc {limit} của tài khoản {account}.")
+            t!("entry_plan.warn.streak", streak = streak, limit = limit, account = account)
         }
     }
 }
@@ -295,7 +319,7 @@ enum Stores {
 }
 
 fn choices_of(items: &[CatalogItem], stores: Stores) -> Vec<Choice> {
-    let mut choices = vec![Choice::new("", "Chưa chọn")];
+    let mut choices = vec![Choice::new("", t!("entry_plan.not_chosen"))];
     choices.extend(items.iter().filter(|i| !i.archived).map(|i| {
         let value = match stores {
             Stores::Key => i.key.clone(),
@@ -356,14 +380,15 @@ impl Fields {
 
 /// A drop-down over an optional key of the catalogs the dialog read.
 fn catalog_pick(
-    label: &'static str,
+    label: impl Into<SharedString>,
     choices: Reading<Choices>,
     pick: fn(&Choices) -> &Vec<CatalogItem>,
     stores: Stores,
     value: Signal<Option<String>>,
 ) -> impl IntoElement {
+    let label: SharedString = label.into();
     half(
-        label,
+        label.clone(),
         select_value(
             label,
             move || choices_of(pick(&choices.value().unwrap_or_default()), stores),
@@ -377,7 +402,7 @@ fn catalog_pick(
 fn setup_fields(fields: Fields, choices: Reading<Choices>) -> impl IntoElement {
     let store = store();
     let playbooks = computed(move || {
-        let mut all = vec![Choice::new("", "Chưa gắn")];
+        let mut all = vec![Choice::new("", t!("entry_plan.not_linked"))];
         all.extend(
             store
                 .snapshot()
@@ -405,20 +430,26 @@ fn setup_fields(fields: Fields, choices: Reading<Choices>) -> impl IntoElement {
                         move |v| playbook.set(v.parse().ok()),
                     ),
                 ))
-                .child(catalog_pick("Khung vào lệnh", choices, |c| &c.timeframes, Stores::Label, fields.timeframe)),
+                .child(catalog_pick(
+                    t!("entry_plan.timeframe"),
+                    choices,
+                    |c| &c.timeframes,
+                    Stores::Label,
+                    fields.timeframe,
+                )),
         )
         .child(
             view()
                 .flex_row()
                 .flex_wrap()
                 .gap_4()
-                .child(catalog_pick("Hạng setup", choices, |c| &c.grades, Stores::Key, fields.grade))
-                .child(catalog_pick("Cảm xúc trước lệnh", choices, |c| &c.emotions, Stores::Key, fields.emotion)),
+                .child(catalog_pick(t!("entry_plan.grade"), choices, |c| &c.grades, Stores::Key, fields.grade))
+                .child(catalog_pick(t!("entry_plan.emotion"), choices, |c| &c.emotions, Stores::Key, fields.emotion)),
         )
         .child(field(
-            "Checklist trước lệnh",
+            t!("entry_plan.checklist"),
             checklist(
-                "Checklist trước lệnh",
+                t!("entry_plan.checklist"),
                 move || choices.value().unwrap_or_default().checklist.clone(),
                 move || checked.get(),
                 move |id, on| checked.update(|c| *c = if on { ticked(c, id) } else { unticked(c, id) }),
@@ -428,7 +459,7 @@ fn setup_fields(fields: Fields, choices: Reading<Choices>) -> impl IntoElement {
 
 /// The rule warnings of the plan, read again when the planned risk changes or the data does.
 /// A memo, so that a read under way (which still holds the old lines) does not redraw them.
-fn rule_warnings(request: PlanRequest, risk: Signal<Option<f64>>) -> Memo<Vec<String>> {
+fn rule_warnings(request: PlanRequest, risk: Signal<Option<f64>>) -> Memo<Vec<PlanWarning>> {
     let read = query_with(
         move || risk.get(),
         move |db, _, risk| {
@@ -476,13 +507,15 @@ fn panel(request: &PlanRequest) -> impl IntoElement {
         .child(header(request, waiting))
         .child(dynamic(move || {
             let lines = warnings.get();
-            untracked(|| view().gap_2().children(lines.into_iter().map(warning_banner)).into_element())
+            untracked(|| {
+                view().gap_2().children(lines.iter().map(|warning| warning_banner(warning.text()))).into_element()
+            })
         }))
         .child(field(
-            "Lý do vào lệnh (viết ngay, trước khi biết kết quả)",
+            t!("entry_plan.thesis_caption"),
             textarea(
-                "Lý do vào lệnh",
-                "Setup thấy gì, chờ xác nhận gì…",
+                t!("entry_plan.thesis"),
+                t!("entry_plan.thesis_placeholder"),
                 4,
                 move || thesis.get(),
                 move |t| thesis.set(t.to_owned()),
@@ -543,18 +576,18 @@ fn header(request: &PlanRequest, waiting: Memo<usize>) -> impl IntoElement {
             )
             .child(dynamic(move || {
                 let more = waiting.get();
-                (more > 0).then(|| chip(format!("còn {more} lệnh đang chờ ghi kế hoạch"), Tone::Neutral))
+                (more > 0).then(|| chip(t!("entry_plan.waiting", n = more), Tone::Neutral))
             })),
     )
 }
 
 /// A caption over a control.
-fn field(label: &'static str, control: impl IntoElement) -> impl IntoElement {
-    view().gap_2().child(text(label).text_sm().text_color(move || theme().muted_foreground)).child(control)
+fn field(label: impl Into<SharedString>, control: impl IntoElement) -> impl IntoElement {
+    view().gap_2().child(text(label.into()).text_sm().text_color(move || theme().muted_foreground)).child(control)
 }
 
 /// A caption over a control that shares a row with another.
-fn half(label: &'static str, control: impl IntoElement) -> impl IntoElement {
+fn half(label: impl Into<SharedString>, control: impl IntoElement) -> impl IntoElement {
     view().flex_1().min_w(px(200.0)).child(field(label, control))
 }
 
@@ -565,9 +598,9 @@ fn levels(
     take: Signal<Option<f64>>,
     risk: Signal<Option<f64>>,
 ) -> impl IntoElement {
-    let price = |label: &'static str, value: Signal<Option<f64>>| {
+    let price = |label: String, value: Signal<Option<f64>>| {
         field(
-            label,
+            label.clone(),
             number_field(label, None, NumberRange::any().stepping(0.01), move || value.get(), move |n| value.set(n)),
         )
     };
@@ -578,13 +611,13 @@ fn levels(
                 .flex_row()
                 .flex_wrap()
                 .gap_4()
-                .child(price("Giá vào", entry))
-                .child(price("Stop loss", stop))
-                .child(price("Take profit", take))
-                .child(price("Risk", risk)),
+                .child(price(t!("entry_plan.entry"), entry))
+                .child(price("Stop loss".to_owned(), stop))
+                .child(price("Take profit".to_owned(), take))
+                .child(price("Risk".to_owned(), risk)),
         )
         .child(
-            text(move || format!("R:R dự kiến {}", reward_risk_text(entry.get(), stop.get(), take.get())))
+            text(move || t!("entry_plan.planned_rr", rr = reward_risk_text(entry.get(), stop.get(), take.get())))
                 .font_family(tokens::mono)
                 .tabular_nums()
                 .text_xs()
@@ -600,13 +633,13 @@ fn footer(busy: Signal<bool>, save: impl Fn() + 'static) -> impl IntoElement {
         .justify_between()
         .gap_3()
         .child(
-            text("Entry, SL, TP lấy từ lệnh · ảnh chart thêm ở chi tiết lệnh")
+            text(t!("entry_plan.footer_note"))
                 .flex_1()
                 .min_w(px(200.0))
                 .text_xs()
                 .text_color(move || theme().muted_foreground),
         )
-        .child(action_icon(Icon::Check, "Lưu kế hoạch", Variant::Primary, move || {
+        .child(action_icon(Icon::Check, t!("entry_plan.save"), Variant::Primary, move || {
             if !busy.get_untracked() {
                 save();
             }
@@ -668,15 +701,22 @@ mod tests {
         }
     }
 
+    /// Runs `check` where the text is Vietnamese.
+    fn in_vietnamese<R: Send + 'static>(check: impl FnOnce() -> R + Send + 'static) -> R {
+        crate::i18n::with_text(crate::i18n::Lang::Vi, check)
+    }
+
     #[test]
     fn the_planned_trade_is_judged_on_the_day_the_trader_is_on() {
-        let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(1), ..Rules::default() });
-        // The account has no offset and a trade at 09:00 on the 20th, on the trader's own clock.
-        // 17:06 UTC on the 20th is still the 20th for a trader at UTC+0 (the day's second trade) but
-        // 00:06 on the 21st at UTC+7 (the first trade of its day).
-        let now = tradelens_core::time::parse_mt5_time("2026.11.20 17:06:00").expect("a time");
-        assert_eq!(plan_warnings(&db, &request, None, now, 0).expect("reads").len(), 1);
-        assert_eq!(plan_warnings(&db, &request, None, now, 420).expect("reads"), no_warnings());
+        in_vietnamese(|| {
+            let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(1), ..Rules::default() });
+            // The account has no offset and a trade at 09:00 on the 20th, on the trader's own clock.
+            // 17:06 UTC on the 20th is still the 20th for a trader at UTC+0 (the day's second trade) but
+            // 00:06 on the 21st at UTC+7 (the first trade of its day).
+            let now = tradelens_core::time::parse_mt5_time("2026.11.20 17:06:00").expect("a time");
+            assert_eq!(plan_warnings(&db, &request, None, now, 0).expect("reads").len(), 1);
+            assert_eq!(plan_warnings(&db, &request, None, now, 420).expect("reads"), no_warnings());
+        });
     }
 
     /// An account with a balance of 10,000, one closed trade today, and `rules`.
@@ -724,8 +764,13 @@ mod tests {
         db.save_rules(account, rules).expect("rules are saved");
         (db, request_for(account))
     }
-    fn no_warnings() -> Vec<String> {
+    fn no_warnings() -> Vec<PlanWarning> {
         Vec::new()
+    }
+
+    /// What the warnings say.
+    fn lines(warned: &[PlanWarning]) -> Vec<String> {
+        warned.iter().map(PlanWarning::text).collect()
     }
 
     fn at_noon() -> i64 {
@@ -734,37 +779,55 @@ mod tests {
 
     #[test]
     fn a_planned_risk_over_the_accounts_limit_is_warned_about() {
-        let (db, request) = account_with_rules(&Rules { max_risk_pct: Some(1.5), ..Rules::default() });
-        let warned = plan_warnings(&db, &request, Some(300.0), at_noon(), 0).expect("reads");
-        assert_eq!(warned, ["Risk 3.0% vượt quy tắc 1.5% của tài khoản 52012345 · Demo."]);
-        assert!(plan_warnings(&db, &request, Some(100.0), at_noon(), 0).expect("reads").is_empty(), "1% is within it");
-        assert!(
-            plan_warnings(&db, &request, None, at_noon(), 0).expect("reads").is_empty(),
-            "no risk, nothing to judge"
-        );
+        in_vietnamese(|| {
+            let (db, request) = account_with_rules(&Rules { max_risk_pct: Some(1.5), ..Rules::default() });
+            let warned = plan_warnings(&db, &request, Some(300.0), at_noon(), 0).expect("reads");
+            assert_eq!(lines(&warned), ["Risk 3.0% vượt quy tắc 1.5% của tài khoản 52012345 · Demo."]);
+            assert!(
+                plan_warnings(&db, &request, Some(100.0), at_noon(), 0).expect("reads").is_empty(),
+                "1% is within it"
+            );
+            assert!(
+                plan_warnings(&db, &request, None, at_noon(), 0).expect("reads").is_empty(),
+                "no risk, nothing to judge"
+            );
+        });
+        crate::i18n::with_text(crate::i18n::Lang::En, || {
+            let (db, request) = account_with_rules(&Rules { max_risk_pct: Some(1.5), ..Rules::default() });
+            let warned = plan_warnings(&db, &request, Some(300.0), at_noon(), 0).expect("reads");
+            assert_eq!(lines(&warned), ["Risk 3.0% exceeds the 1.5% rule of account 52012345 · Demo."]);
+        });
     }
 
     #[test]
     fn the_trades_of_the_day_count_this_one() {
-        let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(1), ..Rules::default() });
-        let warned = plan_warnings(&db, &request, None, at_noon(), 0).expect("reads");
-        assert_eq!(warned, ["Lệnh thứ 2 trong ngày vượt quy tắc 1 lệnh/ngày của tài khoản 52012345 · Demo."]);
-        let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(2), ..Rules::default() });
-        assert_eq!(plan_warnings(&db, &request, None, at_noon(), 0).expect("reads"), no_warnings());
-        // Another day: the earlier trade is not today's.
-        let tomorrow = at_noon() + 24 * 3_600_000;
-        let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(1), ..Rules::default() });
-        assert_eq!(plan_warnings(&db, &request, None, tomorrow, 0).expect("reads"), no_warnings());
+        in_vietnamese(|| {
+            let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(1), ..Rules::default() });
+            let warned = plan_warnings(&db, &request, None, at_noon(), 0).expect("reads");
+            assert_eq!(
+                lines(&warned),
+                ["Lệnh thứ 2 trong ngày vượt quy tắc 1 lệnh/ngày của tài khoản 52012345 · Demo."]
+            );
+            let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(2), ..Rules::default() });
+            assert_eq!(plan_warnings(&db, &request, None, at_noon(), 0).expect("reads"), no_warnings());
+            // Another day: the earlier trade is not today's.
+            let tomorrow = at_noon() + 24 * 3_600_000;
+            let (db, request) = account_with_rules(&Rules { max_daily_trades: Some(1), ..Rules::default() });
+            assert_eq!(plan_warnings(&db, &request, None, tomorrow, 0).expect("reads"), no_warnings());
+        });
     }
 
     #[test]
     fn a_losing_streak_and_a_blown_day_are_warned_about() {
-        let rules = Rules { max_consecutive_losses: Some(1), max_daily_loss: Some(40.0), ..Rules::default() };
-        let (db, request) = account_with_rules(&rules);
-        let warned = plan_warnings(&db, &request, None, at_noon(), 0).expect("reads");
-        assert_eq!(warned.len(), 2, "{warned:?}");
-        assert!(warned.iter().any(|w| w.starts_with("Lỗ trong ngày 50.00 đã vượt quy tắc 40.00")));
-        assert!(warned.iter().any(|w| w.starts_with("Vào lệnh sau 1 lệnh thua liên tiếp")));
+        in_vietnamese(|| {
+            let rules = Rules { max_consecutive_losses: Some(1), max_daily_loss: Some(40.0), ..Rules::default() };
+            let (db, request) = account_with_rules(&rules);
+            let warned = plan_warnings(&db, &request, None, at_noon(), 0).expect("reads");
+            assert_eq!(warned.len(), 2, "{warned:?}");
+            let said = lines(&warned);
+            assert!(said.iter().any(|w| w.starts_with("Lỗ trong ngày 50.00 đã vượt quy tắc 40.00")));
+            assert!(said.iter().any(|w| w.starts_with("Vào lệnh sau 1 lệnh thua liên tiếp")));
+        });
     }
 
     #[test]

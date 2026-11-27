@@ -1,0 +1,199 @@
+_version: 2
+
+# Chi tiết lệnh (pages/trade_detail.rs).
+
+trade_detail.title:
+  vi: "Chi tiết lệnh"
+  en: "Trade details"
+trade_detail.not_found:
+  vi: "Không tìm thấy lệnh này"
+  en: "This trade was not found"
+trade_detail.back:
+  vi: "‹ Lệnh"
+  en: "‹ Trades"
+trade_detail.gone:
+  vi: "Lệnh không còn trong dữ liệu"
+  en: "The trade is no longer in the data"
+trade_detail.gone_hint:
+  vi: "Quay lại danh sách để chọn lệnh khác."
+  en: "Go back to the list to pick another trade."
+trade_detail.status.unsaved:
+  vi: "Có thay đổi chưa lưu"
+  en: "Unsaved changes"
+trade_detail.status.saved:
+  vi: "Đã lưu"
+  en: "Saved"
+trade_detail.customize_form:
+  vi: "Tuỳ biến form"
+  en: "Customize form"
+trade_detail.previous:
+  vi: "‹ Lệnh trước"
+  en: "‹ Previous trade"
+trade_detail.next:
+  vi: "Lệnh sau ›"
+  en: "Next trade ›"
+trade_detail.edit:
+  vi: "Sửa lệnh"
+  en: "Edit trade"
+trade_detail.delete:
+  vi: "Xoá lệnh"
+  en: "Delete trade"
+trade_detail.delete.title_one:
+  vi: "Xoá lệnh?"
+  en: "Delete this trade?"
+trade_detail.delete.title_many:
+  vi: "Xoá %{n} lệnh?"
+  en: "Delete %{n} trades?"
+trade_detail.delete.said_one:
+  vi: "Xoá lệnh %{symbol} cùng nhật ký và ảnh chart của nó. Không hoàn tác được."
+  en: "Delete the %{symbol} trade with its journal and chart images. This cannot be undone."
+trade_detail.delete.said_many:
+  vi: "Xoá %{n} lệnh cùng nhật ký và ảnh chart của chúng. Không hoàn tác được."
+  en: "Delete %{n} trades with their journals and chart images. This cannot be undone."
+trade_detail.delete.from_mt5:
+  vi: "Lệnh từ MT5: import lại cùng báo cáo sẽ đưa lệnh trở lại."
+  en: "MT5 trade: importing the same report again brings it back."
+trade_detail.manage:
+  vi: "Quản lý lệnh"
+  en: "Manage trade"
+trade_detail.share:
+  vi: "Chia sẻ"
+  en: "Share"
+trade_detail.source_mt5:
+  vi: "%{account} · nguồn: %{origin} · gộp %{n} deal"
+  en: "%{account} · source: %{origin} · %{n} deals merged"
+trade_detail.source:
+  vi: "%{account} · nguồn: %{origin}"
+  en: "%{account} · source: %{origin}"
+trade_detail.mt5_facts_note:
+  vi: "Số liệu của lệnh lấy từ MT5 nên không sửa được; nhật ký và ảnh chart vẫn sửa được."
+  en: "The trade's figures come from MT5 and cannot be edited; the journal and chart images still can."
+trade_detail.state.closed:
+  vi: "Đã đóng"
+  en: "Closed"
+trade_detail.state.open:
+  vi: "Đang mở"
+  en: "Open"
+trade_detail.volume_lots:
+  vi: "%{lots} lot"
+  en: "%{lots} lot"
+trade_detail.fact.opened:
+  vi: "Vào lệnh"
+  en: "Opened"
+trade_detail.fact.closed:
+  vi: "Đóng lệnh"
+  en: "Closed"
+trade_detail.fact.hold:
+  vi: "Thời gian giữ"
+  en: "Hold time"
+trade_detail.fact.volume:
+  vi: "Khối lượng"
+  en: "Volume"
+trade_detail.fact.open_price:
+  vi: "Giá vào"
+  en: "Entry price"
+trade_detail.fact.close_price:
+  vi: "Giá ra TB"
+  en: "Avg exit price"
+trade_detail.fact.risk:
+  vi: "Risk tại SL"
+  en: "Risk at SL"
+trade_detail.fact.ticket:
+  vi: "Ticket position"
+  en: "Position ticket"
+trade_detail.shots:
+  vi: "Ảnh chart"
+  en: "Chart images"
+trade_detail.shots_one:
+  vi: "1 ảnh"
+  en: "1 image"
+trade_detail.shots_many:
+  vi: "%{n} ảnh"
+  en: "%{n} images"
+trade_detail.deals:
+  vi: "Deal của lệnh"
+  en: "Trade deals"
+trade_detail.not_chosen:
+  vi: "Chưa chọn"
+  en: "Not chosen"
+trade_detail.unlinked:
+  vi: "Chưa gắn"
+  en: "Not linked"
+trade_detail.field.setup_grade:
+  vi: "Hạng setup"
+  en: "Setup grade"
+trade_detail.field.execution:
+  vi: "Điểm thực thi"
+  en: "Execution score"
+trade_detail.field.market:
+  vi: "Trạng thái thị trường"
+  en: "Market state"
+trade_detail.field.tag:
+  vi: "Tag"
+  en: "Tag"
+trade_detail.field.tag_placeholder:
+  vi: "+ Thêm tag, rồi Enter"
+  en: "+ Add a tag, then Enter"
+trade_detail.field.mistake:
+  vi: "Lỗi"
+  en: "Mistake"
+trade_detail.field.mistake_placeholder:
+  vi: "+ Thêm lỗi, rồi Enter"
+  en: "+ Add a mistake, then Enter"
+trade_detail.field.emotion_before:
+  vi: "Cảm xúc trước lệnh"
+  en: "Emotion before the trade"
+trade_detail.field.emotion_after:
+  vi: "Cảm xúc sau lệnh"
+  en: "Emotion after the trade"
+trade_detail.field.checklist:
+  vi: "Checklist trước lệnh"
+  en: "Pre-trade checklist"
+trade_detail.field.notes:
+  vi: "Ghi chú"
+  en: "Notes"
+trade_detail.field.notes_placeholder:
+  vi: "Vì sao vào, quản lý lệnh ra sao, rút ra điều gì…"
+  en: "Why you entered, how you managed it, what you learned…"
+trade_detail.field.shots_none:
+  vi: "Chưa có ảnh · thêm ở khối Ảnh chart"
+  en: "No images yet · add them in the Chart images block"
+trade_detail.field.shots_one:
+  vi: "1 ảnh · xem ở khối Ảnh chart"
+  en: "1 image · see the Chart images block"
+trade_detail.field.shots_many:
+  vi: "%{n} ảnh · xem ở khối Ảnh chart"
+  en: "%{n} images · see the Chart images block"
+trade_detail.field.planned_risk:
+  vi: "Risk dự kiến"
+  en: "Planned risk"
+trade_detail.field.review_later:
+  vi: "Xem lại sau"
+  en: "Review later"
+trade_detail.field.setup_placeholder:
+  vi: "Tên setup, ví dụ Breakout phiên Á"
+  en: "Setup name, e.g. Asian session breakout"
+trade_detail.field.exit_reason:
+  vi: "Lý do thoát lệnh"
+  en: "Exit reason"
+trade_detail.exit_hint:
+  vi: "Gợi ý từ deal đóng: %{hint}"
+  en: "Suggested by the closing deal: %{hint}"
+trade_detail.field.followed_plan:
+  vi: "Đúng kế hoạch"
+  en: "Followed the plan"
+trade_detail.followed.unrated:
+  vi: "Chưa đánh giá"
+  en: "Not rated"
+trade_detail.followed.yes:
+  vi: "Có"
+  en: "Yes"
+trade_detail.followed.no:
+  vi: "Không"
+  en: "No"
+trade_detail.expected:
+  vi: "Nên điền: %{fields}"
+  en: "Should be filled in: %{fields}"
+trade_detail.journal:
+  vi: "Nhật ký lệnh"
+  en: "Trade journal"

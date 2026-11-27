@@ -1,4 +1,4 @@
-//! Lệnh: Danh sách lệnh đã gom từ deal MT5, lọc và mở nhật ký từng lệnh.
+//! Lệnh (Trades): the list of trades grouped from MT5 deals, filtered, each opening its journal.
 //! Design: `docs/design/screens/trades.html`.
 
 use std::collections::BTreeSet;
@@ -57,7 +57,7 @@ pub(crate) fn cells_of(row: &TradeRow) -> TradeCells {
         // The list gives its rows a box (`select_cell`); the overview's table has none.
         select: String::new(),
         time: row.closed().map_or_else(
-            || "đang mở".to_owned(),
+            || t!("format.open"),
             |at| if trade.time_known() { format::short_stamp(at) } else { format::short_day(at) },
         ),
         symbol: trade.symbol.clone(),
@@ -107,25 +107,25 @@ const OUTCOMES: &[Outcome] = &[Outcome::All, Outcome::Win, Outcome::Loss];
 const DIRECTIONS: &[Direction] = &[Direction::All, Direction::Buy, Direction::Sell];
 const ANY: &str = "";
 
-fn outcome_label(outcome: Outcome) -> &'static str {
+fn outcome_label(outcome: Outcome) -> String {
     match outcome {
-        Outcome::All => "Tất cả",
-        Outcome::Win => "Thắng",
-        Outcome::Loss => "Thua",
+        Outcome::All => t!("common.all"),
+        Outcome::Win => t!("trades.outcome.win"),
+        Outcome::Loss => t!("trades.outcome.loss"),
     }
 }
 
-fn direction_label(direction: Direction) -> &'static str {
+fn direction_label(direction: Direction) -> String {
     match direction {
-        Direction::All => "Tất cả",
-        Direction::Buy => "Buy",
-        Direction::Sell => "Sell",
+        Direction::All => t!("common.all"),
+        Direction::Buy => "Buy".to_owned(),
+        Direction::Sell => "Sell".to_owned(),
     }
 }
 
-/// A choice list of `values` with "Tất cả" first.
+/// A choice list of `values` with "All" first.
 fn any_or(values: &[String]) -> Vec<Choice> {
-    let mut choices = vec![Choice::new(ANY, "Tất cả")];
+    let mut choices = vec![Choice::new(ANY, t!("common.all"))];
     choices.extend(values.iter().map(|v| Choice::new(v.clone(), v.clone())));
     choices
 }
@@ -182,25 +182,22 @@ fn list() -> impl IntoElement {
         }
     };
     let empty = move || match store.load_state() {
-        Load::Loading => ("Đang tải dữ liệu…".to_owned(), String::new()),
-        Load::Failed(error) => (error, "Thử mở lại ứng dụng; dữ liệu trên đĩa không bị mất.".to_owned()),
+        Load::Loading => (t!("trades.empty.loading"), String::new()),
+        Load::Failed(error) => (error, t!("trades.empty.failed_hint")),
         Load::Ready if filter.get().is_active() && !store.snapshot().rows.is_empty() => {
-            ("Không có lệnh nào khớp bộ lọc".to_owned(), "Bỏ bớt bộ lọc để xem thêm lệnh.".to_owned())
+            (t!("trades.empty.no_match"), t!("trades.empty.no_match_hint"))
         }
-        Load::Ready => (
-            "Chưa có lệnh nào".to_owned(),
-            "Import báo cáo MT5 hoặc file Notion ở Nguồn dữ liệu, hoặc thêm lệnh tay, để thấy lệnh ở đây.".to_owned(),
-        ),
+        Load::Ready => (t!("trades.empty.none"), t!("trades.empty.none_hint")),
     };
 
     // Ctrl+N adds a trade by hand, as the button does.
     on_key_with("mod+n", KeyOptions { pass_through: true, ..KeyOptions::default() }, |_| nav::open_manual_entry());
     page_fill(
-        "Lệnh",
-        "Gom từ các deal theo position; bấm một lệnh để mở nhật ký",
+        t!("trades.title"),
+        t!("trades.summary"),
         view().flex_row().items_center().gap_3().child(account_picker()).child(action_icon(
             Icon::Plus,
-            "Thêm lệnh",
+            t!("trades.add"),
             Variant::Primary,
             nav::open_manual_entry,
         )),
@@ -235,8 +232,9 @@ fn list() -> impl IntoElement {
 
 /// The box cell of a trade: ticked or not (`1` / `0`), and what screen readers call it.
 fn select_cell(row: &TradeRow, ticked: &BTreeSet<TradeKey>) -> String {
-    let when = row.closed().map_or_else(|| "đang mở".to_owned(), format::short_stamp);
-    format!("{}|Chọn lệnh {} {when}", u8::from(ticked.contains(row.key())), row.trade.symbol)
+    let when = row.closed().map_or_else(|| t!("format.open"), format::short_stamp);
+    let name = t!("trades.select_row", symbol = row.trade.symbol, when = when);
+    format!("{}|{name}", u8::from(ticked.contains(row.key())))
 }
 
 fn filters(store: crate::store::Store) -> impl IntoElement {
@@ -247,9 +245,9 @@ fn filters(store: crate::store::Store) -> impl IntoElement {
         .items_center()
         .gap_3()
         .child(view().flex_1().min_w(px(240.0)).child(text_field(
-            "Tìm lệnh",
+            t!("trades.filter.search"),
             Some("⌕"),
-            "Tìm symbol, ticket, ghi chú…",
+            t!("trades.filter.search_placeholder"),
             move || filter.with(|f| f.text.clone()),
             move |text| filter.update(|f| text.clone_into(&mut f.text)),
         )))
@@ -266,14 +264,14 @@ fn filters(store: crate::store::Store) -> impl IntoElement {
             move |value| filter.update(|f| f.setup = Some(value.to_string()).filter(|v| !v.is_empty())),
         ))
         .child(segmented(
-            "Kết quả",
+            t!("trades.filter.outcome"),
             OUTCOMES,
             outcome_label,
             move || filter.with(|f| f.outcome),
             move |outcome| filter.update(|f| f.outcome = outcome),
         ))
         .child(segmented(
-            "Chiều",
+            t!("trades.filter.direction"),
             DIRECTIONS,
             direction_label,
             move || filter.with(|f| f.direction),
@@ -281,7 +279,7 @@ fn filters(store: crate::store::Store) -> impl IntoElement {
         ))
         .child(dynamic(move || {
             filter.with(Filter::is_active).then(|| {
-                action("Xoá lọc", Variant::Ghost, move || {
+                action(t!("trades.filter.clear"), Variant::Ghost, move || {
                     filter.set(Filter::default());
                 })
             })
@@ -290,7 +288,7 @@ fn filters(store: crate::store::Store) -> impl IntoElement {
 
 /// A figure with its caption above it, in the strip over the table.
 fn figure(
-    caption: &'static str,
+    caption: String,
     value: impl Fn() -> String + 'static,
     tone: impl Fn() -> Tone + 'static,
 ) -> impl IntoElement {
@@ -310,16 +308,20 @@ fn summary_strip(summary: Memo<Summary>) -> impl IntoElement {
         .flex_row()
         .flex_wrap()
         .gap_8()
-        .child(figure("Lệnh", move || summary.with(|s| s.trades.to_string()), || Tone::Neutral))
+        .child(figure(t!("trades.figure.trades"), move || summary.with(|s| s.trades.to_string()), || Tone::Neutral))
         .child(
             view()
                 .gap_1()
                 .child(text("Net").text_xs().text_color(move || theme().muted_foreground))
                 .child(pnl_text(move || summary.with(|s| s.net.clone()))),
         )
-        .child(figure("Win rate", move || summary.with(|s| s.win_rate.clone()), || Tone::Neutral))
-        .child(figure("PF", move || summary.with(|s| s.profit_factor.clone()), || Tone::Neutral))
-        .child(figure("Chưa viết nhật ký", move || summary.with(|s| s.unjournaled.to_string()), || Tone::Neutral))
+        .child(figure("Win rate".to_owned(), move || summary.with(|s| s.win_rate.clone()), || Tone::Neutral))
+        .child(figure("PF".to_owned(), move || summary.with(|s| s.profit_factor.clone()), || Tone::Neutral))
+        .child(figure(
+            t!("trades.figure.unjournaled"),
+            move || summary.with(|s| s.unjournaled.to_string()),
+            || Tone::Neutral,
+        ))
 }
 
 /// What is under the list: how many trades show, and the bar of what the trader ticked.
@@ -343,7 +345,7 @@ fn footer(
                     text(move || {
                         let shown = picked.with(Vec::len);
                         let all = store.snapshot().rows.len();
-                        format!("Hiển thị {shown} / {all} lệnh")
+                        t!("trades.showing", shown = shown, all = all)
                     })
                     .text_xs()
                     .text_color(move || theme().muted_foreground),
@@ -356,7 +358,7 @@ fn footer(
         .child(dynamic(move || failure.get().map(|error| text(error).text_xs().text_color(crate::ui::theme::loss))))
 }
 
-/// "Đã chọn N lệnh · Xoá": what the ticked trades can be asked to do. One question covers all of them.
+/// "N trades selected · Delete": what the ticked trades can be asked to do. One question covers all of them.
 fn selection_bar(
     ticked: usize,
     chosen: Memo<Vec<(TradeKey, String, Origin)>>,
@@ -371,7 +373,7 @@ fn selection_bar(
             if trades.iter().any(|(_, _, origin)| *origin == Origin::Mt5) { Origin::Mt5 } else { Origin::Manual };
         let (title, said) = trade_detail::delete_question(trades.len(), &symbol, origin);
         let keys: Vec<TradeKey> = trades.into_iter().map(|(key, _, _)| key).collect();
-        confirm_then(asker, title, said, "Xoá lệnh", move || {
+        confirm_then(asker, title, said, t!("trades.delete_confirm"), move || {
             failure.try_set(None);
             trade_detail::delete_trades(write, keys, move |result| match result {
                 Ok(()) => {
@@ -387,10 +389,10 @@ fn selection_bar(
         .flex_row()
         .items_center()
         .gap_2()
-        .child(text(format!("Đã chọn {ticked} lệnh")).text_sm().font_weight(FontWeight::MEDIUM))
+        .child(text(t!("trades.selected", n = ticked)).text_sm().font_weight(FontWeight::MEDIUM))
         .child(text("·").text_sm().text_color(move || theme().muted_foreground))
-        .child(action("Xoá", Variant::Destructive, remove))
-        .child(action("Bỏ chọn", Variant::Ghost, move || selected.set(BTreeSet::new())))
+        .child(action(t!("common.delete"), Variant::Destructive, remove))
+        .child(action(t!("trades.deselect"), Variant::Ghost, move || selected.set(BTreeSet::new())))
 }
 
 #[cfg(test)]
@@ -452,24 +454,32 @@ mod tests {
 
     #[test]
     fn cells_show_what_a_closed_trade_made() {
-        let snapshot = snapshot();
-        let cells = cells_of(&snapshot.rows[2]);
-        assert_eq!(cells.time, "10/11 10:00");
-        assert_eq!(cells.symbol, "XAUUSD");
-        assert_eq!(cells.side, "Buy");
-        assert_eq!(cells.lot, "0.50");
-        assert_eq!(cells.hold, "1g 0p");
-        assert_eq!(cells.net, "+$100.00");
-        assert_eq!(cells.r, "0.0R", "the fixture closes at the entry price, so the stop-based R is zero");
-        assert_eq!(cells.journal, NOT_JOURNALED);
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let snapshot = snapshot();
+            let cells = cells_of(&snapshot.rows[2]);
+            assert_eq!(cells.time, "10/11 10:00");
+            assert_eq!(cells.symbol, "XAUUSD");
+            assert_eq!(cells.side, "Buy");
+            assert_eq!(cells.lot, "0.50");
+            assert_eq!(cells.hold, "1g 0p");
+            assert_eq!(cells.net, "+$100.00");
+            assert_eq!(cells.r, "0.0R", "the fixture closes at the entry price, so the stop-based R is zero");
+            assert_eq!(cells.journal, NOT_JOURNALED);
+        });
     }
 
     #[test]
     fn an_open_trade_shows_dashes() {
-        let snapshot = snapshot();
-        let cells = cells_of(&snapshot.rows[0]);
-        assert_eq!(cells.time, "đang mở");
-        assert_eq!((cells.net.as_str(), cells.r.as_str(), cells.hold.as_str()), ("—", "—", "—"));
+        crate::i18n::with_text(crate::i18n::Lang::Vi, || {
+            let snapshot = snapshot();
+            let cells = cells_of(&snapshot.rows[0]);
+            assert_eq!(cells.time, "đang mở");
+            assert_eq!((cells.net.as_str(), cells.r.as_str(), cells.hold.as_str()), ("—", "—", "—"));
+        });
+        crate::i18n::with_text(crate::i18n::Lang::En, || {
+            let snapshot = snapshot();
+            assert_eq!(cells_of(&snapshot.rows[0]).time, "open");
+        });
     }
 
     #[test]

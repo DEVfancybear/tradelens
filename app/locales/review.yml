@@ -1,0 +1,207 @@
+_version: 2
+
+# Tổng kết & xem lại (pages/review.rs).
+
+review.title:
+  vi: "Tổng kết & xem lại"
+  en: "Review"
+review.summary:
+  vi: "Nhìn lại tuần/tháng, trả lời câu hỏi tổng kết và dọn hàng chờ xem lại."
+  en: "Look back at the week or month, answer the review questions and clear the review queue."
+review.period:
+  vi: "Kỳ"
+  en: "Period"
+review.period.week:
+  vi: "Tuần"
+  en: "Week"
+review.period.month:
+  vi: "Tháng"
+  en: "Month"
+review.previous:
+  vi: "Kỳ trước"
+  en: "Previous period"
+review.next:
+  vi: "Kỳ sau"
+  en: "Next period"
+review.pick:
+  vi: "Chọn tuần hoặc tháng"
+  en: "Pick a week or month"
+review.share:
+  vi: "Chia sẻ"
+  en: "Share"
+review.no_playbook:
+  vi: "Không playbook"
+  en: "No playbook"
+
+# The month's PDF report.
+review.report.title:
+  vi: "Báo cáo tháng"
+  en: "Month report"
+review.report.about:
+  vi: "PDF A4: tổng quan, đường balance, lịch, playbook, lỗi, lệnh bỏ lỡ và tổng kết của tháng."
+  en: "A4 PDF: overview, balance curve, calendar, playbook, mistakes, missed trades and the month's review."
+review.report.privacy:
+  vi: "Mức hiển thị của PDF"
+  en: "PDF detail level"
+review.report.export:
+  vi: "Xuất PDF tháng"
+  en: "Export month PDF"
+review.report.reading:
+  vi: "Đang đọc dữ liệu của tháng, thử lại sau giây lát."
+  en: "Reading the month's data, try again in a moment."
+
+# The tiles over the page.
+review.tile.in_r:
+  vi: "%{n} lệnh ghi theo R"
+  en: "%{n} kept in R"
+review.tile.mixed:
+  vi: "%{money} lệnh có tiền, %{r_only} lệnh chỉ có R"
+  en: "%{money} with money, %{r_only} in R only"
+review.tile.win:
+  vi: "Thắng"
+  en: "Win"
+review.tile.journaled:
+  vi: "Đã ghi nhật ký"
+  en: "Journaled"
+review.tile.journaled_of:
+  vi: "%{done} / %{all} lệnh"
+  en: "%{done} / %{all} trades"
+review.tile.mistake_cost:
+  vi: "Chi phí lỗi"
+  en: "Cost of mistakes"
+review.tile.with_mistake:
+  vi: "%{n} lệnh có lỗi"
+  en: "%{n} with a mistake"
+review.r_note.none:
+  vi: "chưa có lệnh đo được R"
+  en: "no trade with a measured R yet"
+review.r_note.expectancy:
+  vi: "kỳ vọng %{r} / lệnh"
+  en: "expectancy %{r} / trade"
+
+# The review form.
+review.questions:
+  vi: "Câu hỏi tổng kết"
+  en: "Review questions"
+review.add_question:
+  vi: "Thêm câu hỏi"
+  en: "Add a question"
+review.add_question_placeholder:
+  vi: "+ Thêm câu hỏi cho kỳ này, rồi Enter"
+  en: "+ Add a question for this period, then Enter"
+review.grade_caption:
+  vi: "Điểm kỷ luật của kỳ"
+  en: "Discipline score of the period"
+review.grade:
+  vi: "Điểm kỷ luật"
+  en: "Discipline score"
+review.unsaved:
+  vi: "Chưa lưu — bấm Lưu tổng kết trước khi đổi kỳ"
+  en: "Not saved — press Save review before changing the period"
+review.saved:
+  vi: "Đã lưu"
+  en: "Saved"
+review.save:
+  vi: "Lưu tổng kết"
+  en: "Save review"
+
+# The standout trades.
+review.highlights:
+  vi: "Lệnh nổi bật"
+  en: "Standout trades"
+review.highlights_empty:
+  vi: "Chưa có lệnh nổi bật"
+  en: "No standout trades yet"
+review.highlights_empty_hint:
+  vi: "Kỳ này chưa có lệnh thắng hay thua đã đóng."
+  en: "No closed winning or losing trade in this period yet."
+review.column.trade:
+  vi: "Lệnh"
+  en: "Trade"
+review.highlight.best:
+  vi: "Tốt nhất"
+  en: "Best"
+review.highlight.worst:
+  vi: "Tệ nhất"
+  en: "Worst"
+review.highlight.right_and_lost:
+  vi: "Đúng kế hoạch, vẫn thua"
+  en: "Followed the plan, lost anyway"
+
+# The review queue.
+review.queue.title:
+  vi: "Hàng chờ xem lại · %{total}"
+  en: "Review queue · %{total}"
+review.queue.empty:
+  vi: "Hàng chờ trống: không còn lệnh nào cần xem lại."
+  en: "The queue is empty: no trade is left to review."
+review.queue.and_more:
+  vi: "%{names} và %{more} lệnh nữa"
+  en: "%{names} and %{more} more"
+review.queue.not_journalled:
+  vi: "%{count} lệnh chưa ghi nhật ký"
+  en: "%{count} trades not journaled"
+review.queue.flagged:
+  vi: "%{count} lệnh đánh dấu “Xem lại sau”"
+  en: "%{count} trades marked “Review later”"
+review.queue.lost_more:
+  vi: "%{count} lệnh lỗ quá 1R"
+  en: "%{count} trades lost more than 1R"
+review.queue.journal_now:
+  vi: "Ghi ngay"
+  en: "Journal now"
+review.queue.open:
+  vi: "Mở"
+  en: "Open"
+review.queue.tag_mistake:
+  vi: "Gắn lỗi"
+  en: "Tag mistake"
+
+# The AI summary (not built yet).
+review.ai.title:
+  vi: "Tóm tắt kỳ bằng AI"
+  en: "AI summary of the period"
+review.ai.not_built:
+  vi: "Chưa làm"
+  en: "Not built yet"
+review.ai.about:
+  vi: "Tắt mặc định. Khi có, chỉ gửi R, tag, lỗi và ghi chú — không gửi số tiền — để AI gợi ý điều cần tự kiểm tra."
+  en: "Off by default. When it exists, it sends only R, tags, mistakes and notes — never amounts of money — so the AI can suggest what to check for yourself."
+review.ai.create:
+  vi: "Tạo tóm tắt"
+  en: "Create summary"
+
+# The note templates.
+review.templates:
+  vi: "Mẫu ghi chú"
+  en: "Note templates"
+review.template.week:
+  vi: "Tổng kết tuần"
+  en: "Week review"
+review.template.month:
+  vi: "Tổng kết tháng"
+  en: "Month review"
+review.template.count:
+  vi: "%{n} câu"
+  en: "%{n} questions"
+review.template.count_default:
+  vi: "%{n} câu · mặc định"
+  en: "%{n} questions · default"
+review.template.edit:
+  vi: "Sửa mẫu %{name}"
+  en: "Edit template %{name}"
+review.template.need_one:
+  vi: "Cần ít nhất một câu hỏi."
+  en: "At least one question is needed."
+review.template.questions_of:
+  vi: "Câu hỏi của “%{name}”"
+  en: "Questions of “%{name}”"
+review.template.questions:
+  vi: "Câu hỏi"
+  en: "Questions"
+review.template.default:
+  vi: "Mặc định"
+  en: "Default"
+review.template.save:
+  vi: "Lưu mẫu"
+  en: "Save template"

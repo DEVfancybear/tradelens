@@ -1,0 +1,58 @@
+_version: 2
+
+# Quản lý lệnh: the dialog that moves a position's stop and target or closes it (pages/position.rs).
+
+position.title:
+  vi: "Quản lý lệnh %{ticket}"
+  en: "Manage trade %{ticket}"
+position.levels_set:
+  vi: "Đã đặt SL/TP."
+  en: "SL/TP set."
+position.levels_sep:
+  vi: " và "
+  en: " and "
+position.remove_title:
+  vi: "Bỏ mức dừng của lệnh?"
+  en: "Remove the trade's stop levels?"
+position.remove_said:
+  vi: "Ô để trống sẽ bỏ %{levels} của lệnh %{ticket} trên MT5."
+  en: "The empty box will remove the %{levels} of trade %{ticket} on MT5."
+position.remove_confirm:
+  vi: "Bỏ và lưu"
+  en: "Remove and save"
+position.close_title:
+  vi: "Đóng lệnh trên MT5?"
+  en: "Close the trade on MT5?"
+position.close:
+  vi: "Đóng lệnh"
+  en: "Close trade"
+position.save_levels:
+  vi: "Lưu SL/TP"
+  en: "Save SL/TP"
+position.volume:
+  vi: "Khối lượng đóng"
+  en: "Volume to close"
+position.close_all:
+  vi: "Đóng toàn bộ %{lots} lot %{symbol} theo giá thị trường trên MT5."
+  en: "Close all %{lots} lot of %{symbol} at market price on MT5."
+position.close_part:
+  vi: "Đóng %{lots} trên %{total} lot %{symbol} theo giá thị trường trên MT5."
+  en: "Close %{lots} of %{total} lot of %{symbol} at market price on MT5."
+position.closed:
+  vi: "Đã đóng lệnh."
+  en: "Trade closed."
+position.closed_part:
+  vi: "Đã đóng một phần lệnh."
+  en: "Trade partly closed."
+position.sending:
+  vi: "Đang gửi lệnh tới MT5…"
+  en: "Sending the order to MT5…"
+position.gone:
+  vi: "Lệnh này không còn mở trên tài khoản đang kết nối."
+  en: "This trade is no longer open on the connected account."
+position.reconnecting:
+  vi: "Tài khoản đang kết nối lại: chờ kết nối xong rồi gửi lệnh."
+  en: "The account is reconnecting: wait for it to connect, then send the order."
+position.prices:
+  vi: "Giá vào %{open} · giá hiện tại %{current}"
+  en: "Entry price %{open} · current price %{current}"
