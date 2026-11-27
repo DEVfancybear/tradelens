@@ -17,13 +17,27 @@
 //! - [`symbol`]  instrument codes as MetaTrader writes them
 //! - [`time`]    server time → local time, sessions
 //! - [`db`]      SQLite storage and migrations
+//! - [`i18n`]    the language of the text, and the tables of text in both languages
 //! - [`form`]    forms the trader shapes like Notion: rename, reorder, hide, add, convert, delete
 //! - [`import`]  MT5 reports (HTML, XLSX), Notion exports (CSV) and JSON batches
+
+// The crate's text, from `locales/`; [`tr!`] reads it in the language of the process.
+rust_i18n::i18n!("locales", fallback = "vi");
+
+/// The text of `key` in the crate's `locales/`, in the language of the process
+/// ([`i18n::current`]), with `name = value` in its `%{name}`s: `tr!("db.not_implemented", what = name)`.
+#[macro_export]
+macro_rules! tr {
+    ($key:expr $(, $name:ident = $value:expr)* $(,)?) => {
+        ::rust_i18n::t!($key, locale = $crate::i18n::current().key() $(, $name = $value)*).into_owned()
+    };
+}
 
 pub mod attachments;
 pub mod catalog;
 pub mod db;
 pub mod form;
+pub mod i18n;
 pub mod import;
 pub mod journal;
 pub mod legacy;

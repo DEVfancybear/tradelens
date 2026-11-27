@@ -39,7 +39,7 @@ pub enum DbError {
     Json(#[from] serde_json::Error),
     #[error("{0}")]
     Invalid(String),
-    #[error("chưa làm: {0}")]
+    #[error("{}", crate::tr!("db.not_implemented", what = .0))]
     NotImplemented(&'static str),
 }
 
