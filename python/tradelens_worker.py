@@ -35,8 +35,16 @@ import tradelens_sync as sync  # noqa: E402 - after the path above
 AUTH_FAILED = -6
 # What a refused request reports when the package gives no code.
 GENERIC = -1
-# `TRADE_RETCODE_*` that mean the request went through.
-DONE_CODES = {10008, 10009, 10010}
+# `TRADE_RETCODE_DONE`: the request went through as asked.
+DONE_CODES = {10009}
+# `TRADE_RETCODE_PLACED` (taken, not filled yet) and `TRADE_RETCODE_DONE_PARTIAL` (only part filled):
+# the request went through but did not do all it asked. The app reads these codes as "no clear
+# outcome" (`Mt5Error::Uncertain`), so the trader looks at the position before sending again.
+PLACED, DONE_PARTIAL = 10008, 10010
+UNSETTLED_CODES = {PLACED, DONE_PARTIAL}
+# `TRADE_RETCODE_INVALID_FILL`: the broker refused the filling mode before executing anything, so
+# the same order may be sent again with the next mode the symbol allows.
+INVALID_FILL = 10030
 # Slippage allowed when closing at market, in points.
 DEVIATION = 20
 # `SYMBOL_FILLING_FOK`, `SYMBOL_FILLING_IOC` bits of `symbol_info().filling_mode`.
@@ -425,15 +433,52 @@ def position_json(position: Any) -> dict[str, Any]:
     }
 
 
-def filling(mt5: Any, symbol: str) -> int:
-    """The filling mode the symbol accepts for a market order."""
+def fillings(mt5: Any, symbol: str) -> list[int]:
+    """The filling modes to try for a market order on `symbol`, the preferred first: those the
+    symbol says it accepts, then `RETURN` (what a symbol that lists none takes)."""
     info = mt5.symbol_info(symbol)
     mode = int(getattr(info, "filling_mode", 0) or 0) if info is not None else 0
+    modes = []
     if mode & FILLING_FOK:
-        return int(mt5.ORDER_FILLING_FOK)
+        modes.append(int(mt5.ORDER_FILLING_FOK))
     if mode & FILLING_IOC:
-        return int(mt5.ORDER_FILLING_IOC)
-    return int(mt5.ORDER_FILLING_RETURN)
+        modes.append(int(mt5.ORDER_FILLING_IOC))
+    modes.append(int(mt5.ORDER_FILLING_RETURN))
+    return modes
+
+
+def lots_to_close(mt5: Any, position: Any, volume: float | None) -> float:
+    """The lots a close sends: all of `position` when `volume` is `None`, else `volume`, which must
+    be a whole number of the symbol's lot steps and leave either nothing or at least the symbol's
+    smallest lot open. A volume the broker would refuse is refused here, before any order, and never
+    rounded: the trader confirmed exactly that volume."""
+    held = float(position.volume)
+    if volume is None:
+        return held
+    lots = float(volume)
+    if not 0 < lots <= held + 1e-9:
+        msg = f"khối lượng đóng {lots} không hợp lệ (lệnh đang có {position.volume})"
+        raise Failure(msg)
+    info = mt5.symbol_info(position.symbol)
+    step = float(getattr(info, "volume_step", 0) or 0) if info is not None else 0.0
+    smallest = float(getattr(info, "volume_min", 0) or 0) if info is not None else 0.0
+    if step > 0:
+        steps = lots / step
+        if abs(steps - round(steps)) > 1e-6:  # noqa: PLR2004 - float noise, far below one step
+            msg = f"khối lượng đóng {lots} lot không phải bội số của bước {step} lot của {position.symbol}"
+            raise Failure(msg)
+        lots = round(round(steps) * step, 8)
+    left = round(held - lots, 8)
+    if smallest > 0 and lots < smallest - 1e-9:
+        msg = f"khối lượng đóng {lots} lot nhỏ hơn mức nhỏ nhất {smallest} lot của {position.symbol}"
+        raise Failure(msg)
+    if smallest > 0 and 1e-9 < left < smallest - 1e-9:
+        msg = (
+            f"đóng {lots} lot sẽ còn {left} lot, ít hơn mức nhỏ nhất {smallest} lot của {position.symbol}: "
+            "hãy đóng toàn bộ hoặc đóng ít hơn"
+        )
+        raise Failure(msg)
+    return lots
 
 
 def require_algo_trading(mt5: Any) -> None:
@@ -456,10 +501,33 @@ def sent(mt5: Any, request: dict[str, Any]) -> dict[str, Any]:
         code, text = last_error(mt5)
         msg = f"MT5 không nhận lệnh: ({code}) {text}"
         raise Failure(msg, code)
-    if int(result.retcode) not in DONE_CODES:
+    retcode = int(result.retcode)
+    if retcode in UNSETTLED_CODES:
+        asked = request.get("volume")
+        filled = getattr(result, "volume", None)
+        if retcode == DONE_PARTIAL and asked is not None and filled is not None:
+            msg = f"MT5 chỉ khớp {sync.num(filled)} trên {sync.num(asked)} lot của lệnh"
+        else:
+            msg = f"MT5 đã nhận lệnh nhưng chưa khớp xong ({retcode})"
+        raise Failure(msg, retcode)
+    if retcode not in DONE_CODES:
         msg = f"MT5 từ chối lệnh: {result.retcode} {getattr(result, 'comment', '')}".strip()
-        raise Failure(msg, int(result.retcode))
+        raise Failure(msg, retcode)
     return {"order": int(getattr(result, "order", 0)), "deal": int(getattr(result, "deal", 0))}
+
+
+def sent_with_filling(mt5: Any, request: dict[str, Any], modes: list[int]) -> dict[str, Any]:
+    """Sends a market `request` with the first of `modes`, and again with the next one each time the
+    broker refuses the filling mode (10030, refused before anything is executed)."""
+    last = len(modes) - 1
+    for index, mode in enumerate(modes):
+        try:
+            return sent(mt5, {**request, "type_filling": mode})
+        except Failure as err:
+            if err.code != INVALID_FILL or index == last:
+                raise
+    msg = "không có kiểu khớp lệnh nào để thử"
+    raise Failure(msg)
 
 
 def open_position(mt5: Any, ticket: int) -> Any:
@@ -473,17 +541,14 @@ def open_position(mt5: Any, ticket: int) -> Any:
 def close(mt5: Any, ticket: int, volume: float | None) -> dict[str, Any]:
     """Closes `volume` lots of position `ticket` at market (all of it when `None`)."""
     position = open_position(mt5, ticket)
-    lots = float(position.volume) if volume is None else float(volume)
-    if not 0 < lots <= float(position.volume) + 1e-9:
-        msg = f"khối lượng đóng {lots} không hợp lệ (lệnh đang có {position.volume})"
-        raise Failure(msg)
+    lots = lots_to_close(mt5, position, volume)
     tick = mt5.symbol_info_tick(position.symbol)
     if tick is None:
         code, text = last_error(mt5)
         msg = f"không có giá của {position.symbol}: ({code}) {text}"
         raise Failure(msg, code)
     buy = int(position.type) == sync.DEAL_BUY
-    return sent(
+    return sent_with_filling(
         mt5,
         {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -493,10 +558,10 @@ def close(mt5: Any, ticket: int, volume: float | None) -> dict[str, Any]:
             "type": mt5.ORDER_TYPE_SELL if buy else mt5.ORDER_TYPE_BUY,
             "price": tick.bid if buy else tick.ask,
             "deviation": DEVIATION,
-            "type_filling": filling(mt5, position.symbol),
             "type_time": mt5.ORDER_TIME_GTC,
             "comment": "TradeLens",
         },
+        fillings(mt5, position.symbol),
     )
 
 
