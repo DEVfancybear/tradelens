@@ -36,6 +36,9 @@ const AUTH_FAILED: i64 = -6;
 /// What the package says when the terminal never tells it it is ready (`RES_E_INTERNAL_FAIL_TIMEOUT`):
 /// seen when the terminal does not know the account's server and so never connects.
 const IPC_TIMEOUT: i64 = -10005;
+/// `TRADE_RETCODE_PLACED` and `TRADE_RETCODE_DONE_PARTIAL`, which the worker answers as a failure:
+/// the order went through but did not (yet) do all it asked, so its outcome is not a clear yes or no.
+const UNSETTLED: [i64; 2] = [10_008, 10_010];
 /// How long a login may take: a terminal's first start in a new folder downloads its updates.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(120);
 /// How long a poll, an order or a probe may take.
@@ -365,6 +368,8 @@ fn reply_data(reply: &Value) -> Result<Value, Mt5Error> {
         Mt5Error::LoginRefused(message)
     } else if reply["id"].is_null() {
         Mt5Error::Setup(message)
+    } else if UNSETTLED.contains(&code) {
+        Mt5Error::Uncertain(format!("{message}; hãy xem lại lệnh trên MT5 trước khi gửi lần nữa"))
     } else {
         Mt5Error::Refused { code, message }
     })
@@ -476,6 +481,16 @@ mod tests {
         let early = reply_data(&json!({"id": null, "ok": false, "code": -1, "error": "chưa cài gói MetaTrader5"}));
         assert_eq!(early, Err(Mt5Error::Setup("chưa cài gói MetaTrader5".to_owned())));
         assert_eq!(reply_data(&json!({"id": 3, "ok": true, "data": 7})), Ok(json!(7)));
+    }
+
+    #[test]
+    fn an_order_filled_only_in_part_is_neither_done_nor_refused() {
+        for code in UNSETTLED {
+            let reply =
+                reply_data(&json!({"id": 4, "ok": false, "code": code, "error": "MT5 chỉ khớp 0.05 trên 0.2 lot"}));
+            let Err(Mt5Error::Uncertain(message)) = &reply else { panic!("code {code}: {reply:?}") };
+            assert!(message.starts_with("MT5 chỉ khớp 0.05 trên 0.2 lot"), "{message}");
+        }
     }
 
     #[test]
