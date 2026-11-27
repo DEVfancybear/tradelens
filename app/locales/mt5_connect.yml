@@ -5,8 +5,8 @@ mt5_connect.title:
   vi: "Kết nối MT5"
   en: "MT5 connection"
 mt5_connect.intro:
-  vi: "Đăng nhập tài khoản MT5 ngay tại đây: TradeLens chạy một bản MetaTrader 5 riêng, ẩn cho mỗi tài khoản và tự đưa lệnh vào nhật ký trong vài giây, không cần mở MT5 hay cài EA. Mật khẩu được giữ trong Windows Credential Manager."
-  en: "Sign in to an MT5 account right here: TradeLens runs a separate, hidden copy of MetaTrader 5 for each account and puts trades into the journal within seconds, with no need to open MT5 or install an EA. The password is kept in Windows Credential Manager."
+  vi: "Đăng nhập tài khoản MT5 ngay tại đây: TradeLens chạy một bản MetaTrader 5 riêng, ẩn cho mỗi tài khoản và tự đưa lệnh vào nhật ký trong vài giây, không cần mở MT5 hay cài EA. Mật khẩu chỉ được lưu khi bạn chọn \"Lưu mật khẩu\", trong kho mật khẩu của hệ điều hành."
+  en: "Sign in to an MT5 account right here: TradeLens runs a separate, hidden copy of MetaTrader 5 for each account and puts trades into the journal within seconds, with no need to open MT5 or install an EA. The password is kept only when you tick \"Remember password\", in the operating system's password store."
 mt5_connect.plan_switch:
   vi: "Hỏi kế hoạch khi có lệnh mới"
   en: "Ask for a plan on a new trade"
