@@ -1398,9 +1398,39 @@ fn upsert_account_on(conn: &Connection, info: &AccountInfo) -> Result<i64> {
         return Err(DbError::Invalid("thiếu số tài khoản".into()));
     }
     let key = join_key(&[login, info.server.trim()]);
-    sync::logged(conn, entity::ACCOUNT, Some(&key), || {
+    let id = sync::logged(conn, entity::ACCOUNT, Some(&key), || {
         let id = upsert_account_row(conn, info, login)?;
         Ok((key.clone(), id))
+    })?;
+    adopt_shared_rules(conn, id, &key)?;
+    Ok(id)
+}
+
+/// Gives the account `id` the discipline rules the trader already keeps, when it never had rules
+/// of its own: the rules are the trader's, and an account added later (a new MT5 login, an
+/// import) is judged by them at once. An account whose rules were saved, even all off, keeps them.
+/// The rules come from the first account (by id) with some rule on, as the dashboard picks them.
+fn adopt_shared_rules(conn: &Connection, id: i64, key: &str) -> Result<()> {
+    let has_own: bool =
+        conn.query_row("SELECT EXISTS (SELECT 1 FROM rules WHERE account_id = ?1)", [id], |r| r.get(0))?;
+    if has_own {
+        return Ok(());
+    }
+    let shared: Option<i64> = conn
+        .query_row(
+            "SELECT account_id FROM rules
+             WHERE account_id <> ?1 AND (max_daily_loss IS NOT NULL OR max_daily_trades IS NOT NULL
+                   OR max_risk_pct IS NOT NULL OR max_consecutive_losses IS NOT NULL OR daily_target IS NOT NULL)
+             ORDER BY account_id LIMIT 1",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?;
+    let Some(source) = shared else { return Ok(()) };
+    let rules = rules_on(conn, source)?;
+    sync::logged(conn, entity::RULES, Some(key), || {
+        save_rules_raw(conn, id, &rules)?;
+        Ok((key.to_owned(), ()))
     })
 }
 
