@@ -193,6 +193,61 @@ class WorkerTests(unittest.TestCase):
         self.assertEqual(leash.program, terminal, "initialize finds the running terminal by this exact path")
         self.assertEqual(leash.terminal, os.path.normcase(terminal), "windows are matched case-insensitively")
 
+    def test_a_failed_login_still_ties_the_terminal_to_the_worker(self) -> None:
+        tended: list[str] = []
+
+        class FakeLeash:
+            def __init__(self, terminal: str) -> None:
+                self.terminal = terminal
+
+            def start(self) -> None:
+                pass
+
+            def tend(self) -> int:
+                tended.append(self.terminal)
+                return 0
+
+            def watch(self, seconds: float) -> None:
+                watched.append(seconds)
+
+            @staticmethod
+            def end_watch(helper: None) -> None:
+                ended.append(helper)
+
+        watched: list[float] = []
+        ended: list[None] = []
+
+        original = worker.Leash
+        worker.Leash = FakeLeash  # type: ignore[misc, assignment]
+        try:
+            (refused,) = run(self.mt5, {**CONNECT, "password": "wrong", "hide": True})
+        finally:
+            worker.Leash = original  # type: ignore[misc]
+        self.assertFalse(refused["ok"], refused)
+        self.assertEqual(tended, [os.path.abspath("terminal64.exe")], "tied before the failure is answered")
+        self.assertEqual(len(watched), 1, "the windows are watched while initialize logs in")
+        self.assertEqual(len(ended), 1, "and the watch ends with the login, failed or not")
+
+    @unittest.skipUnless(os.name == "nt", "windows are Windows only")
+    def test_the_window_watch_runs_as_this_script_and_ends_on_time(self) -> None:
+        program = os.path.normcase(os.path.abspath("no-such-terminal64.exe"))
+        start = worker.time.monotonic()
+        self.assertEqual(worker.hide_windows_for(program, 0.3), 0)
+        self.assertGreaterEqual(worker.time.monotonic() - start, 0.25)
+        leash = worker.Leash(os.path.abspath("no-such-terminal64.exe"))
+        helper = leash.watch(5)
+        self.assertIsNotNone(helper)
+        assert helper is not None
+        self.assertIsNone(helper.poll(), "the watch runs until it is ended")
+        worker.Leash.end_watch(helper)
+        self.assertIsNotNone(helper.poll(), "ended")
+
+    @unittest.skipUnless(os.name == "nt", "process snapshots are Windows only")
+    def test_the_processes_of_a_program_are_found_by_its_path(self) -> None:
+        program = os.path.normcase(os.path.abspath(worker.sys.executable))
+        self.assertIn(os.getpid(), worker.processes_of(program))
+        self.assertEqual(worker.processes_of(os.path.normcase(os.path.abspath("no-such-program.exe"))), [])
+
     def test_moving_the_levels_sends_an_sltp_request(self) -> None:
         _, moved = run(self.mt5, CONNECT, {"id": 2, "op": "modify", "ticket": 100, "sl": 2645.0, "tp": 0})
         self.assertTrue(moved["ok"], moved)
