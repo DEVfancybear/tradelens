@@ -403,7 +403,10 @@ pub(crate) fn mistake_cost_bar_pickable(
     share: f64,
     on_press: impl Fn() + 'static,
 ) -> impl IntoElement {
-    mistake_cost_bar(name, trades, net, r, share).cursor_pointer().on_press(on_press)
+    mistake_cost_bar(name, trades, net, r, share)
+        .cursor_pointer()
+        .hover(|s| s.bg(move || theme().accent))
+        .on_press(on_press)
 }
 
 pub(crate) fn mistake_cost_bar(name: &str, trades: usize, net: String, r: String, share: f64) -> View {

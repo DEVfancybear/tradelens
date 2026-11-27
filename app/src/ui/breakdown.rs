@@ -180,6 +180,7 @@ pub(crate) fn breakdown_table(
                         .border_b_1()
                         .border_color(move || theme().border.opacity(0.5))
                         .cursor_pointer()
+                        .hover(|s| s.bg(move || theme().accent))
                         .on_press(move || pick(&name))
                     }))
                     .into_element()
