@@ -512,12 +512,18 @@ fn prepare(
     let folder = folder.ok_or_else(|| "Ứng dụng không có thư mục dữ liệu để chạy MT5.".to_owned())?;
     let script = python::install_scripts(&folder.join("scripts"))
         .map_err(|error| format!("Không ghi được script kết nối MT5: {error}"))?;
-    let copy = install::portable_copy(terminal, &folder.join("terminals"), account)
+    let root = folder.join("terminals");
+    let copy = install::portable_copy(terminal, &root, account)
         .map_err(|error| format!("Không chép được terminal MT5 cho tài khoản này: {error}"))?;
-    Ok(Prepared {
-        open: python::opener(python, script),
-        login: Login { account: account.clone(), password, terminal: copy },
-    })
+    // Each later login (a retry after a failure) first takes a server list the machine may have
+    // learned since: the trader signs in to the server in their own terminal, as the failure asks.
+    let open = python::opener(python, script);
+    let (source, wanted) = (terminal.to_path_buf(), account.clone());
+    let refreshing: Opener = std::sync::Arc::new(move |login: &Login| {
+        install::refresh_server_list(&source, &root, &wanted);
+        open(login)
+    });
+    Ok(Prepared { open: refreshing, login: Login { account: account.clone(), password, terminal: copy } })
 }
 
 /// Stores a poll's deals; bumps the revision when something changed. The account's id, `None`

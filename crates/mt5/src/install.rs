@@ -187,14 +187,24 @@ pub fn copy_folder(root: &Path, account: &AccountRef) -> PathBuf {
 /// cannot be written is only logged: the terminal may still know the server.
 pub fn portable_copy(terminal: &Path, root: &Path, account: &AccountRef) -> io::Result<PathBuf> {
     let copied = copy_once(terminal, root, account)?;
+    refresh_server_list(terminal, root, account);
+    Ok(copied)
+}
+
+/// Gives `account`'s portable copy under `root` a better list of servers when the machine has one
+/// now ([`give_server_list`]): the trader may have signed in to the server in their own terminal
+/// since the copy was made, as a failed login asks them to. Called before every login, from the
+/// link's thread; a list that cannot be written is only logged.
+pub fn refresh_server_list(terminal: &Path, root: &Path, account: &AccountRef) {
     let data_folders =
         std::env::var_os("APPDATA").map(|appdata| PathBuf::from(appdata).join("MetaQuotes").join("Terminal"));
     let candidates = server_lists(terminal, data_folders.as_deref());
     let folder = copy_folder(root, account);
-    if let Err(error) = give_server_list(&folder, &candidates, &account.server) {
-        log::warn!("mt5 {account}: the server list of {} is not updated: {error}", folder.display());
+    match give_server_list(&folder, &candidates, &account.server) {
+        Ok(true) => log::info!("mt5 {account}: the copy takes a server list that knows {}", account.server),
+        Ok(false) => {}
+        Err(error) => log::warn!("mt5 {account}: the server list of {} is not updated: {error}", folder.display()),
     }
-    Ok(copied)
 }
 
 /// A terminal's list of servers, with the server that terminal last logged in to (so the list
